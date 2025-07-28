@@ -47,15 +47,15 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
   }
 
   // 
-  // Incoming
+  // Incoming - FIXED: Chrome 138 compatible Promise syntax
   // 
   if (request.message === 'znn.grantedWalletRead') {
     // console.log("Got message from popup (siteIntegrationLayout.js)", request.data);
     chrome.tabs.sendMessage(siteTabId, {
       message: "znn.grantedWalletRead", 
       data: request.data
-    }, function(response) {
-      // console.log("Response at znn.grantedWalletRead:", response)
+    }).catch((error) => {
+      console.debug("Message delivery failed (tab closed?):", error.message);
     });    
     return true;
   }
@@ -66,8 +66,8 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
       message: "znn.deniedWalletRead", 
       error: request.error,
       data: request.data
-    }, function(response) {
-      // console.log("Response at znn.deniedWalletRead:", response)
+    }).catch((error) => {
+      console.debug("Message delivery failed (tab closed?):", error.message);
     });    
     return true;
   }
@@ -77,8 +77,8 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     chrome.tabs.sendMessage(siteTabId, {
       message: "znn.signedTransaction", 
       data: request.data
-    }, function(response) {
-      // console.log("Response at znn.signedTransaction: ", response)
+    }).catch((error) => {
+      console.debug("Message delivery failed (tab closed?):", error.message);
     });    
     return true;
   }
@@ -88,21 +88,20 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     chrome.tabs.sendMessage(siteTabId, {
       message: "znn.deniedSignTransaction", 
       error: request.error,
-      data: request.data
-    }, function(response) {
-      // console.log("Response at znn.deniedSignTransaction: ", response)
+      data: request.data  
+    }).catch((error) => {
+      console.debug("Message delivery failed (tab closed?):", error.message);
     });    
     return true;
   }
-
 
   if (request.message === 'znn.accountBlockSent') {
     // console.log("Got message from popup (siteIntegrationLayout.js)", siteTabId, request.data);
     chrome.tabs.sendMessage(siteTabId, {
       message: "znn.accountBlockSent", 
       data: request.data
-    }, function(response) {
-      // console.log("Response at znn.accountBlockSent: ", response)
+    }).catch((error) => {
+      console.debug("Message delivery failed (tab closed?):", error.message);
     });    
     return true;
   }
@@ -113,8 +112,8 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
       message: "znn.deniedSendAccountBlock", 
       error: request.error,
       data: request.data
-    }, function(response) {
-      // console.log("Response at znn.deniedSendAccountBlock: ", response)
+    }).catch((error) => {
+      console.debug("Message delivery failed (tab closed?):", error.message);
     });    
     return true;
   }
@@ -124,8 +123,8 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     chrome.tabs.sendMessage(siteTabId, {
       message: "znn.addressChanged", 
       data: request.data
-    }, function(response) {
-      // console.log("Response at znn.addressChanged: ", response)
+    }).catch((error) => {
+      console.debug("Message delivery failed (tab closed?):", error.message);
     });    
     return true;
   }
@@ -135,8 +134,8 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     chrome.tabs.sendMessage(siteTabId, {
       message: "znn.chainIdChanged", 
       data: request.data
-    }, function(response) {
-      // console.log("Response at znn.chainIdChanged: ", response)
+    }).catch((error) => {
+      console.debug("Message delivery failed (tab closed?):", error.message);
     });    
     return true;
   }
@@ -146,8 +145,8 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     chrome.tabs.sendMessage(siteTabId, {
       message: "znn.nodeChanged", 
       data: request.data
-    }, function(response) {
-      // console.log("Response at znn.nodeChanged: ", response)
+    }).catch((error) => {
+      console.debug("Message delivery failed (tab closed?):", error.message);
     });    
     return true;
   }
@@ -191,7 +190,7 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
 });
 
 const resetCredentials = () => {
-  // console.log("Reseting wallet credentials")
+  // console.log("Resetting wallet credentials")
   walletCredentials.name = "";
   walletCredentials.password = "";
   walletCredentials.timestamp = new Date();
