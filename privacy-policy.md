@@ -72,7 +72,7 @@ For questions about this privacy policy:
 
 ## Technical Details
 
-- **Extension ID:** [Will be provided after Chrome Web Store approval]
+- **Extension ID:** epgnegebjlojknnnhjjlcmobdljjenah
 - **Manifest Version:** 3
 - **Permissions Used:** 
   - `storage` - for local wallet data storage
