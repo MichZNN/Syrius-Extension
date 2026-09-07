@@ -70,11 +70,23 @@ jobs:
       - name: Remove signing key from workspace
         run: rm -f key.pem
 
+      # The .crx is a signed, packed binary — not reviewable without unpacking
+      # it. Publish the plain unpacked build/ directory too, so the built
+      # (bundled but not further obscured) source can be inspected directly
+      # without pulling it out of the .crx.
+      - name: Package unpacked build (dist)
+        run: |
+          dist_name="syrius-extension-${{ steps.manifest.outputs.version }}-dist"
+          cp -r build "$dist_name"
+          zip -r "${dist_name}.zip" "$dist_name"
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: syrius-extension-${{ steps.manifest.outputs.version }}
-          path: syrius-extension-${{ steps.manifest.outputs.version }}.crx
+          path: |
+            syrius-extension-${{ steps.manifest.outputs.version }}.crx
+            syrius-extension-${{ steps.manifest.outputs.version }}-dist.zip
 
       - name: Create GitHub release
         if: github.ref_type == 'tag'
@@ -83,5 +95,6 @@ jobs:
         run: |
           gh release create "${{ github.ref_name }}" \
             "syrius-extension-${{ steps.manifest.outputs.version }}.crx" \
+            "syrius-extension-${{ steps.manifest.outputs.version }}-dist.zip" \
             --title "${{ github.ref_name }}" \
             --generate-notes
