@@ -1,18 +1,19 @@
 import { createSlice } from "@reduxjs/toolkit";
-import { Zenon, Constants } from 'znn-ts-sdk';
+import {
+  DEFAULT_MAINNET_CHAIN_ID,
+  DEFAULT_MAINNET_NODE_URL,
+} from '../utils/networkDefaults';
 
 const initialState = {
-  nodeUrl: Zenon.getSingleton().defaultServerUrl,
-  chainIdentifier: Constants.defaultChainId
+  nodeUrl: DEFAULT_MAINNET_NODE_URL,
+  chainIdentifier: DEFAULT_MAINNET_CHAIN_ID
 }
 
 export const connectionParametersSlice = createSlice({
   name: "wallet",
   initialState,
   reducers:{
-    resetConnectionParametersState: (state) =>{
-      state = initialState;
-    },
+    resetConnectionParametersState: () => initialState,
     storeNodeUrl: (state, action) => {
       state.nodeUrl = action.payload;
     },

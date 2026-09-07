@@ -5,48 +5,67 @@ import { toast } from 'react-toastify';
 import { Zenon, Constants } from 'znn-ts-sdk';
 import ChangeChainIdItem from '../../../components/change-chainId-item/change-chainId-item';
 import { SpinnerContext } from '../../../services/hooks/spinner/spinnerContext';
+import { SAFE_NODE_ERROR } from '../../../services/security/safeErrors';
+import { readStoredArray } from '../../../services/utils/utils';
 import { storeChainIdentifier } from '../../../services/redux/connectionParametersSlice';
+import {
+  DEFAULT_CHAIN_IDS,
+  DEFAULT_MAINNET_CHAIN_ID,
+} from '../../../services/utils/networkDefaults';
+import { sendRuntimeMessage } from '../../../services/security/runtimeMessage';
 
 const ChangeChainId = () => {
   const [currentChainId, setCurrentChainId] = useState('');
   const [chainIdToBeAdded, setChainIdToBeAdded] = useState('');
-  const { register, handleSubmit, formState: { errors }, reset, setValue } = useForm();
-  const zenon = Zenon.getSingleton();
+  const { register, handleSubmit, formState: { errors }, setValue } = useForm();
   const { handleSpinner } = useContext(SpinnerContext);
   const connectionParameters = useSelector(state => state.connectionParameters);
   const dispatch = useDispatch();
-  const defaultChainIds = [
-    1,
-    3,
-  ]
-
-  const [chainIdItems, setChainIdItems] = useState(JSON.parse(localStorage.getItem("chainIdList")) || []);
+  const [chainIdItems, setChainIdItems] = useState(() => (
+    readStoredArray("chainIdList")
+      .map((chainId) => Number(chainId))
+      .filter((chainId) => Number.isSafeInteger(chainId) && chainId >= 0)
+  ));
 
   useEffect(() => {
-    const connectedChainId = Zenon.getChainIdentifier();
-    dispatch(storeChainIdentifier(connectedChainId));
-    
-    localStorage.setItem(Constants.DEFAULT_CHAINID_PATH, localStorage.getItem(Constants.DEFAULT_CHAINID_PATH) || connectedChainId);
+    const storedChainId = localStorage.getItem(Constants.DEFAULT_CHAINID_PATH);
+    const parsedStoredChainId = storedChainId === null ? NaN : Number(storedChainId);
+    const connectedChainId = Number.isSafeInteger(parsedStoredChainId) && parsedStoredChainId >= 0
+      ? parsedStoredChainId
+      : DEFAULT_MAINNET_CHAIN_ID;
 
-    if (chainIdItems.length === 0) {
-      if (!defaultChainIds.includes(connectedChainId)) {
-        defaultChainIds.push(connectedChainId);
-      }
-      setChainIdItems(defaultChainIds);
-      localStorage.setItem("chainIdList", JSON.stringify(chainIdItems));
+    if (Zenon.getChainIdentifier() !== connectedChainId) {
+      Zenon.setChainIdentifier(connectedChainId);
     }
-    console.log("defaultChainIds", defaultChainIds);
-    console.log("chainIdItems", chainIdItems);
+
+    dispatch(storeChainIdentifier(connectedChainId));
+
+    localStorage.setItem(Constants.DEFAULT_CHAINID_PATH, String(connectedChainId));
+
+    const storedChainIds = readStoredArray("chainIdList");
+    const normalizedChainIds = storedChainIds
+      .map((chainId) => Number(chainId))
+      .filter((chainId) => Number.isSafeInteger(chainId) && chainId >= 0);
+    const updatedChainIds = [...new Set([
+      ...normalizedChainIds,
+      ...DEFAULT_CHAIN_IDS,
+      connectedChainId,
+    ].filter((chainId) => Number.isSafeInteger(chainId) && chainId >= 0))];
+
+    setChainIdItems(updatedChainIds);
+    localStorage.setItem("chainIdList", JSON.stringify(updatedChainIds));
 
     setCurrentChainId(connectedChainId);
+  // Stored Chain IDs are normalized once when this settings page opens.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const sendChangeChainIdEvent = async (newChainId) => {
-    chrome.runtime.sendMessage({
-      message: "znn.chainIdChanged", 
+  const sendChangeChainIdEvent = (newChainId) => {
+    sendRuntimeMessage({
+      message: "znn.chainIdChanged",
       data: {newChainId: newChainId}
-    });
-  } 
+    }, { fallback: null });
+  }
 
   const onSelectChainId = async (chainId) => {
     const showSpinner = handleSpinner(
@@ -59,12 +78,16 @@ const ChangeChainId = () => {
     try {
       showSpinner(true);
 
-      Zenon.setChainIdentifier(chainId);
-      // await zenon.initialize(chainId, false, 2500)
-      setCurrentChainId(chainId);
-      // localStorage.setItem(Constants.DEFAULT_CHAINID_PATH, chainId);
-      dispatch(storeChainIdentifier(chainId));
-      sendChangeChainIdEvent(chainId);
+      const selectedChainId = Number(chainId);
+      Zenon.setChainIdentifier(selectedChainId);
+      localStorage.setItem(Constants.DEFAULT_CHAINID_PATH, String(selectedChainId));
+      setCurrentChainId(selectedChainId);
+      dispatch(storeChainIdentifier(selectedChainId));
+      sendChangeChainIdEvent(selectedChainId);
+      await sendRuntimeMessage({
+        message: 'internal.publishWalletState',
+        data: { chainId: selectedChainId },
+      }, { fallback: null });
 
       toast("Updated chainId", {
         position: "bottom-center",
@@ -79,20 +102,13 @@ const ChangeChainId = () => {
       });
       showSpinner(false);
     }
-    catch (err) {
-      // Connect back to default chainId
+    catch {
+      // Restore the previously active chain ID after the selection fails.
       try {
-        Zenon.setChainIdentifier(connectionParameters.chainId);
-        setCurrentChainId(connectionParameters.chainId);
+        Zenon.setChainIdentifier(connectionParameters.chainIdentifier);
+        setCurrentChainId(connectionParameters.chainIdentifier);
 
-        let readableError = err;
-        if (err.message) {
-          readableError = err.message;
-        }
-        readableError = (readableError + "").split("Error: ")[(readableError + "").split("Error: ").length - 1];
-  
-        console.error("Error ", readableError);
-        toast(readableError + "", {
+        toast(SAFE_NODE_ERROR, {
           position: "top-center",
           autoClose: 2500,
           hideProgressBar: false,
@@ -103,18 +119,11 @@ const ChangeChainId = () => {
           type: 'error',
           theme: 'dark'
         });
-        showSpinner(false);  
-      }
-      catch (err) {
         showSpinner(false);
-        let readableError = err;
-        if (err.message) {
-          readableError = err.message;
-        }
-        readableError = (readableError + "").split("Error: ")[(readableError + "").split("Error: ").length - 1];
-  
-        console.error("Error ", readableError);
-        toast(readableError + "", {
+      }
+      catch {
+        showSpinner(false);
+        toast(SAFE_NODE_ERROR, {
           position: "top-center",
           autoClose: 2500,
           hideProgressBar: false,
@@ -131,9 +140,16 @@ const ChangeChainId = () => {
   }
 
   const addChainIdItem = (chainId) => {
+    const normalizedChainId = Number(chainId);
+    if (!Number.isSafeInteger(normalizedChainId)
+      || normalizedChainId < 0
+      || isInChainIdList(chainIdItems, normalizedChainId)) {
+      return;
+    }
+
     let updatedChainIds = [];
     setChainIdItems(prevChainIds => {
-      updatedChainIds = [...prevChainIds, chainId];
+      updatedChainIds = [...prevChainIds, normalizedChainId];
       return updatedChainIds;
     })
     setChainIdToBeAdded("");
@@ -152,15 +168,19 @@ const ChangeChainId = () => {
   }
 
   const isInChainIdList = (chainIdList, chainId) => {
-    return chainIdList.some(chainIdInList => chainId === chainIdInList)
+    return chainIdList.some(chainIdInList => Number(chainIdInList) === Number(chainId))
   }
 
   const validateAddChainId = (input) => {
-    if (typeof parseFloat(input) == "number") {
-      if (isInChainIdList(chainIdItems, input)) {
-        return "ChainId already in list"
-      } else return true;
-    } else return "Invalid chainId"
+    const normalizedChainId = Number(input);
+    if (!Number.isSafeInteger(normalizedChainId) || normalizedChainId < 0) {
+      return "Invalid chainId";
+    }
+    if (isInChainIdList(chainIdItems, normalizedChainId)) {
+      return "ChainId already in list"
+    }
+
+    return true;
   }
 
   return (
@@ -183,9 +203,9 @@ const ChangeChainId = () => {
                   validate: (input) => validateAddChainId(input)
                 })}
                 className={`w-100 custom-label pr-3 ${errors.chainIdToBeAddedField ? 'custom-label-error' : ''}`}
-                placeholder="Add a chainId (Ex. ws://192.168.0.0:35998)"
-                value={chainIdToBeAdded} 
-                onChange={(e) => { setChainIdToBeAdded(e.target.value); setValue('chainIdToBeAddedField', e.target.value, { shouldValidate: true }) }} 
+                placeholder="Add a chainId (Ex. 3)"
+                value={chainIdToBeAdded}
+                onChange={(e) => { setChainIdToBeAdded(e.target.value); setValue('chainIdToBeAddedField', e.target.value, { shouldValidate: true }) }}
                 type='text'></input>
 
             </div>

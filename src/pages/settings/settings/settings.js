@@ -1,15 +1,9 @@
-import React,  { useEffect } from 'react';
+import React from 'react';
 import SettingsItem from '../../../components/settings-item/settings-item';
 
 const Settings = () => {
   const settingsItems = [
-    // ToDo: Add change password functionality (TS SDK + Extension)
-    // {
-    //   icon: "change-password",
-    //   title: "Change password",
-    //   description: "You can change your wallet password here",
-    //   url: "change-password",
-    // },
+    // Password changes require SDK support for re-encrypting the stored keystore.
     {
       icon: "view-mnemonic",
       title: "View backup phrase",
@@ -19,7 +13,7 @@ const Settings = () => {
     {
       icon: "change-network",
       title: "Node management",
-      description: "You can change your current node url here",
+      description: "You can change your current node and Chain ID here",
       url: "change-node",
     },
     {
@@ -27,16 +21,26 @@ const Settings = () => {
       title: "ChainId management",
       description: "You can change your current chainId here",
       url: "change-chainId",
-    }
+    },
+    {
+      icon: "lock",
+      title: "Auto-lock",
+      description: "Lock the active session after a period of inactivity",
+      url: "auto-lock",
+    },
+    {
+      icon: "settings",
+      title: "Connected sites",
+      description: "Review and revoke bridge website permissions",
+      url: "connected-sites",
+    },
 
   ]
-  useEffect(() => {
-  }, []);
 
   return (
     <div className='black-bg'>
       <h1 className='mt-1'>Settings</h1>
-      
+
       <div className='mt-2 ml-2 mr-2'>
         {
           settingsItems.map((item, index)=>{

@@ -3,31 +3,40 @@ import MenuHeader from '../../menu/menu-header/menu-header';
 import * as THREE from 'three';
 import { useNavigate } from 'react-router-dom';
 import {
-  KeyStoreManager,
-  Zenon
+  Zenon,
+  Constants
 } from 'znn-ts-sdk';
 import { useDispatch, useSelector } from 'react-redux';
-import { loadAddressInfoForWalletFromStorage, resetWalletState, storeWalletName, storeWalletPassword } from '../../../services/redux/walletSlice';
+import { loadAddressInfoForWalletFromStorage, resetWalletState, storeWalletName } from '../../../services/redux/walletSlice';
 import { useForm } from "react-hook-form";
 import ControlledDropdown from '../../../components/custom-dropdown/controlled-dropdown';
 import { toast } from 'react-toastify';
 import { storeNodeUrl } from '../../../services/redux/connectionParametersSlice';
-import { loadStorageWalletNames } from '../../../services/utils/utils';
+import { loadStorageWalletNames, readStoredRecord } from '../../../services/utils/utils';
 import { storeChainIdentifier } from '../../../services/redux/connectionParametersSlice';
 import { loadStorageAddressInfo } from './../../../services/utils/utils';
+import {
+  DEFAULT_MAINNET_CHAIN_ID,
+  NODE_CHAIN_ID_STORAGE_KEY,
+  getNodeChainId,
+  resolveNodeUrl,
+} from '../../../services/utils/networkDefaults';
+import { SAFE_UNLOCK_ERROR } from '../../../services/security/safeErrors';
+import walletVault from '../../../services/security/walletVault';
+import { sendRuntimeMessage } from '../../../services/security/runtimeMessage';
 
-const DashboardPassword = () => { 
+const DashboardPassword = () => {
   const [walletPassword, setWalletPassword] = useState("");
   const navigate = useNavigate();
 
   const [walletNames, setWalletNames] = useState([]);
   const [unlockStatusLabel, setUnlockStatusLabel] = useState("Unlock");
-  const [selectedWallet, setSelectedWallet] = useState(walletNames[0] || ""); 
+  const [selectedWallet, setSelectedWallet] = useState(walletNames[0] || "");
   const connectionParameters = useSelector(state => state.connectionParameters);
   const final3Dobject = useRef({});
   const integrationFlowState = useSelector(state => state.integrationFlow);
   const dispatch = useDispatch();
-  const { register, control, handleSubmit, formState: { errors }, setValue } = useForm();
+  const { register, control, handleSubmit, formState: { errors }, reset, setValue } = useForm();
 
   const onFormSubmit = (data) => {
     unlockWallet(walletPassword, selectedWallet);
@@ -35,6 +44,7 @@ const DashboardPassword = () => {
 
 useEffect(() => {
   dispatch(resetWalletState());
+  walletVault.clear();
 
   if(!localStorage.getItem("currentNodeUrl")){
     navigate("/initial-node-selection");
@@ -49,9 +59,9 @@ useEffect(() => {
       try{
         const credentials = await getCredentialsFromBackgroundScript();
         setSelectedWallet(credentials.name);
-        unlockWallet(credentials.password, credentials.name)
+        unlockWallet(null, credentials.name, credentials.entropy)
       }
-      catch(err){
+      catch{
         if(loadedWallets.length === 1){
           setSelectedWallet(loadedWallets[0] || "");
         }
@@ -59,38 +69,40 @@ useEffect(() => {
     }
   }
   fetchData();
-  
+
   setTimeout(() => {
     if(document.getElementById('moving-scene')){
       renderMovingBall()
-    }  
+    }
   }, 10);
+// The unlock page initializes its restore flow once per popup instance.
+// eslint-disable-next-line react-hooks/exhaustive-deps
 }, []);
 
 const getCredentialsFromBackgroundScript = () => {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({
-      message: "internal.getCredentialsFromBackgroundScript", 
-    },(credentials)=>{
-      if(credentials !== false){
-        resolve(credentials);
-      }else{
-        reject(false);
-      }
-    });
-  })
-
-}
-
-const storeCredentialsToBackgroundScript = (pass, name) => {
-  chrome.runtime.sendMessage({
-    message: "internal.storeCredentialsToBackgroundScript", 
-    data: {
-      name: name,
-      password: pass,
+  return sendRuntimeMessage({
+    message: "internal.getCredentialsFromBackgroundScript",
+  }, { fallback: null }).then((credentials) => {
+    if (credentials
+      && typeof credentials.name === 'string'
+      && credentials.entropy) {
+      return credentials;
     }
+
+    throw new Error(SAFE_UNLOCK_ERROR);
   });
+
 }
+
+const storeCredentialsToBackgroundScript = (entropy, name) => (
+  sendRuntimeMessage({
+      message: "internal.storeCredentialsToBackgroundScript",
+      data: {
+        name: name,
+        entropy,
+      }
+    }, { fallback: null })
+);
 
 const onSelectWallet = (index, value) => {
   setSelectedWallet(value);
@@ -102,68 +114,100 @@ const getAddressFromDecrypted = async(decrypted, addressIndex) => {
   return addr;
 }
 
-const sendChangeAddressEvent = async (newAddress) => {
-  chrome.runtime.sendMessage({
-    message: "znn.addressChanged", 
+const sendChangeAddressEvent = (newAddress) => {
+  sendRuntimeMessage({
+    message: "znn.addressChanged",
     data: {newAddress: newAddress}
-  });
-} 
+  }, { fallback: null });
+}
 
-const unlockWallet = async (pass, name)=>{
-  const _keyManager = new KeyStoreManager();
+const unlockWallet = async (pass, name, entropy = null)=>{
   setUnlockStatusLabel("Unlocking in progress ...");
 
   try{
-    const decrypted = await _keyManager.readKeyStore(pass, name);
+    const decrypted = entropy
+      ? walletVault.unlockWithEntropy(name, entropy)
+      : await walletVault.unlockWithPassword(name, pass);
 
     if(decrypted){
-      dispatch(storeWalletName(name));
-      dispatch(storeWalletPassword(pass));
-      
+
       const zenon = Zenon.getSingleton();
 
-      const currentNodeUrl = localStorage.getItem("currentNodeUrl") || connectionParameters.nodeUrl;
+      const currentNodeUrl = resolveNodeUrl(localStorage.getItem("currentNodeUrl") || connectionParameters.nodeUrl);
       localStorage.setItem("currentNodeUrl", currentNodeUrl);
 
-      await zenon.initialize(currentNodeUrl);
+      const storedNodeChainIds = readStoredRecord(NODE_CHAIN_ID_STORAGE_KEY);
+      const storedChainId = localStorage.getItem(Constants.DEFAULT_CHAINID_PATH);
+      const parsedChainId = storedChainId === null ? NaN : Number(storedChainId);
+      const chainIdentifier = Number.isSafeInteger(parsedChainId) && parsedChainId >= 0
+        ? parsedChainId
+        : getNodeChainId(currentNodeUrl, storedNodeChainIds) ?? DEFAULT_MAINNET_CHAIN_ID;
+      Zenon.setChainIdentifier(chainIdentifier);
+      localStorage.setItem(Constants.DEFAULT_CHAINID_PATH, String(chainIdentifier));
+
+      try {
+        await zenon.initialize(currentNodeUrl, false, 8000);
+      } catch {
+        // A node outage must not destroy a valid local unlock. The user can
+        // open node settings and choose another endpoint while still unlocked.
+        zenon.clearSocketConnection();
+      }
       dispatch(storeNodeUrl(currentNodeUrl));
       dispatch(storeChainIdentifier(Zenon.getChainIdentifier()));
       dispatch(loadAddressInfoForWalletFromStorage(name));
+      const addressInfo = loadStorageAddressInfo(name);
+      walletVault.setSelectedAddressIndex(addressInfo.selectedAddressIndex);
 
+      const storedCredentials = await storeCredentialsToBackgroundScript(
+        walletVault.getEntropy(),
+        name,
+      );
+      if (storedCredentials?.ok !== true) {
+        throw new Error(SAFE_UNLOCK_ERROR);
+      }
+
+      dispatch(storeWalletName(name));
+      setWalletPassword("");
+      reset();
       setUnlockStatusLabel("Unlocked !");
-      storeCredentialsToBackgroundScript(pass, name);
-    
+
+      const address = await getAddressFromDecrypted(decrypted, addressInfo.selectedAddressIndex);
+      await sendRuntimeMessage({
+        message: 'internal.publishWalletState',
+        data: {
+          address,
+          chainId: chainIdentifier,
+          nodeUrl: currentNodeUrl,
+        },
+      }, { fallback: null });
+
       if(integrationFlowState.currentIntegrationFlow !== ""){
         navigate("/site-integration");
       }
       else{
-        const addressInfo = loadStorageAddressInfo(name);
-        console.log("addressInfo", addressInfo);
-  
-        sendChangeAddressEvent(await getAddressFromDecrypted(decrypted, addressInfo.selectedAddressIndex));
-  
+        sendChangeAddressEvent(address);
+
         navigate("/tabs");
       }
-  
+
     }
     else{
+      setWalletPassword("");
+      reset();
       setUnlockStatusLabel("Wrong password");
       setTimeout(()=>{
         setUnlockStatusLabel("Unlock");
       },2500);
 
-      console.error("Error decrypting");
     }
   }
-  catch(err){
-    let readableError = err;
-    if(err.message) {
-      readableError = err.message;
-    }
-    readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
-
-    console.error("Error ", readableError);
-    toast(readableError + "",{
+  catch{
+    Zenon.getSingleton().clearSocketConnection();
+    walletVault.clear();
+    dispatch(resetWalletState());
+    setWalletPassword("");
+    reset();
+    toast(SAFE_UNLOCK_ERROR,{
       position: "bottom-center",
       autoClose: 2500,
       hideProgressBar: false,
@@ -216,10 +260,8 @@ const renderMovingBall = function(){
   renderer.setAnimationLoop( animation );
 
   document.getElementById('moving-scene').appendChild( renderer.domElement );
-  
+
   function animation( time ) {
-    // mesh.rotation.x = time / 2000;
-    // mesh.rotation.y = time / 1000;
     renderer.render( scene, camera );
   }
 
@@ -230,7 +272,7 @@ const renderMovingBall = function(){
         1.2 );
 
       final3Dobject.current.lookAt(mouse3D);
-  })  
+  })
 }
 
   return (
@@ -244,32 +286,32 @@ const renderMovingBall = function(){
           <form onSubmit={handleSubmit(onFormSubmit)}>
             <h2 className='mt-2'>Enter your password</h2>
             <div className='mt-5'>
-              <div className='custom-control'>  
+              <div className='custom-control'>
                 <ControlledDropdown dropdownComponent = 'CustomDropdown'
-                  {...register("selectedWalletField", { required: true })} control={control} 
-                  name="selectedWalletField" 
-                  options={walletNames} 
-                  onChange={onSelectWallet} 
-                  value={selectedWallet} 
+                  {...register("selectedWalletField", { required: true })} control={control}
+                  name="selectedWalletField"
+                  options={walletNames}
+                  onChange={onSelectWallet}
+                  value={selectedWallet}
                   placeholder="Select wallet"
                   className={`${errors.selectedWalletField?'custom-label-error':''}`} />
 
                 <div className={`input-error ${errors.selectedWalletField?.type === 'required'?'':'invisible'}`}>
                   Wallet is required
-                </div> 
-              </div>  
+                </div>
+              </div>
 
-              <div className='custom-control'> 
-                <input name="passwordField" {...register("passwordField", { required: true })} 
-                  className={`w-100 custom-label ${errors.passwordField?'custom-label-error':''}`} 
-                  placeholder="Type your password"  value={walletPassword} onChange={(e) => {setWalletPassword(e.target.value); setValue('passwordField', e.target.value, {shouldValidate: true})}} type='password'></input>
-                
+              <div className='custom-control'>
+                <input name="passwordField" {...register("passwordField", { required: true })}
+                  className={`w-100 custom-label ${errors.passwordField?'custom-label-error':''}`}
+                  placeholder="Type your password" autoComplete="off" value={walletPassword} onChange={(e) => {setWalletPassword(e.target.value); setValue('passwordField', e.target.value, {shouldValidate: true})}} type='password'></input>
+
                 <div className={`input-error ${errors.passwordField?.type === 'required'?'':'invisible'}`}>
                   Password is required
-                </div> 
+                </div>
               </div>
             </div>
-            
+
 
             <input value={unlockStatusLabel} type="submit" name="submitButton" className='button primary w-100 text-white'></input>
           </form>

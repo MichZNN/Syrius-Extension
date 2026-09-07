@@ -1,8 +1,12 @@
 {
   "name": "syrius-extension",
-  "version": "0.1.10",
-  "description": "Syrius extension provides a non-custodial wallet solution for Zenon - Network of Momentum that can run in the browser.",
+  "version": "0.2.0",
+  "description": "A non-custodial Zenon wallet extension for Chromium browsers and compatible bridge applications.",
   "license": "MIT",
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=10.0.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/DexterLabZ/syrius-extension"
@@ -10,8 +14,9 @@
   "scripts": {
     "build": "node utils/build.js",
     "start": "cross-env PORT=3001 node utils/webserver.js",
+    "test": "node utils/contract-calls-test.js",
     "prettier": "prettier --write '**/*.{js,jsx,ts,tsx,json,css,scss,md}'",
-    "lint": "eslint src/**/*.js src/**/*.jsx"
+    "lint": "eslint \"src/**/*.js\" \"src/**/*.jsx\""
   },
   "dependencies": {
     "@hot-loader/react-dom": "^17.0.2",
@@ -23,6 +28,7 @@
     "cross-env": "^7.0.3",
     "crypto-browserify": "^3.12.0",
     "ethers": "^5.7.2",
+    "js-sha3": "^0.13.0",
     "framer-motion": "^4.1.17",
     "node-polyfill-webpack-plugin": "^1.1.4",
     "path": "^0.12.7",
@@ -43,7 +49,7 @@
     "stream-browserify": "^3.0.0",
     "three": "^0.139.2",
     "url-loader": "^4.1.1",
-    "znn-ts-sdk": "github:DexterLabZ/znn.ts"
+    "znn-ts-sdk": "github:DexterLabZ/znn.ts#63c4cad42fd08604f9a2e74f68418dccc1cb4f86"
   },
   "devDependencies": {
     "@babel/core": "^7.17.0",
@@ -94,7 +100,7 @@
   },
   "browserslist": {
     "production": [
-      "chrome >= 88"
+      "chrome >= 102"
     ]
   },
   "overrides": {

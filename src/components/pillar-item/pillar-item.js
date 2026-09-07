@@ -3,9 +3,9 @@ import Lottie from 'react-lottie-player';
 import * as splashAnimation from './../../assets/lottie/ic_anim_pillar.json'
 
 const PillarItem = ({ delegatePillar, undelegatePillar, isDelegatedPillar, name, giveDelegateRewardPercentage, giveMomentumRewardPercentage, weight, producedMomentums, expectedMomentums, producerAddress, uptime}) => {
-  const [animationSettings, setAnimationSettings] = useState({
+  const [animationSettings] = useState({
     loop: false,
-    autoPlay: true, 
+    autoPlay: true,
     animationData: splashAnimation,
     rendererSettings: {
       preserveAspectRatio: 'xMidYMid slice'
@@ -37,12 +37,12 @@ const PillarItem = ({ delegatePillar, undelegatePillar, isDelegatedPillar, name,
           <b className="text-gray">Delegation reward: </b>{giveDelegateRewardPercentage + "%"}
         </div>
         <div className='text-xs mt-1 align-items-start text-left'>
-          <b className="text-gray">Uptime: </b>{uptime + "%"}
+          <b className="text-gray">Uptime: </b>{uptime === null || uptime === undefined ? 'Unavailable' : `${uptime}%`}
         </div>
       </div>
 
       <div className="pillar-right-side ml-2" style={{width: "70%"}}>
-        
+
         <div className='pillar-graphic'>
           <img alt="" className={`animated pillar-image ${isAnimationStopped?'':'invisible'}`} src={require(`./../../assets/pillar-stop-frame.svg`)} height='100%'></img>
           <div className={`animated ${isAnimationStopped?'disappear-out':''}`}>

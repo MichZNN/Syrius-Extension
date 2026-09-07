@@ -27,6 +27,8 @@ const AlertModal = ({children, title, type, onDismiss, onSuccess}) => {
       case "error":{
         return "warning";
       }
+      default:
+        return "warning";
     }
   }
 
@@ -66,6 +68,8 @@ const AlertModal = ({children, title, type, onDismiss, onSuccess}) => {
       case "error":{
         break;
       }
+      default:
+        return null;
     }
   }
 

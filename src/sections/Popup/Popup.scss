@@ -11,10 +11,6 @@ body::-webkit-scrollbar {
   width: 0em;
 }
 
-/*  */
-/* Global Zenon stylesheet */
-/*  */
-
 .mt-0 {
   margin-top: 0em !important;
 }
@@ -360,11 +356,11 @@ h1 {
   max-width: 360px;
   max-height: 600px;
   overflow-y: scroll;
-  
+
   &::-webkit-scrollbar {
     width: 0em;
   }
-  
+
 }
 
 .onboarding-layout {
@@ -447,7 +443,7 @@ img.button{
 }
 
 .blue{
-  background: linear-gradient(105deg,#446AEF 38.92%,#002BC2 98.42%) 
+  background: linear-gradient(105deg,#446AEF 38.92%,#002BC2 98.42%)
 }
 
 .blue:hover {
@@ -559,8 +555,8 @@ img.button{
     top: 0;
     transform: translate(-100%, -85%);
     border-radius: 6px;
-    width: 0; 
-    height: 0; 
+    width: 0;
+    height: 0;
     border-left: 12px solid transparent;
     border-right: 12px solid transparent;
     border-bottom: 12px solid #26BA3F;
@@ -589,7 +585,6 @@ img.button{
 }
 
 .secret-phrase-text {
-  /* font-style: italic; */
   font-size: 0.8em;
 
   line-height: 150%;
@@ -680,7 +675,7 @@ img.button{
 
 .custom-label {
   box-sizing: border-box;
-  background: #1F1F1F; 
+  background: #1F1F1F;
   border: 2px solid #1F1F1F;
   color: white;
   border-radius: 6px;
@@ -692,7 +687,7 @@ img.button{
   outline: 0 !important;
 
   &:-webkit-autofill,
-  &:-webkit-autofill:hover, 
+  &:-webkit-autofill:hover,
   &:-webkit-autofill:focus {
     -webkit-text-fill-color: white;
     -webkit-box-shadow: 0 0 0px 1000px #1F1F1F inset;
@@ -702,7 +697,7 @@ img.button{
 
 .custom-label-error{
   border: 2px solid rgba(255, 94, 0, 0.7) !important;
-  color: #FF5C00 !important;   
+  color: #FF5C00 !important;
 }
 
 .custom-label:hover {
@@ -728,14 +723,14 @@ img.button{
   position: relative;
 
   >:first-child {
-    margin-bottom: 1.6em; 
+    margin-bottom: 1.6em;
   }
 
   .input-error{
     position: absolute;
     top: 5em;
 
-    
+
     &.long-error-message{
       position: relative;
       top: 0px;
@@ -765,12 +760,6 @@ img.button{
   position: relative;
   text-align: left;
 }
-
-
-/* .Dropdown-control:hover {
-  box-shadow: 0px 0px 12px 6px rgba(0, 0, 0, 0.2);
-} */
-
 .Dropdown-control:focus,
 .Dropdown-control:active,
 .Dropdown-control:focus-visible {
@@ -809,7 +798,7 @@ img.button{
   width: 100%;
   max-height: 240px;
   overflow-y: scroll;
-  overflow-x: hidden;  
+  overflow-x: hidden;
 }
 .Dropdown-menu::-webkit-scrollbar {
   display: none;
@@ -976,7 +965,7 @@ img.button{
 
 .wallet-circle {
   width: 166px;
-  height: 166px;  
+  height: 166px;
   min-width: 166px;
   min-height: 166px;
   border-radius: 100%;
@@ -1292,11 +1281,11 @@ img.button{
   .burger-popover-backdrop{
     display: block;
   }
-  
+
   .burger-popover-container{
     opacity: 1;
     transform: translateY(1em);
-    pointer-events: all;  
+    pointer-events: all;
   }
 }
 
@@ -1320,7 +1309,7 @@ img.button{
     -webkit-animation: fadeIn 0.8s forwards;
     -moz-animation: fadeIn 0.8s forwards;
     -o-animation: fadeIn 0.8s forwards;
-    -ms-animation: fadeIn 0.8s forwards;  
+    -ms-animation: fadeIn 0.8s forwards;
   }
   &.disappear-out{
     opacity: 1;
@@ -1332,7 +1321,7 @@ img.button{
     -webkit-animation: disappearOut 0.8s forwards;
     -moz-animation: disappearOut 0.8s forwards;
     -o-animation: disappearOut 0.8s forwards;
-    -ms-animation: disappearOut 0.8s forwards;  
+    -ms-animation: disappearOut 0.8s forwards;
   }
 
 }
@@ -1500,7 +1489,6 @@ img.button{
   top: 0;
   left: 0;
   user-select: none;
-  // background-image: radial-gradient(at 50% 0px, rgb(0 0 0) 30%, rgb(0 0 0 / 0%) 70%);
   background-image: radial-gradient(at 50% 0px, rgb(59 218 87 / 20%) 20%, rgba(0, 0, 0, 0) 70%);
   z-index: -1;
   animation: pulse-opacity 2.5s infinite ease-in-out;
@@ -1796,4 +1784,220 @@ img.button{
   top: 50% !important;
   left: 50% !important;
   transform: translate(-50%, -50%) !important;
+}
+
+/* Modern surface, focus, and motion defaults. */
+:root {
+  color-scheme: dark;
+  --surface-page: #0f1415;
+  --surface-raised: #171d1e;
+  --surface-card: #1d2526;
+  --surface-control: #202a2b;
+  --surface-control-hover: #293536;
+  --border-subtle: rgba(255, 255, 255, 0.09);
+  --text-primary: #f4f7f5;
+  --text-secondary: #a8b4ae;
+  --text-muted: #82918a;
+  --accent-green: #62df49;
+  --accent-green-dark: #2fae28;
+  --accent-blue: #5578f1;
+  --focus-ring: rgba(98, 223, 73, 0.7);
+}
+
+html,
+body {
+  background: var(--surface-page);
+  color: var(--text-primary);
+}
+
+.popup {
+  background: var(--surface-page);
+}
+
+.main-layout {
+  background: var(--surface-page);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  box-sizing: border-box;
+  color: var(--text-primary);
+}
+
+.black-bg {
+  background: var(--surface-page);
+  color: var(--text-primary);
+}
+
+.button,
+.thin-button,
+.squared-button {
+  min-height: 44px;
+  border: 1px solid transparent;
+  transition: transform 160ms ease, box-shadow 160ms ease,
+    background-color 160ms ease, border-color 160ms ease;
+}
+
+.button:hover,
+.thin-button:hover,
+.squared-button:hover {
+  transform: translateY(-1px);
+}
+
+.button:focus-visible,
+.thin-button:focus-visible,
+.squared-button:focus-visible,
+.custom-label:focus-visible,
+.Dropdown-control:focus-visible,
+.dropdown:focus-visible,
+.tab-item:focus-visible,
+.menu-button-container:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.primary,
+.green {
+  background: linear-gradient(135deg, var(--accent-green), var(--accent-green-dark));
+}
+
+.secondary,
+.thin-button,
+.squared-button {
+  background: var(--surface-control);
+  border-color: var(--border-subtle);
+}
+
+.secondary:hover,
+.thin-button:hover,
+.squared-button:hover,
+.dropdown:hover,
+.settings-item:hover,
+.change-node:hover,
+.change-chainId:hover {
+  background: var(--surface-control-hover);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+}
+
+.text-gray {
+  color: var(--text-secondary);
+}
+
+.custom-label,
+.input-with-button,
+.Dropdown-control,
+.Dropdown-option,
+.dropdown {
+  background: var(--surface-control);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.custom-label:active,
+.custom-label:focus,
+.custom-label:focus-visible,
+.custom-label:focus-within,
+.Dropdown-control:focus,
+.Dropdown-control:active,
+.Dropdown-control:focus-visible,
+.dropdown:focus,
+.dropdown:active,
+.dropdown:focus-visible {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 3px rgba(98, 223, 73, 0.14);
+}
+
+.menu-header {
+  background: rgba(15, 20, 21, 0.94);
+  border-bottom-color: var(--border-subtle);
+  backdrop-filter: blur(12px);
+}
+
+.tab-menu {
+  background: rgba(23, 29, 30, 0.96);
+  border-top-color: var(--border-subtle);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.tab-item {
+  min-height: 68px;
+  box-sizing: border-box;
+}
+
+.transaction,
+.pillar,
+.fees,
+.settings-item,
+.change-node,
+.change-chainId {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+}
+
+.transaction-icon {
+  background: var(--surface-control);
+}
+
+.auto-lock-label {
+  display: block;
+}
+
+pre {
+  padding: 1em;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font: 0.75rem/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+}
+
+.wallet-balance-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.25rem;
+}
+
+.balance-visibility-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0.45rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease,
+    color 160ms ease, transform 160ms ease;
+}
+
+.balance-visibility-toggle:hover {
+  background: var(--surface-control);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.balance-visibility-toggle:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.balance-visibility-toggle svg {
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

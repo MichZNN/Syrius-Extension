@@ -3,6 +3,8 @@ import { createSlice } from "@reduxjs/toolkit";
 const initialState = {
   currentIntegrationFlow: "",
   currentIntegrationStep: "",
+  siteOrigin: "",
+  requestId: "",
 
   flows: {
     walletAccess: {
@@ -30,15 +32,19 @@ export const integrationFlowSlice = createSlice({
   name: "integrationFlow",
   initialState,
   reducers:{
-    resetIntegrationFlow: (state) =>{
-      state = initialState;
-    },
+    resetIntegrationFlow: () => initialState,
     setCurrentIntegrationFlow: (state, action) => {
       state.currentIntegrationFlow = action.payload;
       state.currentIntegrationStep = Object.keys(state.flows[state.currentIntegrationFlow])[0];
-    },    
+    },
     setCurrentIntegrationStep: (state, action) => {
       state.currentIntegrationStep = action.payload;
+    },
+    setIntegrationSiteOrigin: (state, action) => {
+      state.siteOrigin = action.payload;
+    },
+    setIntegrationRequestId: (state, action) => {
+      state.requestId = action.payload;
     },
     storeTransactionData: (state, action) => {
       state.transactionData = action.payload;
@@ -65,6 +71,6 @@ export const integrationFlowSlice = createSlice({
   },
 })
 
-export const { resetIntegrationFlow, setCurrentIntegrationFlow, nextIntegrationStep, setCurrentIntegrationStep, storeTransactionData, storeAccountBlockData } = integrationFlowSlice.actions;
+export const { resetIntegrationFlow, setCurrentIntegrationFlow, nextIntegrationStep, setCurrentIntegrationStep, setIntegrationSiteOrigin, setIntegrationRequestId, storeTransactionData, storeAccountBlockData } = integrationFlowSlice.actions;
 
 export default integrationFlowSlice.reducer

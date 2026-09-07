@@ -1,18 +1,20 @@
 import React from "react";
 
-export default () => {
-  let [silentSpinner, setSilentSpinner] = React.useState(false);
-  let [silentSpinnerContent, setSpinnerPowContent] = React.useState("Loading ...");
+/**
+ * Manage the non-blocking spinner used for background wallet operations.
+ *
+ * Calling handleSilentSpinner with content updates the message and returns a
+ * setter that can explicitly show or hide the spinner.
+ *
+ * @example
+ * const showSilentSpinner = handleSilentSpinner(<div>Loading...</div>);
+ * showSilentSpinner(false);
+ */
+const useSilentSpinner = () => {
+  const [silentSpinner, setSilentSpinner] = React.useState(false);
+  const [silentSpinnerContent, setSpinnerPowContent] = React.useState("Loading ...");
 
-  let handleSilentSpinner = (content = false) => {
-
-    // 
-    // How to use
-    // 
-    // const { handleSilentSpinner } = useContext(SpinnerPowContext);
-    // const showSilentSpinner = handleSilentSpinner(<div>Whatever message you want here</div>);
-    // showSilentSpinner(false);
-  
+  const handleSilentSpinner = (content = false) => {
     setSilentSpinner(!silentSpinner);
     if (content) {
       setSpinnerPowContent(content);
@@ -23,3 +25,5 @@ export default () => {
 
   return { silentSpinner, handleSilentSpinner, silentSpinnerContent };
 };
+
+export default useSilentSpinner;

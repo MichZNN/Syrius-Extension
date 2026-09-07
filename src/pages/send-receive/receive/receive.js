@@ -1,34 +1,31 @@
 import React, { useEffect, useState } from 'react';
-import { KeyStoreManager } from 'znn-ts-sdk';
 import QRCode from "react-qr-code";
 import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
+import walletVault from '../../../services/security/walletVault';
 
 const Receive = () => {
-  const [address, setAddress] = useState(""); 
+  const [address, setAddress] = useState("");
   const walletCredentials = useSelector(state => state.wallet);
 
   useEffect(() => {
-    getWalletInfo(walletCredentials.walletPassword, walletCredentials.walletName);
+    getWalletInfo();
+    // The receive page only needs the selected address at mount time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const getWalletInfo = async (pass, name)=>{
-    const _keyManager = new KeyStoreManager();
-    
+  const getWalletInfo = async ()=>{
     try{
-      const decrypted = await _keyManager.readKeyStore(pass, name);
-      
+      const decrypted = walletVault.getKeyStore();
+
       if(decrypted){
-        const currentKeyPair = decrypted.getKeyPair(walletCredentials.selectedAddressIndex);
-        const address = (await currentKeyPair.getAddress()).toString(); 
+        const currentKeyPair = walletVault.getKeyPair(walletCredentials.selectedAddressIndex);
+        const address = (await currentKeyPair.getAddress()).toString();
         setAddress(address);
       }
-      else{
-        console.error("Error decrypting");
-      }
     }
-    catch(err){
-      console.error("Error ", err);
+    catch{
+      return false;
     }
   }
 
@@ -48,7 +45,7 @@ const Receive = () => {
                     newestOnTop: true,
                     type: 'success',
                     theme: 'dark'
-                  })}catch(err){console.error(err)}
+                  })}catch{}
               }} className='copy-button' style={{position: "absolute", bottom: "-1.5em", right: 0}}>
             <img alt="" src={require('./../../../assets/copy-icon.png')} width='14px'></img>
           </div>
@@ -58,7 +55,7 @@ const Receive = () => {
           <QRCode bgColor="#151515" fgColor="#00E721" value={address} level="M" />
         </div>
 
-        <p className='mt-2'>This address can only be used to receive ZNN or QSR</p>
+        <p className='mt-2'>This address can receive ZNN, QSR and other Zenon tokens.</p>
       </div>
   </div>
   );

@@ -1,6 +1,6 @@
 import React from "react";
 
-export default () => {
+const useModal = () => {
   let [modal, setModal] = React.useState(false);
   let [modalContent, setModalContent] = React.useState("I'm the Modal Content");
 
@@ -13,3 +13,5 @@ export default () => {
 
   return { modal, handleModal, modalContent };
 };
+
+export default useModal;

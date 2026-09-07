@@ -12,6 +12,10 @@
 
 # misc
 .DS_Store
+desktop.ini
+dekstop.ini
+Thumbs.db
+ehthumbs.db
 .env.local
 .env.development.local
 .env.test.local
@@ -20,3 +24,13 @@
 
 # secrets
 secrets.*.js
+secrets.js
+.env
+.env.*
+*.pem
+*.key
+
+AGENTS.md
+.agents
+.codex
+.plans

@@ -1,11 +1,11 @@
 import React from 'react';
 
-const ChangeNodeItem = ({isSelected, onSelect, onRemove, url}) => {
+const ChangeNodeItem = ({isSelected, onSelect, onRemove, url, chainId}) => {
 
   const changeTo = (url) => {
     onSelect(url);
   }
-  
+
   const removeNode = (url) => {
     onRemove(url);
   }
@@ -14,7 +14,7 @@ const ChangeNodeItem = ({isSelected, onSelect, onRemove, url}) => {
     <div onClick={() => changeTo(url)} className='change-node mt-2 tooltip'>
       <div className="change-node-icon mr-2">
         {
-          isSelected===true 
+          isSelected===true
           ? <img alt="" className='' src={require(`./../../assets/radio-checked.svg`)}></img>
           : <img alt="" className='' src={require(`./../../assets/radio-unchecked.svg`)}></img>
         }
@@ -23,6 +23,7 @@ const ChangeNodeItem = ({isSelected, onSelect, onRemove, url}) => {
         <div className="text-white text-left text-bold text-sm">
           {url}
         </div>
+        <div className="text-gray text-xs">Chain ID: {chainId}</div>
         <span className='tooltip-text mt-3'>{url}</span>
       </div>
       <img alt="" className='close-icon' onClick={(e) => {removeNode(url); e.stopPropagation()}} src={require(`./../../assets/close-icon.svg`)}></img>

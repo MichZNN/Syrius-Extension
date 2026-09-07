@@ -1,34 +1,54 @@
-// Do this as the first thing so that any code reading it knows the right env.
+/**
+ * Build every extension entry point with the production Webpack configuration.
+ *
+ * These environment variables must be set before webpack.config.js is loaded;
+ * that module reads NODE_ENV and ASSET_PATH while it is being evaluated.
+ */
 process.env.BABEL_ENV = 'production';
 process.env.NODE_ENV = 'production';
 process.env.ASSET_PATH = '/';
 
-var webpack = require('webpack'),
-  config = require('../webpack.config');
+const webpack = require('webpack');
+const config = require('../webpack.config');
 
 delete config.chromeExtensionBoilerplate;
-
 config.mode = 'production';
 
-console.log('Starting webpack build...');
-
-webpack(config, function (err, stats) {
+const handleBuildResult = (err, stats) => {
   if (err) {
-    console.error('Webpack error:', err);
-    throw err;
-  }
-  
-  if (stats.hasErrors()) {
-    console.error('Build errors:');
-    console.error(stats.toString({ colors: true }));
+    console.error('Webpack build failed:', err.message);
+    process.exitCode = 1;
     return;
   }
-  
-  if (stats.hasWarnings()) {
-    console.warn('Build warnings:');
-    console.warn(stats.toString({ colors: true }));
+
+  if (stats.hasErrors()) {
+    const details = stats.toJson({
+      all: false,
+      errors: true,
+      warnings: true,
+      errorDetails: true,
+    });
+    details.errors?.forEach((error) => {
+      console.error(error.message || error);
+      if (error.details) {
+        console.error(error.details);
+      }
+    });
+    details.warnings?.forEach((warning) => console.warn(warning.message || warning));
+    process.exitCode = 1;
+    return;
   }
-  
-  console.log('Build completed successfully!');
-  console.log(stats.toString({ colors: true, chunks: false }));
-});
+
+  if (stats.hasWarnings()) {
+    const details = stats.toJson({
+      all: false,
+      warnings: true,
+    });
+    details.warnings?.forEach((warning) => console.warn(warning.message || warning));
+  }
+
+  console.log('Webpack build completed successfully.');
+};
+
+console.log('Starting production Webpack build...');
+webpack(config, handleBuildResult);

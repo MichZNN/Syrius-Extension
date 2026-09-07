@@ -1,30 +1,65 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Zenon } from 'znn-ts-sdk';
+import { useDispatch } from 'react-redux';
+import { resetWalletState } from '../../services/redux/walletSlice';
+import { resetIntegrationFlow } from '../../services/redux/integrationSlice';
+import { toast } from 'react-toastify';
+import { SAFE_OPERATION_ERROR } from '../../services/security/safeErrors';
+import walletVault from '../../services/security/walletVault';
+import { sendRuntimeMessage } from '../../services/security/runtimeMessage';
 
 const BurgerPopover = () => {
   const zenon = Zenon.getSingleton();
   const navigate = useNavigate();
+  const dispatch = useDispatch();
 
-  const lockWallet = ()=>{
+  const clearCredentialsOfBackgroundScript = () => sendRuntimeMessage({
+    message: 'internal.clearCredentialsOfBackgroundScript',
+  }, { fallback: null }).then((response) => response?.ok === true);
+
+  const showLockError = () => {
+    toast(SAFE_OPERATION_ERROR, {
+      position: 'bottom-center',
+      autoClose: 2500,
+      hideProgressBar: true,
+      closeOnClick: true,
+      pauseOnHover: false,
+      draggable: true,
+      newestOnTop: true,
+      type: 'error',
+      theme: 'dark',
+    });
+  };
+
+  const lockWallet = async ()=>{
+    if (!(await clearCredentialsOfBackgroundScript())) {
+      showLockError();
+      return;
+    }
+
     zenon.clearSocketConnection();
-    clearCredentialsOfBackgroundScript();
+    walletVault.clear();
+    dispatch(resetWalletState());
+    dispatch(resetIntegrationFlow());
     navigate('/password');
   }
 
-  const addWallet = ()=>{
-    clearCredentialsOfBackgroundScript();
+  const addWallet = async ()=>{
+    if (!(await clearCredentialsOfBackgroundScript())) {
+      showLockError();
+      return;
+    }
+
+    zenon.clearSocketConnection();
+    walletVault.clear();
+    dispatch(resetWalletState());
+    dispatch(resetIntegrationFlow());
     navigate('/auth');
   }
 
   const changeAddress = ()=>{
     navigate('change-address');
-  }
-
-  const clearCredentialsOfBackgroundScript = ()=>{
-    chrome.runtime.sendMessage({
-      message: "internal.clearCredentialsOfBackgroundScript",
-    })  
   }
 
   const goToSettings = () => {

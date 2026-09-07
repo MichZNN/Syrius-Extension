@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useContext } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { KeyStoreManager, Zenon, Primitives, Constants } from 'znn-ts-sdk';
+import { Zenon, Primitives } from 'znn-ts-sdk';
 import TokenDropdown from '../../../components/token-dropdown/token-dropdown';
 import TransactionItem from '../../../components/transaction-item/transaction-item';
 import fallbackValues from '../../../services/utils/fallbackValues';
@@ -10,49 +10,65 @@ import animationVariants from '../../../layouts/tabsLayout/animationVariants';
 import { useSelector } from 'react-redux';
 import { SilentSpinnerContext } from '../../../services/hooks/silent-spinner/silentSpinnerContext'
 import { toast } from 'react-toastify';
-import { ethers } from 'ethers';
+import BalanceVisibilityToggle from '../../../components/balance-visibility-toggle/balance-visibility-toggle';
+import { SAFE_OPERATION_ERROR } from '../../../services/security/safeErrors';
+import { isWalletSessionActive } from '../../../services/security/session';
+import walletVault from '../../../services/security/walletVault';
+import { formatTokenAmount } from '../../../services/security/amounts';
+import { embeddedContractName, contractDisplayName } from '../../../services/utils/contracts';
+import { decodeCall, describeCall } from '../../../services/utils/contractCalls';
 
 const Dashboard = () => {
   const availableTokens = Object.keys(fallbackValues.availableTokens);
   const navigate = useNavigate();
-  const [address, setAddress] = useState(""); 
-  const [tokenColor, setTokenColor] = useState("green"); 
-  let [transactions, setTransactions] = useState([]); 
-  const [selectedToken, setSelectedToken] = useState(availableTokens[0]); 
+  const [address, setAddress] = useState("");
+  const [tokenColor, setTokenColor] = useState("green");
+  const [transactions, setTransactions] = useState([]);
+  const [selectedToken, setSelectedToken] = useState(availableTokens[0]);
   const [walletInfo, setWalletInfo] = useState({
     balanceInfoMap: fallbackValues.availableTokens
-  }); 
-  const transactionsCount = useRef(0); 
-  const currentTransactionsPage = useRef(0); 
-  const myAddressObject = useRef({}); 
-  const [shouldLoadMore, setShouldLoadMore] = useState(true); 
-  const [noTransactionsLabel, setNoTransactionsLabel] = useState(false); 
-  const transactionsObserver = useRef({}); 
-  const zenon = Zenon.getSingleton(); 
+  });
+  const transactionsCount = useRef(0);
+  const currentTransactionsPage = useRef(0);
+  const myAddressObject = useRef(null);
+  const [shouldLoadMore, setShouldLoadMore] = useState(true);
+  const [noTransactionsLabel, setNoTransactionsLabel] = useState(false);
+  const transactionsObserver = useRef({});
+  const transactionsLoading = useRef(false);
+  const zenon = Zenon.getSingleton();
   const pageSize = 200;
   const walletCredentials = useSelector(state => state.wallet);
+  const connectionParameters = useSelector(state => state.connectionParameters);
+  const balancesVisible = useSelector(state => state.balanceVisibility.balancesVisible);
   const { handleSilentSpinner } = useContext(SilentSpinnerContext);
 
   useEffect(() => {
   const loadMoreTransactionsTrigger = document.getElementById("loadMoreTransactionsTrigger");
     const fetchData = async() => {
-      await getWalletInfo(walletCredentials.walletPassword, walletCredentials.walletName);
-      transactionsObserver.current = (new IntersectionObserver(loadTransactions, {
+      await getWalletInfo();
+      if (loadMoreTransactionsTrigger) {
+        transactionsObserver.current = (new IntersectionObserver(loadTransactions, {
         root: null,
         rootMargin: `0px 0px 0px 0px`,
         threshold: 1.0
-      }));
-      transactionsObserver.current.observe(loadMoreTransactionsTrigger);
+        }));
+        transactionsObserver.current.observe(loadMoreTransactionsTrigger);
+      }
+
+      const refreshTimer = window.setInterval(refreshNewestTransactions, 10000);
+      return refreshTimer;
     }
-    fetchData();
-  
+    const refreshTimerPromise = fetchData();
+
     return ()=>{
-      transactionsObserver.current.unobserve(loadMoreTransactionsTrigger);
+      transactionsObserver.current?.disconnect?.();
+      refreshTimerPromise.then((refreshTimer) => window.clearInterval(refreshTimer));
     }
+  // Dashboard polling and its observer are owned by this page instance.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const getWalletInfo = async (pass, name)=>{
-    const _keyManager = new KeyStoreManager();
+  const getWalletInfo = async ()=>{
     const showSilentSpinner = handleSilentSpinner(
       <>
         <div className='text-bold'>
@@ -61,19 +77,18 @@ const Dashboard = () => {
       </>
     );
     showSilentSpinner(true);
-    
+
     try{
-      const decrypted = await _keyManager.readKeyStore(pass, name);
+      const decrypted = walletVault.getKeyStore();
 
       if(decrypted){
-        const currentKeyPair = decrypted.getKeyPair(walletCredentials.selectedAddressIndex);
+        const currentKeyPair = walletVault.getKeyPair(walletCredentials.selectedAddressIndex);
         const addr = (await currentKeyPair.getAddress()).toString();
         myAddressObject.current = Primitives.Address.parse(addr);
-        setAddress(addr); 
+        setAddress(addr);
 
         const updateAccountInfo = async() => {
-          let getAccountInfoByAddress = await zenon.ledger.getAccountInfoByAddress(myAddressObject.current);
-          console.log("getAccountInfoByAddress", getAccountInfoByAddress);
+          const getAccountInfoByAddress = await zenon.ledger.getAccountInfoByAddress(myAddressObject.current);
           if(Object.keys(getAccountInfoByAddress.balanceInfoMap).length) {
             getAccountInfoByAddress.balanceInfoMap = {...walletInfo.balanceInfoMap, ...getAccountInfoByAddress.balanceInfoMap}
             setWalletInfo(getAccountInfoByAddress);
@@ -81,64 +96,51 @@ const Dashboard = () => {
         }
         await updateAccountInfo();
 
-        await receiveAllBlocks(zenon, currentKeyPair);
-        // console.log("receiveAllBlocks", )
+        if (await isWalletSessionActive()) {
+          await receiveAllBlocks(zenon, currentKeyPair);
+        }
         await updateAccountInfo();
-        showSilentSpinner(false);
-      }
-      else{
-        console.error("Error decrypting");
       }
     }
-    catch(err){
+    catch{
+      // Keep network and node details out of user-facing logs and errors.
+    }
+    finally {
       showSilentSpinner(false);
-      console.error("Error ", err);
     }
   }
 
   const loadTransactions = async() =>{
+    if (transactionsLoading.current || !shouldLoadMore || !myAddressObject.current) {
+      return;
+    }
+
+    transactionsLoading.current = true;
     try{
-      if(shouldLoadMore){
-        const getBlocksByPage = await zenon.ledger.getBlocksByPage(myAddressObject.current, currentTransactionsPage.current, pageSize);         
-          console.log("getBlocksByPage - page", currentTransactionsPage.current, getBlocksByPage)
-          if(getBlocksByPage.list.length > 0){
-            transactionsCount.current += getBlocksByPage.list.length;
-            console.log("getBlocksByPage", getBlocksByPage);
-            let newTransactions = getBlocksByPage.list;
-            newTransactions = await Promise.all(newTransactions.map(async (transaction) => {
-              return await transformTransactionItem(transaction.toJson());
-            }));          
-            console.log("newTransactions", newTransactions);
-            setTransactions(prevTransactions => {
-              // console.log("prevTransactions", prevTransactions);
-              transactions = [...prevTransactions, ...newTransactions];
-              // console.log("transactions", transactions);
-              return transactions
-            });
-            currentTransactionsPage.current = currentTransactionsPage.current + 1;
-          if(getBlocksByPage.count >= transactionsCount){
-            setShouldLoadMore(true);
-          }else{
-            setShouldLoadMore(false);
-          }
-        }
-        else{
-          setShouldLoadMore(false);
-          if(transactionsCount === 0){
-            setNoTransactionsLabel(true);
-          }
+      const getBlocksByPage = await zenon.ledger.getBlocksByPage(
+        myAddressObject.current,
+        currentTransactionsPage.current,
+        pageSize,
+      );
+      const blocks = getBlocksByPage?.list || [];
+      if(blocks.length > 0){
+        transactionsCount.current += blocks.length;
+        const newTransactions = await Promise.all(blocks.map(async (transaction) => (
+          transformTransactionItem(transaction.toJson())
+        )));
+        setTransactions((prevTransactions) => [...prevTransactions, ...newTransactions]);
+        currentTransactionsPage.current += 1;
+        setShouldLoadMore(blocks.length === pageSize);
+      }
+      else{
+        setShouldLoadMore(false);
+        if(transactionsCount.current === 0){
+          setNoTransactionsLabel(true);
         }
       }
     }
-    catch(err){
-      console.error(err);
-      let readableError = err;
-      if(err.message) {
-        readableError = err.message;
-      }
-      readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
-
-      toast(readableError + "",{    
+    catch{
+      toast(SAFE_OPERATION_ERROR,{
         position: "bottom-center",
         autoClose: 2500,
         hideProgressBar: true,
@@ -149,59 +151,110 @@ const Dashboard = () => {
         type: 'error',
         theme: 'dark'
       });
+    } finally {
+      transactionsLoading.current = false;
+    }
+  }
+
+  const refreshNewestTransactions = async () => {
+    if (!myAddressObject.current) {
+      return;
+    }
+
+    try {
+      const response = await zenon.ledger.getBlocksByPage(myAddressObject.current, 0, pageSize);
+      const blocks = response?.list || [];
+      if (!blocks.length) {
+        return;
+      }
+
+      const freshTransactions = await Promise.all(blocks.map((block) => (
+        transformTransactionItem(block.toJson())
+      )));
+      setTransactions((previousTransactions) => {
+        const freshByHash = new Map(freshTransactions.map((item) => [item.hash, item]));
+        const existingHashes = new Set(previousTransactions.map((item) => item.hash));
+        const updated = previousTransactions.map((item) => freshByHash.get(item.hash) || item);
+        const added = freshTransactions.filter((item) => !existingHashes.has(item.hash));
+        return [...added, ...updated];
+      });
+    } catch {
+      // A refresh is best-effort; keep the already loaded history intact.
     }
   }
 
   const transformTransactionItem = async (transactionItem) =>{
-    console.log("transactionItem", transactionItem);
-    let transaction;
-    if(transactionItem.blockType === 3 || transactionItem.blockType === '3'){
-      transaction = await getReferencedTransaction(transactionItem);
-      console.log("transaction", transaction);
-    }else{
-      transaction = transactionItem;
-    }
-    
-    console.log("ethers.utils.formatUnits(ethers.BigNumber.from(transaction.amount.toString() || 0), ethers.BigNumber.from(((transaction.token?.decimals || fallbackValues.availableTokens[transaction.tokenStandard?.toString()]?.token.decimals || fallbackValues.decimals).toString() || 8)+''))", ethers.utils.formatUnits(ethers.BigNumber.from(transaction.amount.toString() || 0), ethers.BigNumber.from(((transaction.token?.decimals || fallbackValues.availableTokens[transaction.tokenStandard?.toString()]?.token.decimals || fallbackValues.decimals).toString() || 8)+'')));
-    console.log("parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(transaction.amount.toString() || 0), ethers.BigNumber.from(((transaction.token?.decimals || fallbackValues.availableTokens[transaction.tokenStandard?.toString()]?.token.decimals || fallbackValues.decimals).toString() || 8)+'')))", parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(transaction.amount.toString() || 0), ethers.BigNumber.from(((transaction.token?.decimals || fallbackValues.availableTokens[transaction.tokenStandard?.toString()]?.token.decimals || fallbackValues.decimals).toString() || 8)+''))));
+    const ownTransaction = transactionItem;
+    const referencedTransaction = transactionItem.blockType === 3 || transactionItem.blockType === '3'
+      ? await getReferencedTransaction(transactionItem)
+      : null;
+    const transaction = referencedTransaction || transactionItem;
+    const transactionDescription = identifyTransaction(transaction);
+    const tokenStandard = transaction.tokenStandard?.toString();
+    const tokenDecimals = Number(transaction.token?.decimals
+      ?? fallbackValues.availableTokens[tokenStandard]?.token.decimals
+      ?? fallbackValues.decimals);
+    const amount = formatTokenAmount(
+      transaction.amount?.toString() || '0',
+      tokenDecimals,
+    ) || '0';
+    const confirmationCount = Number(ownTransaction.confirmationDetail?.numConfirmations);
+    const hasConfirmationDetail = Number.isFinite(confirmationCount);
     const transformedTransaction = {
-      type: identifyTransactionType(transaction),
-      amount: parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(transaction.amount.toString() || 0), ethers.BigNumber.from(((transaction.token?.decimals || fallbackValues.availableTokens[transaction.tokenStandard?.toString()]?.token.decimals || fallbackValues.decimals).toString() || 8)+''))),
-      // amount: transaction.amount / Math.pow(10, transaction.token?.decimals || fallbackValues.availableTokens[transaction.tokenStandard?.toString()]?.token.decimals || fallbackValues.decimals),
-      tokenSymbol: transaction.token?.symbol || fallbackValues.availableTokens[transaction.tokenStandard?.toString()]?.token.symbol || "?",
-      address: transaction.toAddress.toString(),
-      hash: transaction.hash.toString()
+      type: transactionDescription.type,
+      label: transactionDescription.label,
+      counterpartyName: transactionDescription.counterpartyName,
+      amount,
+      tokenSymbol: transaction.token?.symbol || fallbackValues.availableTokens[tokenStandard]?.token.symbol || "?",
+      address: transactionDescription.type === 'received'
+        ? transaction.address?.toString() || transaction.toAddress?.toString() || "?"
+        : transaction.toAddress?.toString() || "?",
+      hash: ownTransaction.hash?.toString() || transaction.hash?.toString() || "",
+      chainId: Number(connectionParameters?.chainIdentifier),
+      confirmations: hasConfirmationDetail ? Math.max(0, confirmationCount) : 0,
+      isUnconfirmed: hasConfirmationDetail && confirmationCount <= 0,
     }
 
-    switch(transformedTransaction.type){
-      case 'delegated':{
-          transformedTransaction.amount = null;
-          transformedTransaction.tokenSymbol = null;
-        break;
-      }
-      default:{}
+    if (transactionDescription.method && !transaction.token?.symbol) {
+      transformedTransaction.tokenSymbol = null;
     }
 
     return transformedTransaction;
   }
 
-  const identifyTransactionType = (transactionItem) =>{
-    if(transactionItem.toAddress.toString() === myAddressObject.current.toString()){
-      return 'received';
-    }else if(transactionItem.toAddress.toString() === Constants.plasmaAddress.toString()){
-      return 'fused';
-    }else if(transactionItem.toAddress.toString() === Constants.pillarAddress.toString()){
-      return 'delegated';
-    }else if(transactionItem.toAddress.toString() === Constants.stakeAddress.toString()){
-      return 'staked';
+  const identifyTransaction = (transactionItem) =>{
+    const toAddress = transactionItem.toAddress?.toString();
+    const ownAddress = myAddressObject.current?.toString?.();
+
+    if (toAddress && toAddress === ownAddress) {
+      const fromContract = embeddedContractName(transactionItem.address);
+      return {
+        type: 'received',
+        label: 'Received',
+        counterpartyName: fromContract ? contractDisplayName(fromContract) : null,
+      };
     }
-    else{
-      return 'sent';
+
+    const contract = embeddedContractName(toAddress);
+    if (!contract) {
+      return { type: 'sent', label: 'Sent', counterpartyName: null };
     }
+
+    const method = decodeCall(contract, transactionItem.data);
+    return {
+      type: contract,
+      label: describeCall(contract, method),
+      counterpartyName: contractDisplayName(contract),
+      method,
+    };
   }
 
   const getReferencedTransaction = async (transactionItem)=>{
-    return (await zenon.ledger.getBlockByHash(transactionItem.fromBlockHash)).toJson();
+    try {
+      return (await zenon.ledger.getBlockByHash(transactionItem.fromBlockHash)).toJson();
+    } catch {
+      return null;
+    }
   }
 
   const goToSend = () => {
@@ -220,7 +273,7 @@ const Dashboard = () => {
       setTokenColor('green');
     }
   }
-  
+
   const selectToken = (index, value) => {
     setSelectedToken(value.token.tokenStandard);
     if(value.token.symbol === 'ZNN'){
@@ -229,9 +282,19 @@ const Dashboard = () => {
       setTokenColor('blue');
     }
   }
-  
+
+  const selectedTokenInfo = walletInfo.balanceInfoMap?.[selectedToken]
+    || fallbackValues.availableTokens[selectedToken];
+  const selectedTokenDecimals = Number(
+    selectedTokenInfo?.token?.decimals ?? fallbackValues.decimals,
+  );
+  const selectedBalance = formatTokenAmount(
+    selectedTokenInfo?.balance?.toString() || '0',
+    selectedTokenDecimals,
+  ) || '0';
+
   return (
-    <motion.div 
+    <motion.div
       className='black-bg transition-animated'
       initial={"pageTransitionInitial"}
       animate={"pageTransitionAnimate"}
@@ -240,16 +303,18 @@ const Dashboard = () => {
 
       <div className='mt-2 ml-2 mr-2 d-flex justify-content-center'>
         <div className={`wallet-circle circle-${tokenColor}`}>
-          <h2 className='mb-0 tooltip'>
-            {/* {parseFloat(walletInfo.balanceInfoMap[selectedToken].balance/Math.pow(10, walletInfo.balanceInfoMap[selectedToken].token.decimals)).toFixed(0)}
-            <span className='tooltip-text mt-2'>{parseFloat(walletInfo.balanceInfoMap[selectedToken].balance/Math.pow(10, walletInfo.balanceInfoMap[selectedToken].token.decimals))}</span> */}
-          {
-            parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(walletInfo.balanceInfoMap[selectedToken].balance.toString() || 0), ethers.BigNumber.from(((walletInfo.balanceInfoMap[selectedToken].token.decimals || fallbackValues.availableTokens[selectedToken]?.token.decimals || fallbackValues.decimals).toString() || 8)+''))).toFixed(0)
-          }
-          <span className='tooltip-text mt-2'>{parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(walletInfo.balanceInfoMap[selectedToken].balance.toString() || 0), ethers.BigNumber.from(((walletInfo.balanceInfoMap[selectedToken].token.decimals || fallbackValues.availableTokens[selectedToken]?.token.decimals || fallbackValues.decimals).toString() || 8)+'')))}</span>
-
-          </h2>
-          <h4 className='mb-0 mt-1 text-gray'>{walletInfo.balanceInfoMap[selectedToken].token.symbol}</h4>
+          <div className='wallet-balance-row'>
+            <h2 className='mb-0 tooltip'>
+              {balancesVisible ? (
+                <>
+                  {selectedBalance}
+                  <span className='tooltip-text mt-2'>{selectedBalance}</span>
+                </>
+              ) : '***'}
+            </h2>
+            <BalanceVisibilityToggle />
+          </div>
+          <h4 className='mb-0 mt-1 text-gray'>{selectedTokenInfo?.token?.symbol || '?'}</h4>
           <h4 className='m-0 text-gray tooltip cursor-pointer' onClick={() => {try{navigator.clipboard.writeText(address); toast(`Address copied`, {
                 position: "bottom-center",
                 autoClose: 1000,
@@ -260,14 +325,14 @@ const Dashboard = () => {
                 newestOnTop: true,
                 type: 'success',
                 theme: 'dark'
-              })}catch(err){console.error(err)} }}>
+              })}catch{} }}>
             {address.slice(0, 3) + '...' + address.slice(-3)}
             <span className='tooltip-text'>{address}</span>
           </h4>
           <img alt="" onClick={()=>{switchToken()}} className='mt-1 p-2 button' src={require(`./../../../assets/switch-${tokenColor}.svg`)} width='16px'></img>
-        </div>  
+        </div>
       </div>
-      
+
       <div className='mt-2 ml-2 mr-2 d-flex justify-content-center'>
         <TokenDropdown options={Object.keys(walletInfo.balanceInfoMap).map((value)=>{return walletInfo.balanceInfoMap[value]})} tokenSymbolPath={`token.symbol`} onChange={selectToken} value={selectedToken} placeholder="Select token" />
       </div>
@@ -285,12 +350,12 @@ const Dashboard = () => {
       <div className='transactions mt-2 ml-2 mr-2'>
         {
           transactions.map((transaction, i) => {
-            return <TransactionItem  key={"transaction-"+i} type={transaction.type} amount={transaction.amount} tokenSymbol={transaction.tokenSymbol} address={transaction.address} hash={transaction.hash}></TransactionItem>
+            return <TransactionItem  key={"transaction-"+transaction.hash+"-"+i} type={transaction.type} label={transaction.label} counterpartyName={transaction.counterpartyName} amount={transaction.amount} tokenSymbol={transaction.tokenSymbol} address={transaction.address} hash={transaction.hash} chainId={transaction.chainId} isUnconfirmed={transaction.isUnconfirmed} confirmations={transaction.confirmations}></TransactionItem>
           })
         }
       </div>
 
-      {(shouldLoadMore || noTransactionsLabel) && 
+      {(shouldLoadMore || noTransactionsLabel) &&
         <div className='mt-2 center-items'>
           <span className='text-gray ml-1'>{
             noTransactionsLabel?'No transactions':<span id="loadMoreTransactionsTrigger">Loading...</span>

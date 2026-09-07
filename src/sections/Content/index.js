@@ -1,143 +1,192 @@
+/**
+ * Relay the modern provider and the original Syrius bridge protocol.
+ *
+ * This isolated-world script never sees passwords or private keys. The service
+ * worker derives the request origin from Chrome's sender metadata and repeats
+ * all payload validation before any wallet UI is opened.
+ */
+import {
+  isSafeBridgeError,
+  isSafeBridgePayload,
+  isValidBridgeRequest,
+} from '../../services/security/bridgeValidation';
+import {
+  isSafeProviderRequestId,
+  isValidProviderRequest,
+  PROVIDER_ERROR,
+} from '../../services/security/providerValidation';
 
-console.log('Content script works!');
+const providerTarget = 'znn-inpage';
+const contentTarget = 'znn-contentscript';
+const providerEvents = new Set([
+  'accountsChanged',
+  'chainChanged',
+  'nodeChanged',
+  'disconnect',
+]);
 
-var elt = document.createElement("script");
-elt.innerHTML = `
-  window.zenon = {};
-  window.zenon.isSyriusExtension = true;
-`;
-document.head.appendChild(elt);
+const legacyRequestMethods = new Set([
+  'znn.requestWalletAccess',
+  'znn.sendTransactionToSigning',
+  'znn.sendAccountBlockToSend',
+]);
 
+const legacyResponseMethods = new Set([
+  'znn.grantedWalletRead',
+  'znn.deniedWalletRead',
+  'znn.signedTransaction',
+  'znn.deniedSignTransaction',
+  'znn.accountBlockSent',
+  'znn.deniedSendAccountBlock',
+  'znn.addressChanged',
+  'znn.chainIdChanged',
+  'znn.nodeChanged',
+]);
 
-chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-  if (request.message === 'znn.grantedWalletRead') {
-    window.postMessage({
-      method: "znn.grantedWalletRead",
-      data: request.data
-    }, "*");
-    return true;
+const isSafeProviderError = (error) => (
+  error
+  && typeof error === 'object'
+  && Number.isInteger(error.code)
+  && typeof error.message === 'string'
+  && error.message.length > 0
+  && error.message.length <= 256
+);
+
+const postToPage = (message) => {
+  try {
+    window.postMessage(message, window.location.origin);
+  } catch {
+    // Host page APIs are not a trust boundary and may be replaced.
   }
+};
 
-  if (request.message === 'znn.deniedWalletRead') {
-    window.postMessage({
-      method: "znn.deniedWalletRead",
-      error: request.error,
-      data: request.data
-    }, "*");
-    return true;
+const sendToBackground = (message) => {
+  try {
+    chrome.runtime.sendMessage(message, () => {
+      void chrome.runtime.lastError;
+    });
+  } catch {
+    // The page-side provider will settle the request on its own timeout.
   }
+};
 
-  if (request.message === 'znn.signedTransaction') {
-    window.postMessage({
-      method: "znn.signedTransaction",
-      data: request.data
-    }, "*");
-    return true;
-  }
+sendToBackground({ channel: 'provider', kind: 'hello' });
 
-  if (request.message === 'znn.deniedSignTransaction') {
-    window.postMessage({
-      method: "znn.deniedSignTransaction",
-      error: request.error,
-      data: request.data
-    }, "*");
-    return true;
-  }
+window.addEventListener('message', (event) => {
+  try {
+    if (event.source !== window || event.origin !== window.location.origin) {
+      return;
+    }
 
-  if (request.message === 'znn.accountBlockSent') {
-    window.postMessage({
-      method: "znn.accountBlockSent",
-      data: request.data
-    }, "*");
-    return true;
-  }
-  
-  if (request.message === 'znn.deniedSendAccountBlock') {
-    window.postMessage({
-      method: "znn.deniedSendAccountBlock",
-      error: request.error,
-      data: request.data
-    }, "*");
-    return true;
-  }
+    const message = event.data;
+    if (!message || typeof message !== 'object') {
+      return;
+    }
 
-  if (request.message === 'znn.addressChanged') {
-    window.postMessage({
-      method: "znn.addressChanged",
-      data: request.data
-    }, "*");
-    return true;
-  }
+    if (message.target === contentTarget && message.kind === 'request') {
+      if (!isSafeProviderRequestId(message.id)) {
+        return;
+      }
 
-  if (request.message === 'znn.chainIdChanged') {
-    window.postMessage({
-      method: "znn.chainIdChanged",
-      data: request.data
-    }, "*");
-    return true;
-  }
+      const request = {
+        id: message.id,
+        method: message.method,
+      };
+      if (Object.prototype.hasOwnProperty.call(message, 'params')) {
+        request.params = message.params;
+      }
 
-  if (request.message === 'znn.nodeChanged') {
-    window.postMessage({
-      method: "znn.nodeChanged",
-      data: request.data
-    }, "*");
-    return true;
-  }
+      if (isValidProviderRequest(request)) {
+        sendToBackground({
+          channel: 'provider',
+          kind: 'request',
+          id: request.id,
+          method: request.method,
+          params: request.params,
+        });
+      } else {
+        postToPage({
+          target: providerTarget,
+          kind: 'response',
+          id: request.id,
+          error: PROVIDER_ERROR.internal,
+        });
+      }
+      return;
+    }
 
-  return true;
+    if (!legacyRequestMethods.has(message.method)) {
+      return;
+    }
+
+    const params = Object.prototype.hasOwnProperty.call(message, 'params')
+      ? message.params
+      : undefined;
+    if (!isValidBridgeRequest(message.method, params)) {
+      return;
+    }
+
+    const request = { message: message.method };
+    if (params !== undefined) {
+      request.params = params;
+    }
+    sendToBackground(request);
+  } catch {
+    // Malformed page data is ignored without exposing extension state.
+  }
 });
 
-window.addEventListener("message", (event) => {
-  // console.log("Got message from site ", event);
-  try{
-    const parsedEvent = event.data;
-    // console.log("parsedEvent", parsedEvent)
+chrome.runtime.onMessage.addListener((message, sender) => {
+  if (sender?.id !== chrome.runtime.id || !message || typeof message !== 'object') {
+    return false;
+  }
 
-    if(parsedEvent.method){
-      switch(parsedEvent.method){
-        case "znn.requestWalletAccess":{
-          // console.log("Sending requestWalletAccess to extension(background.js) from content.js");
-          chrome.runtime.sendMessage({message: 'znn.requestWalletAccess'}, 
-          function(message) { 
-            // console.log("Received response at znn.requestWalletAccess", message);
-          });
-          break;
-        }
-        case "znn.sendTransactionToSigning": {
-          // console.log("znn.sendTransactionToSigning", parsedEvent);
-          chrome.runtime.sendMessage({
-            message: 'znn.sendTransactionToSigning',
-            params: parsedEvent.params
-          }, 
-          function(message) { 
-            // console.log("Received response at znn.sendTransactionToSigning", message);
-          });
-          break;
-        }
-        case "znn.sendAccountBlockToSend": {
-          // console.log("znn.sendAccountBlockToSend", parsedEvent);
-          chrome.runtime.sendMessage({
-            message: 'znn.sendAccountBlockToSend',
-            params: parsedEvent.params
-          }, 
-          function(message) { 
-            // console.log("Received response at znn.sendAccountBlockToSend", message);
-          });
-          break;
-        }
-        default: {}
-      }
+  if (message.channel === 'provider') {
+    if (message.kind === 'response'
+      && isSafeProviderRequestId(message.id)
+      && (!Object.prototype.hasOwnProperty.call(message, 'result')
+        || isSafeBridgePayload(message.result))
+      && (!message.error || isSafeProviderError(message.error))) {
+      postToPage({
+        target: providerTarget,
+        kind: 'response',
+        id: message.id,
+        result: message.result,
+        error: message.error,
+      });
     }
-  
+
+    if (message.kind === 'event'
+      && providerEvents.has(message.event)
+      && (!Object.prototype.hasOwnProperty.call(message, 'data')
+        || isSafeBridgePayload(message.data))) {
+      postToPage({
+        target: providerTarget,
+        kind: 'event',
+        event: message.event,
+        data: message.data,
+      });
+    }
+    return false;
   }
-  catch(err){
-    console.error("Not the proper JSON format:", err);
+
+  if (!legacyResponseMethods.has(message.message)) {
+    return false;
   }
-}, false);
 
-
-
-
-
-
+  const legacyMessage = { method: message.message };
+  if (Object.prototype.hasOwnProperty.call(message, 'data')) {
+    if (!isSafeBridgePayload(message.data)) {
+      return false;
+    }
+    legacyMessage.data = message.data;
+  }
+  if (Object.prototype.hasOwnProperty.call(message, 'error')) {
+    if (!isSafeBridgeError(message.error)) {
+      return false;
+    }
+    legacyMessage.error = message.error;
+  }
+  postToPage(legacyMessage);
+  return false;
+});

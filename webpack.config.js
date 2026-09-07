@@ -1,3 +1,7 @@
+/**
+ * Shared Webpack configuration for the extension's page, service-worker,
+ * content-script and developer-tool entry points.
+ */
 const webpack = require('webpack');
 const path = require('path');
 const fileSystem = require('fs-extra');
@@ -5,22 +9,22 @@ const env = require('./utils/env');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const { CleanWebpackPlugin } = require('clean-webpack-plugin');
-// const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
 
 const ASSET_PATH = process.env.ASSET_PATH || '/';
+const isProduction = (process.env.NODE_ENV || 'development') === 'production';
 
-// Setup aliases
+// Keep React DOM compatible with the existing hot-reload setup.
 const alias = {
   'react-dom': '@hot-loader/react-dom',
 };
 
-// Load secrets if they exist
+// Use an environment-specific local secrets module when one is present.
 const secretsPath = path.join(__dirname, 'secrets.' + env.NODE_ENV + '.js');
 if (fileSystem.existsSync(secretsPath)) {
   alias['secrets'] = secretsPath;
 }
 
-// File extensions for assets
+// Extensions emitted as asset resources instead of being parsed as source code.
 const fileExtensions = [
   'jpg', 'jpeg', 'png', 'gif', 'eot', 'otf', 'svg', 'ttf', 'woff', 'woff2'
 ];
@@ -28,26 +32,29 @@ const fileExtensions = [
 module.exports = {
   mode: process.env.NODE_ENV || 'development',
   target: 'web',
-  
+
   entry: {
     newtab: path.join(__dirname, './src/sections/Newtab/index.jsx'),
     options: path.join(__dirname, './src/sections/Options/index.jsx'),
     popup: path.join(__dirname, './src/sections/Popup/index.jsx'),
     background: path.join(__dirname, './src/sections/Background/index.js'),
     contentScript: path.join(__dirname, './src/sections/Content/index.js'),
+    inpage: path.join(__dirname, './src/sections/Inpage/index.js'),
     devtools: path.join(__dirname, './src/sections/Devtools/index.js'),
     panel: path.join(__dirname, './src/sections/Panel/index.jsx'),
   },
-  
+
   output: {
     filename: '[name].bundle.js',
     path: path.resolve(__dirname, 'build'),
     clean: true,
     publicPath: ASSET_PATH,
   },
-  
-  devtool: 'cheap-module-source-map',
-  
+
+  // Never ship source maps: production maps can expose wallet-adjacent source
+  // and accidentally bundled local configuration to anyone who installs the extension.
+  devtool: isProduction ? false : 'cheap-module-source-map',
+
   optimization: {
     splitChunks: {
       chunks: 'all',
@@ -60,7 +67,7 @@ module.exports = {
       }
     },
   },
-  
+
   module: {
     noParse: /\.wasm$/,
     rules: [
@@ -72,9 +79,9 @@ module.exports = {
           {
             loader: 'sass-loader',
             options: {
-              sourceMap: true,
+              sourceMap: !isProduction,
               sassOptions: {
-                quietDeps: true,  // Suppress deprecation warnings from dependencies
+                quietDeps: true,  // Keep third-party Sass warnings out of application output.
                 silenceDeprecations: ['legacy-js-api', 'color-functions', 'global-builtin'],
               },
             },
@@ -82,7 +89,7 @@ module.exports = {
         ],
       },
       {
-        test: new RegExp('.(' + fileExtensions.join('|') + ')$'),
+        test: new RegExp('\\.(' + fileExtensions.join('|') + ')$'),
         type: 'asset/resource',
         exclude: /node_modules/,
       },
@@ -116,7 +123,7 @@ module.exports = {
       },
     ],
   },
-  
+
   resolve: {
     alias: alias,
     extensions: fileExtensions
@@ -139,22 +146,15 @@ module.exports = {
       "events": false
     },
   },
-  
+
   plugins: [
     new CleanWebpackPlugin({ verbose: false }),
-    
+
     new webpack.ProgressPlugin(),
-    
+
     new webpack.EnvironmentPlugin(['NODE_ENV']),
-    
-    // Bundle analyzer for size optimization
-    // new BundleAnalyzerPlugin({
-    //   analyzerMode: 'static',
-    //   openAnalyzer: false,
-    //   reportFilename: 'bundle-report.html'
-    // }),
-    
-    // Copy manifest with version injection
+
+    // Copy the manifest while injecting package metadata into the build copy.
     new CopyWebpackPlugin({
       patterns: [
         {
@@ -173,8 +173,8 @@ module.exports = {
         },
       ],
     }),
-    
-    // Copy static assets
+
+    // Copy files required at runtime by the content script and extension pages.
     new CopyWebpackPlugin({
       patterns: [
         {
@@ -194,8 +194,8 @@ module.exports = {
         },
       ],
     }),
-    
-    // HTML pages
+
+    // Generate the HTML shells for extension pages that have their own entry point.
     new HtmlWebpackPlugin({
       template: './src/sections/Newtab/index.html',
       filename: 'newtab.html',
@@ -226,18 +226,18 @@ module.exports = {
       chunks: ['panel'],
       cache: false,
     }),
-    
-    // Polyfills
+
+    // Provide browser-compatible globals required by SDK dependencies.
     new webpack.ProvidePlugin({
       Buffer: ['buffer', 'Buffer'],
-      process: 'process/browser',
+      process: require.resolve('process/browser.js'),
     }),
   ],
-  
+
   infrastructureLogging: {
     level: 'info',
   },
-  
+
   experiments: {
     asyncWebAssembly: true,
     syncWebAssembly: true

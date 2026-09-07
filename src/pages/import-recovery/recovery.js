@@ -1,16 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import NavBack from '../../components/nav-back/nav-back';
 import ProgressSteps from '../../components/progress-steps/progress-steps';
 import {
   KeyStore,
   KeyStoreManager,
-  Constants
 } from 'znn-ts-sdk';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import fallbackValues from '../../services/utils/fallbackValues';
 import { toast } from 'react-toastify';
-import { loadStorageWalletNames } from '../../services/utils/utils';
+import {
+  isSafeWalletName,
+  loadStorageWalletNames,
+} from '../../services/utils/utils';
+import { SAFE_OPERATION_ERROR } from '../../services/security/safeErrors';
 
 const Recovery = () => {
   const [mnemonic, setMnemonic] = useState("");
@@ -31,7 +34,7 @@ const Recovery = () => {
         if(isValidName!==true){
           return new Error(isValidName);
         }
-        
+
         const isValidKeystore = await createKeystoreFromMnemonic(mnemonic, password, walletName);
         if(isValidKeystore!==true){
           return new Error(isValidKeystore);
@@ -39,13 +42,11 @@ const Recovery = () => {
 
         return true
       }
-      catch(err){
-        console.error(err);
-        throw new Error(err);
+      catch{
+        throw new Error(SAFE_OPERATION_ERROR);
       }
     }
     else{
-      console.error("Not valid");
       throw new Error("Invalid wallet name or password");
     }
   }
@@ -57,23 +58,10 @@ const Recovery = () => {
     await _keyManager.saveKeyStore(newStore, pass, name);
   }
 
-  const createKeystoreFromMnemonic = (mnemonic, pass, name) => {
-    return new Promise(async (resolve, reject)=>{
-      const _keyStore = new KeyStore();
-
-      try{
-        const newStore = _keyStore.fromMnemonic(mnemonic);
-        if(newStore){
-          resolve(true);
-        }else{
-          reject(false);
-        }
-      }
-      catch(err){
-        console.error(err);
-        reject(err);
-      }
-    })
+  const createKeystoreFromMnemonic = async (mnemonic) => {
+    const _keyStore = new KeyStore();
+    const newStore = _keyStore.fromMnemonic(normaliseMnemonic(mnemonic));
+    return Boolean(newStore);
   }
 
   const onFormSubmit = () => {
@@ -89,7 +77,7 @@ const Recovery = () => {
   }
 
   const validateWalletName = (walletName) =>{
-    if(walletName){
+    if(isSafeWalletName(walletName)){
       const loadedWallets = loadStorageWalletNames();
 
       if((loadedWallets.length > 0) && (loadedWallets.filter((existingWallet)=>existingWallet===walletName).length > 0)){
@@ -100,20 +88,35 @@ const Recovery = () => {
       return "Invalid wallet name"
     }
   }
-  
+
   const isCorrectMnemonic = (inputMnemonic) =>{
-    if(inputMnemonic.split(" ").length === 24 || inputMnemonic.split(" ").length === 12){
-      return true;
+    const cleanedMnemonic = normaliseMnemonic(inputMnemonic);
+    const wordCount = cleanedMnemonic ? cleanedMnemonic.split(' ').length : 0;
+
+    if (wordCount !== 24 && wordCount !== 12) {
+      return false;
     }
-    return false;
+
+    try {
+      new KeyStore().fromMnemonic(cleanedMnemonic);
+      return true;
+    } catch {
+      return false;
+    }
   }
+
+  const normaliseMnemonic = (inputMnemonic) => (
+    typeof inputMnemonic === 'string'
+      ? inputMnemonic.trim().toLowerCase().split(/\s+/).filter(Boolean).join(' ')
+      : ''
+  );
 
   const nextStep = async () => {
     let isValidated = false;
 
     switch(currentFlowStep){
       default:
-      case 0:{       
+      case 0:{
         if(isCorrectMnemonic(mnemonic)){
           isValidated = true;
         }
@@ -127,17 +130,14 @@ const Recovery = () => {
             throw new Error(isValid);
           }
           isValidated = true;
-          saveNewKeyStore(mnemonic, password, walletName);  
+          await saveNewKeyStore(mnemonic, password, walletName);
+          setMnemonic("");
+          setPassword("");
+          setRepeatPassword("");
+          reset();
         }
-        catch(err){
-          console.error(err);
-          let readableError = err;
-          if(err.message) {
-            readableError = err.message;
-          }
-          readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
-    
-          toast(readableError + "",{    
+        catch{
+          toast(SAFE_OPERATION_ERROR,{
             position: "bottom-center",
             autoClose: 2500,
             hideProgressBar: true,
@@ -175,12 +175,12 @@ const Recovery = () => {
       {currentFlowStep === 0 &&
         <div className=''>
           <div className='mt-4 secret-phrase-container'>
-            <textarea placeholder='Type your 12 or 24 words seed / recovery phrase' rows='4' className='secret-phrase-text' value={mnemonic} onChange={(e) => setMnemonic(e.target.value)}></textarea>
+            <textarea autoComplete='off' placeholder='Type your 12 or 24 words seed / recovery phrase' rows='4' className='secret-phrase-text' value={mnemonic} onChange={(e) => setMnemonic(e.target.value)}></textarea>
           </div>
 
           <div className={`mt-2 input-error ${!isCorrectMnemonic(mnemonic)?'':'invisible'}`}>
             { 'Invalid mnemonic'}
-          </div> 
+          </div>
 
           <div className='mt-2 buttons-container'>
             <div className={`button primary ${!isCorrectMnemonic(mnemonic)?'disabled':''}`} onClick={nextStep}>Import</div>
@@ -192,8 +192,8 @@ const Recovery = () => {
       {currentFlowStep === 1 &&
         <div className=''>
           <form onSubmit={handleSubmit(()=>onFormSubmit(walletName, password, repeatPassword))}>
-            <div className='custom-control'> 
-              <input name="walletNameField" {...register("walletNameField", { required: true, 
+            <div className='custom-control'>
+              <input name="walletNameField" {...register("walletNameField", { required: true,
                     minLength: {
                       value: 2,
                       message: 'Minimum of 2 characters'
@@ -202,17 +202,17 @@ const Recovery = () => {
                       value: 512,
                       message: 'Maximum of 512 characters'
                     }
-                  })} 
-                className={`w-100 custom-label ${errors.walletNameField?'custom-label-error':''}`} 
+                  })}
+                className={`w-100 custom-label ${errors.walletNameField?'custom-label-error':''}`}
                 placeholder="Wallet name" value={walletName} onChange={(e) => {setWalletName(e.target.value); setValue('walletNameField', e.target.value, {shouldValidate: true})}} type='text'></input>
 
               <div className={`input-error ${errors.walletNameField?'':'invisible'}`}>
                 { errors.walletNameField?.message || 'Wallet name is required'}
-              </div> 
+              </div>
             </div>
-            
-            <div className='custom-control'> 
-              <input name="passwordField" {...register("passwordField", { required: true, 
+
+            <div className='custom-control'>
+              <input name="passwordField" {...register("passwordField", { required: true,
                     minLength: {
                       value: 8,
                       message: 'Minimum of 8 characters'
@@ -222,17 +222,17 @@ const Recovery = () => {
                       message: 'Maximum of 512 characters'
                     },
                     validate: (value)=>RegExp(passwordValidationInfo.strongRegex).test(value) || passwordValidationInfo.passwordCriteria
-                  })} 
-                className={`w-100 custom-label ${errors.passwordField?'custom-label-error':''}`} 
-                placeholder="New password" value={password} onChange={(e) => {setPassword(e.target.value); setValue('passwordField', e.target.value, {shouldValidate: true})}} type='password'></input>
+                  })}
+                className={`w-100 custom-label ${errors.passwordField?'custom-label-error':''}`}
+                placeholder="New password" autoComplete="new-password" value={password} onChange={(e) => {setPassword(e.target.value); setValue('passwordField', e.target.value, {shouldValidate: true})}} type='password'></input>
 
               <div className={`input-error long-error-message ${errors.passwordField?'':'invisible'}`}>
                 { errors.passwordField?.message || 'New password is required'}
-              </div> 
+              </div>
             </div>
 
-            <div className='custom-control'> 
-              <input name="repeatPasswordField" {...register("repeatPasswordField", { required: true, 
+            <div className='custom-control'>
+              <input name="repeatPasswordField" {...register("repeatPasswordField", { required: true,
                     minLength: {
                       value: 8,
                       message: 'Minimum of 8 characters'
@@ -242,16 +242,16 @@ const Recovery = () => {
                       message: 'Maximum of 512 characters'
                     },
                     validate: (value)=>validatePasswords(value)
-                  })} 
-                className={`w-100 custom-label ${errors.repeatPasswordField?'custom-label-error':''}`} 
-                placeholder="Confirm password" value={repeatPassword} onChange={(e) => {setRepeatPassword(e.target.value); setValue('repeatPasswordField', e.target.value, {shouldValidate: true})}} type='password'></input>
+                  })}
+                className={`w-100 custom-label ${errors.repeatPasswordField?'custom-label-error':''}`}
+                placeholder="Confirm password" autoComplete="new-password" value={repeatPassword} onChange={(e) => {setRepeatPassword(e.target.value); setValue('repeatPasswordField', e.target.value, {shouldValidate: true})}} type='password'></input>
 
               <div className={`input-error ${errors.repeatPasswordField?'':'invisible'}`}>
                 { errors.repeatPasswordField?.message || 'Please confirm password'}
-              </div> 
+              </div>
             </div>
 
-            <input className={`button primary w-100 text-white`} 
+            <input className={`button primary w-100 text-white`}
               value='Next' type="submit" name="submitButton"></input>
           </form>
 
@@ -264,7 +264,7 @@ const Recovery = () => {
           <div className='mt-4 button primary' onClick={nextStep}>Done</div>
         </div>
       }
-      
+
       <ProgressSteps currentStep={currentFlowStep} maxSteps={3}/>
     </div>
   );

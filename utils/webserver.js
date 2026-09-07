@@ -1,37 +1,44 @@
-// Do this as the first thing so that any code reading it knows the right env.
+/**
+ * Start the local Webpack development server used by the unpacked extension.
+ *
+ * The environment is initialized before webpack.config.js is loaded because
+ * that module reads NODE_ENV and ASSET_PATH while it is being evaluated.
+ */
 process.env.BABEL_ENV = 'development';
 process.env.NODE_ENV = 'development';
 process.env.ASSET_PATH = '/';
 
-var WebpackDevServer = require('webpack-dev-server'),
-  webpack = require('webpack'),
-  config = require('../webpack.config'),
-  env = require('./env'),
-  path = require('path');
+const WebpackDevServer = require('webpack-dev-server');
+const webpack = require('webpack');
+const config = require('../webpack.config');
+const env = require('./env');
+const path = require('path');
 
-var options = config.chromeExtensionBoilerplate || {};
-var excludeEntriesToHotReload = options.notHotReload || [];
+const boilerplateOptions = config.chromeExtensionBoilerplate || {};
+const excludedEntries = new Set(boilerplateOptions.notHotReload || []);
 
-for (var entryName in config.entry) {
-  if (excludeEntriesToHotReload.indexOf(entryName) === -1) {
+Object.keys(config.entry).forEach((entryName) => {
+  if (!excludedEntries.has(entryName)) {
     config.entry[entryName] = [
       'webpack/hot/dev-server',
       `webpack-dev-server/client?hot=true&hostname=localhost&port=${env.PORT}`,
     ].concat(config.entry[entryName]);
   }
-}
+});
 
+// HMR modules are added to each eligible entry above, so Webpack Dev Server's
+// automatic client injection stays disabled in the server options below.
 config.plugins = [new webpack.HotModuleReplacementPlugin()].concat(
   config.plugins || []
 );
 
 delete config.chromeExtensionBoilerplate;
 
-var compiler = webpack(config);
+const compiler = webpack(config);
 
-var server = new WebpackDevServer(
+const server = new WebpackDevServer(
   {
-    https: false,
+    server: 'http',
     hot: false,
     client: false,
     host: 'localhost',
@@ -46,15 +53,19 @@ var server = new WebpackDevServer(
     headers: {
       'Access-Control-Allow-Origin': '*',
     },
-    allowedHosts: 'all',
+    allowedHosts: ['localhost'],
   },
   compiler
 );
 
-if (process.env.NODE_ENV === 'development' && module.hot) {
-  module.hot.accept();
-}
+const startDevelopmentServer = async () => {
+  try {
+    await server.start();
+    console.log(`Webpack Dev Server listening on http://localhost:${env.PORT}`);
+  } catch {
+    console.error('Could not start Webpack Dev Server. Inspect the local process for details.');
+    process.exitCode = 1;
+  }
+};
 
-(async () => {
-  await server.start();
-})();
+startDevelopmentServer();

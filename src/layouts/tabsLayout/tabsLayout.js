@@ -16,6 +16,8 @@ import ChangeNode from '../../pages/settings/change-node/change-node';
 import ChangeChainId from '../../pages/settings/change-chainId/change-chainId';
 import ExportMnemonic from '../../pages/settings/export-mnemonic/export-mnemonic';
 import ChangeAddress from '../../pages/settings/change-address/change-address';
+import AutoLock from '../../pages/settings/auto-lock/auto-lock';
+import ConnectedSites from '../../pages/settings/connected-sites/connected-sites';
 
 const TabsLayout = () => {
   const location = useLocation();
@@ -24,7 +26,7 @@ const TabsLayout = () => {
     "receive",
     "settings"
   ]
-  
+
   return (
     <div>
       <MenuHeader backButton={pagesWithBackButton.some(page=>location.pathname.includes(page))} />
@@ -35,16 +37,17 @@ const TabsLayout = () => {
             <Route path="dashboard" element={<Dashboard/>}/>
             <Route path="dashboard/send" element={<Send/>}/>
             <Route path="dashboard/receive" element={<Receive/>}/>
-            
+
             <Route path="delegate" element={<Delegate/>}/>
             <Route path="plasma" element={<Plasma/>}/>
             <Route path="stake" element={<Stake/>}/>
             <Route path="change-address" element={<ChangeAddress/>}/>
             <Route path="settings" element={<Settings/>}/>
-            {/* <Route path="settings/change-password" element={<ChangeNode/>}/> */}
             <Route path="settings/export-mnemonic" element={<ExportMnemonic/>}/>
             <Route path="settings/change-node" element={<ChangeNode/>}/>
             <Route path="settings/change-chainId" element={<ChangeChainId/>}/>
+            <Route path="settings/auto-lock" element={<AutoLock/>}/>
+            <Route path="settings/connected-sites" element={<ConnectedSites/>}/>
           </Routes>
         </AnimatePresence>
         <MenuTabs />
