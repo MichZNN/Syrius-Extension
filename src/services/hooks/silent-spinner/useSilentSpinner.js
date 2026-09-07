@@ -1,25 +1,32 @@
-import React from "react";
+import { useCallback, useState } from 'react';
 
-export default () => {
-  let [silentSpinner, setSilentSpinner] = React.useState(false);
-  let [silentSpinnerContent, setSpinnerPowContent] = React.useState("Loading ...");
+// The unobtrusive one: background work that should be visible but must not take
+// the screen away, such as receiving pending blocks. Same counted show/hide as
+// the blocking spinner, for the same reason.
+const useSilentSpinner = () => {
+  const [depth, setDepth] = useState(0);
+  const [silentSpinnerContent, setSilentSpinnerContent] = useState('');
 
-  let handleSilentSpinner = (content = false) => {
-
-    // 
-    // How to use
-    // 
-    // const { handleSilentSpinner } = useContext(SpinnerPowContext);
-    // const showSilentSpinner = handleSilentSpinner(<div>Whatever message you want here</div>);
-    // showSilentSpinner(false);
-  
-    setSilentSpinner(!silentSpinner);
-    if (content) {
-      setSpinnerPowContent(content);
+  const showSilentSpinner = useCallback((content) => {
+    if (content !== undefined) {
+      setSilentSpinnerContent(content);
     }
+    setDepth((current) => current + 1);
+  }, []);
 
-    return setSilentSpinner;
+  const hideSilentSpinner = useCallback(() => {
+    setDepth((current) => Math.max(0, current - 1));
+  }, []);
+
+  const updateSilentSpinner = useCallback((content) => setSilentSpinnerContent(content), []);
+
+  return {
+    silentSpinner: depth > 0,
+    silentSpinnerContent,
+    showSilentSpinner,
+    hideSilentSpinner,
+    updateSilentSpinner,
   };
-
-  return { silentSpinner, handleSilentSpinner, silentSpinnerContent };
 };
+
+export default useSilentSpinner;

@@ -1,17 +1,17 @@
-import React from "react";
-import useSpinner from "./useSpinner";
-import Spinner from "./spinner";
+import React from 'react';
+import useSpinner from './useSpinner';
+import Spinner from './spinner';
 
-let SpinnerContext;
-let { Provider } = (SpinnerContext = React.createContext());
+const SpinnerContext = React.createContext();
 
-let SpinnerProvider = ({ children }) => {
-  let { spinner, handleSpinner, spinnerContent } = useSpinner();
+const SpinnerProvider = ({ children }) => {
+  const value = useSpinner();
+
   return (
-    <Provider value={{ spinner, handleSpinner, spinnerContent }}>
+    <SpinnerContext.Provider value={value}>
       <Spinner />
       {children}
-    </Provider>
+    </SpinnerContext.Provider>
   );
 };
 

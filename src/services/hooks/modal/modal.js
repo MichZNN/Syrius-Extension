@@ -1,22 +1,38 @@
-import React, {useContext} from "react";
-import ReactDOM from "react-dom";
-import { ModalContext } from "./modalContext";
+import React, { useContext, useEffect } from 'react';
+import ReactDOM from 'react-dom';
+import { ModalContext } from './modalContext';
 
 const Modal = () => {
-  let { modalContent, handleModal, modal } = useContext(ModalContext);
-  if (modal) {
-    return ReactDOM.createPortal(
-      <>
-      <div
-        className="modal-backdrop"
-        onClick={() => handleModal()}></div>
-        <div className="modal-container text-white">
-          {modalContent}
-        </div>
-      </>,
-      document.querySelector("#modal-root")
-    );
-  } else return null;
+  const { modal, modalContent, closeModal } = useContext(ModalContext);
+  const root = document.querySelector('#modal-root');
+
+  // A confirmation people cannot dismiss with Escape feels stuck.
+  useEffect(() => {
+    if (!modal) {
+      return undefined;
+    }
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        closeModal();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [modal, closeModal]);
+
+  if (!modal || !root) {
+    return null;
+  }
+
+  return ReactDOM.createPortal(
+    <>
+      <div className="modal-backdrop" onClick={closeModal} />
+      <div className="modal-container text-white" role="dialog" aria-modal="true">
+        {modalContent}
+      </div>
+    </>,
+    root
+  );
 };
 
 export default Modal;

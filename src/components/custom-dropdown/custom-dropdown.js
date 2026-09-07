@@ -1,71 +1,98 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-const CustomDropdown = React.forwardRef(({name, className, options, onChange, onBlur, value, label, placeholder, displayKey = false, validationOptions}, ref) => {
-  const [isOpened, setIsOpened] = useState(false);
-  const selectRef = useRef(ref);
-  const [selectedIndex, setSelectedIndex] = useState();
+// A select.
+//
+// Three things were wrong with the old one. It had an effect keyed on `value`
+// that called `onChange` — a component telling its parent about a change the
+// parent had just told it about, which re-entered react-hook-form's validation
+// on every render pass. It used `options.filter` as a `forEach` and set state
+// from inside the predicate. And it never closed on an outside click, so
+// opening one and clicking elsewhere left it hanging over the screen.
 
-  const clickControl = () => {
-    setIsOpened(!isOpened);
-  }
+const readPath = (path, object) =>
+  path ? path.split('.').reduce((value, key) => (value === null || value === undefined ? '' : value[key]), object) : object;
 
-  const clickOption = (i, value) => {
-    setSelectedIndex(i);
-    onChange(i, value);
-    setIsOpened(!isOpened);
-  }
+const CustomDropdown = React.forwardRef(
+  ({ name, className, options = [], onChange, onBlur, value, label, placeholder, displayKey = false }, ref) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const rootRef = useRef(null);
 
-  useEffect(() => {
-    function onSelectBlur() {
-      onBlur();
-    }
-    if (selectRef && selectRef.current) {
-        selectRef.current.addEventListener("onmouseout", onSelectBlur, false);
-        return () => {
-          if (selectRef && selectRef.current) {
-                selectRef.current.removeEventListener("onmouseout", onSelectBlur, false);
-          }
-      };
-    }
-  }, []);
+    // Derived, not stored: the selection follows `value` rather than being a
+    // second copy of it that can drift.
+    const selectedIndex = useMemo(
+      () => options.findIndex((option) => option === value),
+      [options, value]
+    );
 
-  useEffect(() => {
-    options.filter((currentValue, i)=>{
-      if(currentValue === value){
-        setSelectedIndex(i);
-        setIsOpened(false);
-        onChange(i, value);
+    useEffect(() => {
+      if (!isOpen) {
+        return undefined;
       }
-    });
-  }, [value]);
+      const onPointerDown = (event) => {
+        if (!rootRef.current?.contains(event.target)) {
+          setIsOpen(false);
+          onBlur?.();
+        }
+      };
+      const onKeyDown = (event) => {
+        if (event.key === 'Escape') {
+          setIsOpen(false);
+        }
+      };
+      document.addEventListener('mousedown', onPointerDown);
+      document.addEventListener('keydown', onKeyDown);
 
-  return (
-      <div className={`Dropdown-root ${isOpened?'is-open':''}`}>
-        <div className='dropdown-label'>
-            {label || ""}
-        </div>
-        <div className={`${className} w-100 Dropdown-control`} tabIndex="0"
-          onClick={clickControl} ref={selectRef}>
-            <span>
-              {(displayKey ? displayKey.split('.').reduce((p,c)=>p&&p[c]||"", options[selectedIndex])
-                  :options[selectedIndex])
-              || placeholder} 
-              </span>
-            <span className='Dropdown-arrow'></span>
-        </div>
-     
-        <div className='mt-0 Dropdown-menu'>
-          {options.map(function(currentValue, i){
-            if(options.length === 1 || currentValue !== value){
-              return <div className='Dropdown-option' key={i} onClick={() => clickOption(i, currentValue)}>{
-                displayKey ? displayKey.split('.').reduce((p,c)=>p&&p[c]||"", currentValue)
-                :currentValue
-              }</div>;
+      return () => {
+        document.removeEventListener('mousedown', onPointerDown);
+        document.removeEventListener('keydown', onKeyDown);
+      };
+    }, [isOpen, onBlur]);
+
+    const selectOption = (index, option) => {
+      setIsOpen(false);
+      onChange?.(index, option);
+    };
+
+    const selectedLabel =
+      selectedIndex >= 0 ? readPath(displayKey, options[selectedIndex]) : '';
+
+    return (
+      <div className={`Dropdown-root ${isOpen ? 'is-open' : ''}`} ref={rootRef}>
+        {label && <div className="dropdown-label">{label}</div>}
+
+        <div
+          className={`${className || ''} w-100 Dropdown-control`}
+          tabIndex="0"
+          role="button"
+          ref={ref}
+          onClick={() => setIsOpen((open) => !open)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              setIsOpen((open) => !open);
             }
-          })}
+          }}
+        >
+          <span>{selectedLabel || placeholder}</span>
+          <span className="Dropdown-arrow" />
         </div>
-    </div>
-  );
-});
+
+        {isOpen && (
+          <div className="Dropdown-menu">
+            {options.map((option, index) => (
+              <div
+                className={`Dropdown-option ${index === selectedIndex ? 'is-selected' : ''}`}
+                key={`${name}-option-${index}`}
+                onClick={() => selectOption(index, option)}
+              >
+                {readPath(displayKey, option)}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+);
 
 export default CustomDropdown;

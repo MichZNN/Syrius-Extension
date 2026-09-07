@@ -1,109 +1,140 @@
 import React from 'react';
-import { toast } from 'react-toastify';
+import { useSelector } from 'react-redux';
+
 import ExternalLinkIcon from '../../animated-icons/external-link/external-link';
+import Icon from '../icon/icon';
+import { copyToClipboard } from '../../services/utils/notify';
+import { formatAmount, truncateAddress } from '../../services/utils/format';
+import { transactionUrl, currentExplorerLabel } from '../../services/utils/explorer';
 
-const TransactionItem = ({type, amount, tokenSymbol, address, hash, displayFullAddress=false}) => {
+// One row of account history.
+//
+// The icon used to be picked by a twenty-line block of conditionals duplicated
+// once for ZNN and once for everything else, the explorer link pointed at
+// mainnet regardless of the chain the wallet was signing for, and a block the
+// network had not yet settled looked exactly like one it had.
+
+const TransactionItem = ({
+  type,
+  label,
+  icon = 'send',
+  amount,
+  decimals,
+  tokenSymbol,
+  address,
+  counterpartyName,
+  hash,
+  isUnconfirmed = false,
+  confirmations = 0,
+  displayFullAddress = false,
+  isGeneratingPlasma = false,
+  isFailed = false,
+  error = '',
+  onDismiss,
+}) => {
+  const chainId = useSelector((state) => state.connectionParameters.chainIdentifier);
+  const explorerLink = transactionUrl(hash, chainId);
+  // Naming the explorer beats "Open in explorer": it tells the user where the
+  // click lands and doubles as confirmation that the setting took effect.
+  const explorerHint = `Open in ${currentExplorerLabel()}${
+    confirmations ? ` · ${confirmations} confirmations` : ''
+  }`;
+
+  const isIncoming = type === 'received';
+  // A contract call moves no coins of its own — an unfuse, a delegation, a
+  // collected reward all carry a zero-value block — so printing "0 QSR" beside
+  // one reads as a transfer that failed. Zero is never worth showing.
+  const shownAmount = formatAmount(amount, decimals);
+  const hasAmount = amount !== null && amount !== undefined && shownAmount !== '0';
+
+  // A call to an embedded contract is shown by the contract's name rather than
+  // by forty characters of `z1qxemdedded…`, which tells nobody anything.
+  const counterparty =
+    counterpartyName || (displayFullAddress ? address : truncateAddress(address));
+
   return (
-    <div className='transaction mt-2'>
-      <div className="transaction-icon mr-2">
-        {
-          tokenSymbol==='ZNN' ?
-            <>
-              {type==="received" && 
-                <img alt="" className='' src={require('./../../assets/send-left-green.svg')} width='20px'></img>
-              }
-              {(type==="sent" || type==="send") && 
-                <img alt="" className='' src={require('./../../assets/send-right-green.svg')} width='20px'></img>
-              }
-              {(type==="staked") && 
-                <img alt="" className='' src={require('./../../assets/blocks.svg')} width='18px'></img>
-              }
-              {(type==="delegated") && 
-                <img alt="" className='' src={require('./../../assets/pillar.svg')} width='18px'></img>
-              }
-              {(type==="fused") && 
-                <img alt="" className='' src={require('./../../assets/lightning.svg')} width='18px'></img>
-              }
-            </>
-          :
-            <>
-              {type==="received" && 
-                <img alt="" className='' src={require('./../../assets/send-left-blue.svg')} width='20px'></img>
-              }
-              {(type==="sent" || type==="send") && 
-                <img alt="" className='' src={require('./../../assets/send-right-blue.svg')} width='20px'></img>
-              }
-              {(type==="staked") && 
-                <img alt="" className='' src={require('./../../assets/blocks.svg')} width='18px'></img>
-              }
-              {(type==="delegated") && 
-                <img alt="" className='' src={require('./../../assets/pillar.svg')} width='18px'></img>
-              }
-              {(type==="fused") && 
-                <img alt="" className='' src={require('./../../assets/lightning.svg')} width='18px'></img>
-              }
-            </>
-        }
-
+    <div
+      className={`transaction ${isUnconfirmed ? 'is-unconfirmed' : ''} ${
+        isGeneratingPlasma ? 'is-generating-plasma' : ''
+      } ${isFailed ? 'is-failed' : ''}`}
+    >
+      {/* The halo is on the icon rather than beside it: while proof of work is
+          running this row is the only thing happening, and a 6px dot said that
+          too quietly to be read as "still working". */}
+      <div className={`transaction-icon is-${type}`}>
+        <Icon name={icon} size={15} />
       </div>
-      <div className='transaction-data'>
-        <div className='d-flex justify-content-between mr-2 transaction-data text-left'>
-          <div className='d-flex' style={{gap: '0.3rem'}}>
-            <span className=''>
-              {
-                type[0]?.toUpperCase()+type.slice(1, type.length)+" "
-              }
+
+      <div className="transaction-data">
+        <div className="transaction-line">
+          <span className="transaction-label">
+            {label}
+            {/* Proof of work takes real seconds and says so in words, because a
+                silent pulse leaves "is it stuck?" unanswered. It replaces the
+                unconfirmed dot rather than sitting next to it: a block still
+                being signed is not yet waiting on the network. */}
+            {isGeneratingPlasma && (
+              <span className="plasma-note" role="status">
+                Generating plasma…
+              </span>
+            )}
+            {/* Only while the network has not settled it. A permanent badge on
+                every row would be noise; this one goes away on its own. */}
+            {isUnconfirmed && !isGeneratingPlasma && !isFailed && (
+              <span
+                className="pending-dot"
+                role="status"
+                aria-label="Unconfirmed"
+                data-tooltip="Unconfirmed"
+              />
+            )}
+          </span>
+          {hasAmount && (
+            <span className="transaction-amount">
+              {shownAmount} {tokenSymbol}
             </span>
-            <span className='tooltip'>
-              {amount?.toFixed(0)}
-              <span className="tooltip-text text-xs mt-5">{amount}</span>
-            </span> 
-            <span>
-              {tokenSymbol}
-            </span>
-          </div>
-          <div className='text-gray text-left text-xs tooltip cursor-pointer' onClick={() => {try{navigator.clipboard.writeText(address); toast(`Address copied`, {
-            position: "bottom-center",
-            autoClose: 1000,
-            hideProgressBar: true,
-            closeOnClick: true,
-            pauseOnHover: false,
-            draggable: true,
-            newestOnTop: true,
-            type: 'success',
-            theme: 'dark'
-          })}catch(err){console.error(err)} }}>
-            {
-              type==="received" ?
-                <>
-                  {"From "}
-                </>
-              :
-              <>
-                {"To "}
-              </>
-            }
-            {
-              displayFullAddress?
-              <div className='text-xs'>{address}</div>:
-              <>
-                {address.slice(0, 3) + '...' + address.slice(-3)}
-                <span className="tooltip-text text-md ml-5 mt-5">{address}</span>
-              </>
-            }
-            <img alt="" className='ml-1' src={require('./../../assets/copy-icon.png')} width='8px'></img>
-          </div>
+          )}
         </div>
 
+        <button
+          type="button"
+          className="transaction-counterparty"
+          title={address}
+          onClick={() => copyToClipboard(address, 'Address copied')}
+        >
+          {isIncoming ? 'From ' : 'To '}
+          {counterparty}
+        </button>
+
+        {/* A send can fail minutes after it was started, by which time the
+            toast that announced it has gone. The row keeps the reason. */}
+        {isFailed && error && <div className="transaction-error">{error}</div>}
       </div>
-        <a href={'https://explorer.zenon.network/transaction/' + hash} target="_blank" rel="noreferrer">
-          <div className='tooltip'>
-            <div className='squared-button animate-on-hover'>
-              <ExternalLinkIcon></ExternalLinkIcon>
-              <span className='tooltip-text transaction-explorer-button-tooltip'>Open transaction in explorer</span>
-            </div>
-          </div>
+
+      {/* Only rendered when the current chain actually has an explorer.
+          It sat at 40% opacity with no label and no border, which read as
+          decoration rather than as something to press — hence the chip. */}
+      {/* A failed block is the one row the user has to be able to clear: it
+          will never confirm, so nothing else will ever remove it. */}
+      {onDismiss && (
+        <button type="button" className="transaction-dismiss" onClick={onDismiss} title="Dismiss">
+          <Icon name="close" size={13} />
+        </button>
+      )}
+
+      {explorerLink && (
+        <a
+          className="transaction-explorer"
+          href={explorerLink}
+          target="_blank"
+          rel="noreferrer"
+          title={explorerHint}
+          aria-label={explorerHint}
+          data-tooltip={explorerHint}
+        >
+          <ExternalLinkIcon />
         </a>
+      )}
     </div>
   );
 };

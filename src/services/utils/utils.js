@@ -1,93 +1,51 @@
-import { KeyStoreManager, Primitives, Constants } from 'znn-ts-sdk';
-const memoryPoolPageSize = 50;
+import { KeyStoreManager } from 'znn-ts-sdk';
+import { forgetAddressInfo } from './storage';
+
+// `receiveAllBlocks` moved to services/wallet/account.js, where it is bounded
+// and reports progress. The address bookkeeping moved to services/utils/storage.js,
+// which validates what it reads back. What is left here is the small stuff that
+// belongs to no particular screen.
 
 const arrayShuffle = (array) => {
-  let currentIndex = array.length,  randomIndex;
+  const result = [...array];
 
-  // While there remain elements to arrayShuffle.
-  while (currentIndex !== 0) {
-
-    // Pick a remaining element.
-    randomIndex = Math.floor(Math.random() * currentIndex);
-    currentIndex--;
-
-    // And swap it with the current element.
-    [array[currentIndex], array[randomIndex]] = [
-      array[randomIndex], array[currentIndex]];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(Math.random() * (index + 1));
+    [result[index], result[swap]] = [result[swap], result[index]];
   }
-
-  return array;
-}
-
-const receiveAllBlocks = async (zenon, currentKeyPair) => {
-  return new Promise(async (resolve, reject)=>{
-    const address = (await currentKeyPair.getAddress()).toString(); 
-    const addressObject = Primitives.Address.parse(address);
-
-    const timeout = 900000;
-    setTimeout(() => {
-      reject(`Timeout after ${timeout/1000} seconds`);
-    }, timeout);
-  
-    let getUnreceivedBlocksByAddress = await zenon.ledger.getUnreceivedBlocksByAddress(addressObject, 0, memoryPoolPageSize);
-  
-    while (getUnreceivedBlocksByAddress.count > 0) {
-      for (let block of getUnreceivedBlocksByAddress.list || []) {
-        const accountBlock = Primitives.AccountBlockTemplate.receive(block.hash);
-        console.log("receiveAllBlocks - accountBlock", accountBlock)
-        console.log("JSON.stringify(accountBlock) - accountBlock", JSON.stringify(accountBlock))
-        await zenon.send(accountBlock, currentKeyPair);
-      }
-      getUnreceivedBlocksByAddress = (await zenon.ledger
-          .getUnreceivedBlocksByAddress(addressObject, 0, memoryPoolPageSize));
-    } 
-    resolve();
-  })
-}
+  return result;
+};
 
 const loadStorageWalletNames = () => {
-  const _keyManager = new KeyStoreManager();
-  const addresses = _keyManager.listAllKeyStores();
-  let wallets = [];
+  try {
+    return Object.keys(new KeyStoreManager().listAllKeyStores() || {});
+  } catch (err) {
+    return [];
+  }
+};
 
-  if (Object.keys(addresses).length > 0) {
-    for (const key in addresses) {
-      if (addresses.hasOwnProperty(key)) {
-        wallets.push(key);
-      }
+// Removing a wallet.
+//
+// The SDK's KeyStoreManager can create and read key stores but has no way to
+// delete one, so this reaches the storage key it owns directly rather than
+// leaving people with no way to get a wallet off a shared machine. Desktop
+// Syrius has had this since the beginning.
+const walletStorageKey = 'znn.ts-wallet';
+
+const removeStorageWallet = (walletName) => {
+  try {
+    const wallets = JSON.parse(localStorage.getItem(walletStorageKey) || '{}');
+
+    if (!wallets[walletName]) {
+      return false;
     }
+    delete wallets[walletName];
+    localStorage.setItem(walletStorageKey, JSON.stringify(wallets));
+    forgetAddressInfo(walletName);
+    return true;
+  } catch (err) {
+    return false;
   }
-  return wallets;
-}
+};
 
-const defaultSelectedAddressIndex = 0;
-const defaultMaxAddressIndex = 1;
-
-const loadStorageAddressInfo = (walletName) => {
-  const defaultAddressInfo = {};
-  defaultAddressInfo[walletName] = {
-    selectedAddressIndex: defaultSelectedAddressIndex,
-    maxAddressIndex: defaultMaxAddressIndex
-  }
-  const addressInfo = JSON.parse(localStorage.getItem("addressInfo"));
-
-  if(addressInfo){
-    if(walletName && 
-      (!addressInfo[walletName] || 
-        (addressInfo[walletName] && 
-          (!addressInfo[walletName].maxAddressIndex || !addressInfo[walletName].selectedAddressIndex)))){
-      addressInfo[walletName] = defaultAddressInfo[walletName];
-    }
-    setAddressInfoToStorage(addressInfo)
-    return addressInfo[walletName]; 
-  }else{
-    setAddressInfoToStorage(defaultAddressInfo);
-    return defaultAddressInfo[walletName];
-  }
-}
-
-const setAddressInfoToStorage = (addressInfo) => {
-  localStorage.setItem("addressInfo", JSON.stringify(addressInfo));
-}
-    
-export {arrayShuffle, receiveAllBlocks, loadStorageWalletNames, loadStorageAddressInfo, setAddressInfoToStorage, defaultSelectedAddressIndex, defaultMaxAddressIndex};
+export { arrayShuffle, loadStorageWalletNames, removeStorageWallet, walletStorageKey };

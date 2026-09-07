@@ -1,22 +1,16 @@
 import React from 'react';
 
-const ProgressSteps = ({ currentStep, maxSteps }) => {
-  let steps = new Array(maxSteps).fill(0);
-  for(const step in steps) {
-    if(step <= currentStep) steps[step] = true;
-  }
-
-  return (
-    <div className='mt-4 onboarding-progress-container'>
-      {
-        steps.map((isCompleted, index) => {
-          return (
-            <div className={`current-progress ${isCompleted? 'filled' : ''}`} key={index}></div>
-          );
-        })
-      }
-    </div>
-  );
-};
+// The dots under an onboarding flow.
+//
+// It built `new Array(maxSteps)` and filled it by index, which rendered one dot
+// fewer than there were steps, and iterated with `for (const step in steps)` —
+// string keys compared against a number.
+const ProgressSteps = ({ currentStep, totalSteps }) => (
+  <div className="onboarding-progress-container">
+    {Array.from({ length: totalSteps }, (unused, index) => (
+      <div className={`current-progress ${index <= currentStep ? 'filled' : ''}`} key={index} />
+    ))}
+  </div>
+);
 
 export default ProgressSteps;
