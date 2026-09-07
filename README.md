@@ -7,7 +7,7 @@ through `znn-ts-sdk`) and never leave the machine. The extension talks to a
 Zenon node of your choosing over a websocket, and to web pages through an
 injected provider that cannot do anything without being asked first.
 
-Current version: **0.3.0**, Manifest V3. What changed against the published
+Current version: **0.3.1**, Manifest V3. What changed against the published
 `MichZNN/syrius-extension` build is in [CHANGELOG.md](CHANGELOG.md); the working
 notes behind it are in [REFACTOR.md](REFACTOR.md).
 
@@ -29,6 +29,9 @@ notes behind it are in [REFACTOR.md](REFACTOR.md).
   identifier the wallet signs for (detected from the node it is connected to).
 - **dApp bridge** — a `window.zenon` provider with per-origin permissions and a
   Connected Sites screen.
+- **Message signing** — sign a message by hand under Settings, or answer a
+  connected site's `znn_sign` request from the approval window. Byte-compatible
+  with desktop Syrius, so the same verifier accepts both.
 - **Settings** — auto-lock timer, auto-receive, explorer choice, address labels,
   backup phrase export.
 
@@ -106,8 +109,9 @@ written to `.dev-harness/wallet.json` on first run — edit that file to point t
 harness at a different mnemonic, node, chain or address index.
 
 `node utils/dapp-test.js` drives a real web page against the injected provider
-end to end — connect prompt, approval, and reconnecting without a second prompt
-— against the Chrome the harness is already running.
+end to end — connect prompt, approval, reconnecting without a second prompt, and
+a message signed through the approval window — against the Chrome the harness is
+already running.
 
 The auto-unlock only exists in builds made by the harness: it needs
 `SYRIUS_DEV_WALLET=true`, which nothing else sets, it refuses to run in a
@@ -122,7 +126,7 @@ tag, and fails the tag if it does not match `version` in `src/manifest.json`.
 Bump `src/manifest.json` and `package.json` together, then:
 
 ```bash
-git tag v0.3.0 && git push origin v0.3.0
+git tag v0.3.1 && git push origin v0.3.1
 ```
 
 The extension ID is derived from the signing key. Set a `CRX_PRIVATE_KEY` repo
@@ -163,6 +167,12 @@ const { hash } = await zenon.sendTransaction({
 // anything is signed.
 await zenon.sendAccountBlock(block);
 
+// A signature over a message, for a login challenge or a proof of ownership.
+// Prompted every time; nothing is broadcast and nothing is spent.
+const { publicKey, signature } = await zenon.signMessage(
+  `Sign in to example.com at ${new Date().toISOString()}`
+);
+
 zenon.on('accountsChanged', (accounts) => {});
 zenon.on('chainChanged', (chainId) => {});
 zenon.on('nodeChanged', (nodeUrl) => {});
@@ -171,7 +181,37 @@ await zenon.disconnect();
 ```
 
 Errors follow EIP-1193 numbering: `4001` the person declined, `4100` the origin
-is not connected, `4200` unknown method, `4900` the wallet is locked.
+is not connected, `4200` unknown method, `4900` the wallet is locked, `-32602`
+the parameters were malformed.
+
+### Verifying a signature
+
+`signMessage` is desktop Syrius' `znn_sign` under another name — it signs the
+message bytes directly with the account's Ed25519 key and answers with the
+signature and public key as hex, so one verifier covers both wallets. The
+`address` field is a convenience — it is derived from the same public key, and
+a verifier that cares should re-derive it rather than take it on trust:
+
+```js
+const bytes = (hex) => Uint8Array.from(hex.match(/../g), (b) => parseInt(b, 16));
+
+const ok = await crypto.subtle.verify(
+  'Ed25519',
+  await crypto.subtle.importKey('raw', bytes(publicKey), 'Ed25519', false, ['verify']),
+  bytes(signature),
+  new TextEncoder().encode(message)
+);
+```
+
+Two things worth knowing:
+
+- The message is encoded as **UTF-8**. Desktop passes UTF-16 code units narrowed
+  to bytes, which agrees for ASCII — what a login challenge is made of — and
+  differs for anything else.
+- A message whose UTF-8 encoding is **exactly 32 bytes** is refused. That is the
+  size of an account block hash, and signing raw bytes of that length would let
+  a site have a transaction signed by calling it a message. Pad the challenge to
+  any other length.
 
 The flat `window.postMessage({method: 'znn.requestWalletAccess'})` protocol the
 2023 build used is still relayed, so sites written against it keep working.
@@ -190,6 +230,9 @@ The flat `window.postMessage({method: 'znn.requestWalletAccess'})` protocol the
   the node URL. It is never permission to move anything: signing and sending are
   prompted every time, and connected origins can be revoked under
   Settings → Connected sites.
+- Signing a message is prompted every time too, and the message is shown
+  verbatim before the key touches it. It always signs as the address the person
+  has selected — a site cannot choose which one answers.
 
 ## License
 

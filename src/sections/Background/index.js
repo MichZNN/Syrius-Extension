@@ -20,6 +20,11 @@ import requests from './requests';
 const unlockKey = 'znn.unlock';
 const publicStateKey = 'znn.publicState';
 
+// Kept in step with `services/wallet/signMessage.js`, and duplicated rather
+// than imported: this file is a service worker that deliberately does not link
+// the SDK, and that module reaches the vault through it.
+const maxSignMessageLength = 8192;
+
 //
 // Errors a page sees. The numbering follows EIP-1193 so that anything written
 // against a browser wallet before behaves the way its author expected.
@@ -31,6 +36,10 @@ const errors = {
   disconnected: { code: 4900, message: 'The wallet is locked' },
   internal: { code: -32603, message: 'Internal error' },
 };
+
+// A malformed call, said in the caller's own terms. `-32602` is JSON-RPC's
+// invalid-params, which is what EIP-1193 leaves this case to.
+const invalidParams = (message) => ({ code: -32602, message });
 
 //
 // Sender checks. Every handler below starts from one of these two, because the
@@ -127,7 +136,12 @@ const queueApproval = async (type, { id, target, origin, sender, params }) => {
     favicon: sender.tab?.favIconUrl || '',
     createdAt: Date.now(),
   });
-  await requests.openApprovalWindow();
+  // Stamped with the window it is actually shown in, so that closing that
+  // window answers for this request and for no other. See requests.attachWindow
+  // — without it, a request queued in the gap between one window closing and
+  // the next opening was rejected as "user rejected" without ever being drawn.
+  const windowId = await requests.openApprovalWindow();
+  await requests.attachWindow(id, windowId);
 };
 
 //
@@ -182,6 +196,34 @@ const providerMethods = {
       throw errors.unauthorized;
     }
     await queueApproval('signAndSendBlock', { id, target, origin, sender, params });
+    return { settled: false };
+  },
+
+  // Signing a message. Nothing is broadcast and nothing is spent, but it is
+  // still the account's key answering a stranger's question, so it is prompted
+  // every time exactly like the two above.
+  //
+  // Desktop Syrius passes the message as the bare `params` string; the provider
+  // in this extension sends `{message}` like every other method here. Both are
+  // accepted and normalised to one shape, so the queue and the approval screen
+  // only ever see the one.
+  znn_sign: async ({ id, origin, target, sender, params }) => {
+    if (!(await permissions.isConnected(origin))) {
+      throw errors.unauthorized;
+    }
+    const message = typeof params === 'string' ? params : params?.message;
+
+    if (typeof message !== 'string' || !message.length) {
+      throw invalidParams('znn_sign expects a message string');
+    }
+    // Bounded here rather than at the approval screen: the request sits in
+    // session storage until somebody answers it, and a page must not be able to
+    // fill that with a megabyte nobody asked for. The screen enforces the same
+    // limit again before signing.
+    if (message.length > maxSignMessageLength) {
+      throw invalidParams(`A message can be at most ${maxSignMessageLength} characters`);
+    }
+    await queueApproval('signMessage', { id, target, origin, sender, params: { message } });
     return { settled: false };
   },
 };
@@ -349,15 +391,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Closing the approval window is an answer: it means no. Without this the page
 // waits forever on a promise nobody is ever going to settle.
+//
+// It answers for the requests THAT window was showing, and only those. The
+// queue as a whole is not the same thing: a site whose connect has just been
+// approved sends its next request immediately — that is what being connected is
+// for — and it arrives while this window is closing, having been drawn to
+// nobody. Answering it "user rejected" told the page a person had declined a
+// prompt that never appeared, and it did so every time, on the first attempt,
+// for exactly the connect-then-sign shape every site uses.
 chrome.windows.onRemoved.addListener(async (windowId) => {
-  if ((await requests.getWindowId()) !== windowId) {
-    return;
-  }
-  await requests.setWindowId(null);
-
+  // Snapshotted before anything is awaited on the window itself, so a request
+  // queued during this handler is not in the list it answers for.
   const pending = await requests.list();
+  const abandoned = pending.filter((request) => request.windowId === windowId);
+
+  // Compare-and-clear: a replacement window may already have claimed the slot.
+  await requests.forgetWindow(windowId);
+
   await Promise.all(
-    pending.map(async (request) => {
+    abandoned.map(async (request) => {
       await requests.remove(request.id);
       await respond(request, request.id, undefined, errors.userRejected);
     })

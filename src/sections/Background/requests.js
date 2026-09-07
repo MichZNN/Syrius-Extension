@@ -54,6 +54,33 @@ const remove = async (id) => {
   return request || null;
 };
 
+// Records which approval window a request was actually put in front of.
+//
+// Closing a window means "no" only for the requests that window was showing.
+// Without this stamp the close handler had to answer for the whole queue, and a
+// request that arrived a millisecond after the window shut was rejected as
+// though somebody had read it and declined it.
+//
+// That is not a rare race, it is the ordinary shape of connecting to a site:
+// answering the connect empties the queue, the popup closes itself, and the
+// site — which was waiting on exactly that answer — sends its next request in
+// the same breath. It reliably came back to the page as "user rejected" for a
+// prompt that was never drawn.
+//
+// A request that has not been stamped yet is deliberately left alone by that
+// handler. It is the safe direction: an unstamped request waits for a window of
+// its own, where the worst case is a prompt the person can decline themselves.
+const attachWindow = async (id, windowId) => {
+  const pending = await readPending();
+
+  if (!pending[id]) {
+    return false;
+  }
+  pending[id].windowId = windowId;
+  await writePending(pending);
+  return true;
+};
+
 //
 // The approval window
 //
@@ -125,6 +152,21 @@ const openApprovalWindow = async () => {
   return created.id;
 };
 
+// Forgets the remembered window, but only if it is still the one being forgotten.
+//
+// A plain `setWindowId(null)` raced with the window that replaces it: Chrome
+// reports a close asynchronously, so by the time that handler runs, a request
+// arriving in the meantime may already have opened a new window and stored its
+// id. Clearing unconditionally threw that id away and left the next request
+// opening a second window beside the one already on screen.
+const forgetWindow = async (windowId) => {
+  if ((await getWindowId()) !== windowId) {
+    return false;
+  }
+  await setWindowId(null);
+  return true;
+};
+
 const closeApprovalWindow = async () => {
   const existingId = await getWindowId();
   await setWindowId(null);
@@ -146,8 +188,10 @@ const requests = {
   get,
   add,
   remove,
+  attachWindow,
   getWindowId,
   setWindowId,
+  forgetWindow,
   openApprovalWindow,
   closeApprovalWindow,
 };
