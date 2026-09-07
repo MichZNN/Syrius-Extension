@@ -1,284 +1,183 @@
-import React, { useEffect, useState, useRef } from 'react';
-import MenuHeader from '../../menu/menu-header/menu-header';
-import * as THREE from 'three';
-import { useNavigate } from 'react-router-dom';
-import {
-  KeyStoreManager,
-  Zenon
-} from 'znn-ts-sdk';
-import { useDispatch, useSelector } from 'react-redux';
-import { loadAddressInfoForWalletFromStorage, resetWalletState, storeWalletName, storeWalletPassword } from '../../../services/redux/walletSlice';
-import { useForm } from "react-hook-form";
-import ControlledDropdown from '../../../components/custom-dropdown/controlled-dropdown';
-import { toast } from 'react-toastify';
-import { storeNodeUrl } from '../../../services/redux/connectionParametersSlice';
-import { loadStorageWalletNames } from '../../../services/utils/utils';
-import { storeChainIdentifier } from '../../../services/redux/connectionParametersSlice';
-import { loadStorageAddressInfo } from './../../../services/utils/utils';
+import React, { useEffect, useRef, useState } from 'react';
+import { useDispatch } from 'react-redux';
+import { useLocation, useNavigate } from 'react-router-dom';
 
-const DashboardPassword = () => { 
-  const [walletPassword, setWalletPassword] = useState("");
+import MenuHeader from '../../menu/menu-header/menu-header';
+import ControlledDropdown from '../../../components/custom-dropdown/controlled-dropdown';
+import { useForm } from 'react-hook-form';
+
+import { completeUnlock } from '../../../services/wallet/bootstrap';
+import { loadStorageWalletNames } from '../../../services/utils/utils';
+import { readDevWalletConfig } from '../../../services/utils/devWallet';
+import { readableError } from '../../../services/utils/errors';
+import { notify } from '../../../services/utils/notify';
+
+// The unlock screen.
+//
+// What used to be here, besides the form: a full three.js scene — perspective
+// camera, point light, directional light, a textured sphere and a
+// `mousemove` listener that made it follow the pointer. That is 1.13 MiB of
+// the bundle and a WebGL context, on the screen whose entire job is to accept a
+// password quickly. It is gone.
+
+const DashboardPassword = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const dispatch = useDispatch();
 
   const [walletNames, setWalletNames] = useState([]);
-  const [unlockStatusLabel, setUnlockStatusLabel] = useState("Unlock");
-  const [selectedWallet, setSelectedWallet] = useState(walletNames[0] || ""); 
-  const connectionParameters = useSelector(state => state.connectionParameters);
-  const final3Dobject = useRef({});
-  const integrationFlowState = useSelector(state => state.integrationFlow);
-  const dispatch = useDispatch();
-  const { register, control, handleSubmit, formState: { errors }, setValue } = useForm();
+  const [selectedWallet, setSelectedWallet] = useState('');
+  const [password, setPassword] = useState('');
+  const [isUnlocking, setIsUnlocking] = useState(false);
+  const [wrongPassword, setWrongPassword] = useState(false);
+  const passwordInput = useRef(null);
 
-  const onFormSubmit = (data) => {
-    unlockWallet(walletPassword, selectedWallet);
+  const {
+    register,
+    control,
+    handleSubmit,
+    formState: { errors },
+    setValue,
+  } = useForm();
+
+  // Where to go once the wallet opens. A dApp approval sets this so the request
+  // that opened the popup is not lost behind the password prompt.
+  const returnTo = location.state?.returnTo || '/tabs';
+
+  const passwordField = register('passwordField', { required: true });
+
+  const unlock = async (walletPassword, walletName) => {
+    if (!walletName) {
+      notify.error('Choose a wallet first.');
+      return;
+    }
+    setIsUnlocking(true);
+    setWrongPassword(false);
+
+    try {
+      await completeUnlock({ walletName, password: walletPassword, dispatch });
+      navigate(returnTo, { replace: true });
+    } catch (err) {
+      const message = readableError(err);
+
+      // A wrong password is the expected outcome here, not an incident. It gets
+      // inline treatment on the field; anything else is a real error.
+      if (message === 'Wrong password.') {
+        setWrongPassword(true);
+        setPassword('');
+        setValue('passwordField', '', { shouldValidate: false });
+        passwordInput.current?.focus();
+      } else {
+        notify.error(err);
+      }
+      setIsUnlocking(false);
+    }
   };
 
-useEffect(() => {
-  dispatch(resetWalletState());
+  useEffect(() => {
+    const wallets = loadStorageWalletNames();
+    setWalletNames(wallets);
 
-  if(!localStorage.getItem("currentNodeUrl")){
-    navigate("/initial-node-selection");
-    return;
-  }
+    // Returns null in every build that is not being driven by the dev harness,
+    // which leaves this screen exactly as it is for everybody else.
+    const devWallet = readDevWalletConfig();
 
-  const fetchData = async() => {
-    const loadedWallets = loadStorageWalletNames();
-    if(loadedWallets){
-      setWalletNames(loadedWallets);
-
-      try{
-        const credentials = await getCredentialsFromBackgroundScript();
-        setSelectedWallet(credentials.name);
-        unlockWallet(credentials.password, credentials.name)
-      }
-      catch(err){
-        if(loadedWallets.length === 1){
-          setSelectedWallet(loadedWallets[0] || "");
-        }
-      }
+    if (devWallet) {
+      setSelectedWallet(devWallet.walletName);
+      setValue('selectedWalletField', devWallet.walletName, { shouldValidate: true });
+      unlock(devWallet.password, devWallet.walletName);
+      return;
     }
-  }
-  fetchData();
-  
-  setTimeout(() => {
-    if(document.getElementById('moving-scene')){
-      renderMovingBall()
-    }  
-  }, 10);
-}, []);
 
-const getCredentialsFromBackgroundScript = () => {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({
-      message: "internal.getCredentialsFromBackgroundScript", 
-    },(credentials)=>{
-      if(credentials !== false){
-        resolve(credentials);
-      }else{
-        reject(false);
-      }
-    });
-  })
-
-}
-
-const storeCredentialsToBackgroundScript = (pass, name) => {
-  chrome.runtime.sendMessage({
-    message: "internal.storeCredentialsToBackgroundScript", 
-    data: {
-      name: name,
-      password: pass,
+    // One wallet is the overwhelmingly common case; preselecting it turns the
+    // screen into a single field.
+    if (wallets.length === 1) {
+      setSelectedWallet(wallets[0]);
+      setValue('selectedWalletField', wallets[0], { shouldValidate: true });
     }
-  });
-}
+    passwordInput.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-const onSelectWallet = (index, value) => {
-  setSelectedWallet(value);
-}
-
-const getAddressFromDecrypted = async(decrypted, addressIndex) => {
-  const currentKeyPair = decrypted.getKeyPair(addressIndex);
-  const addr = (await currentKeyPair.getAddress()).toString();
-  return addr;
-}
-
-const sendChangeAddressEvent = async (newAddress) => {
-  chrome.runtime.sendMessage({
-    message: "znn.addressChanged", 
-    data: {newAddress: newAddress}
-  });
-} 
-
-const unlockWallet = async (pass, name)=>{
-  const _keyManager = new KeyStoreManager();
-  setUnlockStatusLabel("Unlocking in progress ...");
-
-  try{
-    const decrypted = await _keyManager.readKeyStore(pass, name);
-
-    if(decrypted){
-      dispatch(storeWalletName(name));
-      dispatch(storeWalletPassword(pass));
-      
-      const zenon = Zenon.getSingleton();
-
-      const currentNodeUrl = localStorage.getItem("currentNodeUrl") || connectionParameters.nodeUrl;
-      localStorage.setItem("currentNodeUrl", currentNodeUrl);
-
-      await zenon.initialize(currentNodeUrl);
-      dispatch(storeNodeUrl(currentNodeUrl));
-      dispatch(storeChainIdentifier(Zenon.getChainIdentifier()));
-      dispatch(loadAddressInfoForWalletFromStorage(name));
-
-      setUnlockStatusLabel("Unlocked !");
-      storeCredentialsToBackgroundScript(pass, name);
-    
-      if(integrationFlowState.currentIntegrationFlow !== ""){
-        navigate("/site-integration");
-      }
-      else{
-        const addressInfo = loadStorageAddressInfo(name);
-        console.log("addressInfo", addressInfo);
-  
-        sendChangeAddressEvent(await getAddressFromDecrypted(decrypted, addressInfo.selectedAddressIndex));
-  
-        navigate("/tabs");
-      }
-  
-    }
-    else{
-      setUnlockStatusLabel("Wrong password");
-      setTimeout(()=>{
-        setUnlockStatusLabel("Unlock");
-      },2500);
-
-      console.error("Error decrypting");
-    }
-  }
-  catch(err){
-    let readableError = err;
-    if(err.message) {
-      readableError = err.message;
-    }
-    readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
-
-    console.error("Error ", readableError);
-    toast(readableError + "",{
-      position: "bottom-center",
-      autoClose: 2500,
-      hideProgressBar: false,
-      closeOnClick: true,
-      pauseOnHover: true,
-      draggable: true,
-      newestOnTop: true,
-      type: 'error',
-      theme: 'dark'
-      });
-
-    setUnlockStatusLabel("Error unlocking");
-
-    setTimeout(()=>{
-      setUnlockStatusLabel("Unlock");
-    },2500);
-  }
-}
-
-const renderMovingBall = function(){
-  const camera = new THREE.PerspectiveCamera( 70, window.innerWidth / 100, 0.1, 2000 );
-  camera.position.z = 1;
-  const scene = new THREE.Scene();
-  const geometry = new THREE.SphereGeometry(0.45, 32, 16);
-  const lgt = new THREE.PointLight()
-  lgt.position.set(0, 0, 0);
-  lgt.intensity = 0.8;
-  scene.add(lgt)
-
-  const color = 0xFFFFFF;
-  const intensity = 0.4;
-  const light = new THREE.DirectionalLight(color, intensity);
-  light.castShadow = true;
-  light.position.set(0, 1.5, 0);
-  light.target.position.set(-4, 0, -4);
-  scene.add(light);
-  scene.add(light.target);
-
-  let textureLoader = new THREE.TextureLoader();
-  const map = textureLoader.load(require('./../../../assets/cyber-eye-equirectangular.png'));
-  const mat = new THREE.MeshToonMaterial({map: map});
-  geometry.rotateY(4.71);
-  const mesh = new THREE.Mesh(geometry, mat);
-
-  final3Dobject.current = mesh;
-  scene.add( mesh );
-
-  const renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true } );
-  renderer.setSize( window.innerWidth, '100' );
-  renderer.setAnimationLoop( animation );
-
-  document.getElementById('moving-scene').appendChild( renderer.domElement );
-  
-  function animation( time ) {
-    // mesh.rotation.x = time / 2000;
-    // mesh.rotation.y = time / 1000;
-    renderer.render( scene, camera );
-  }
-
-  window.addEventListener('mousemove', function(e){
-    const mouse3D = new THREE.Vector3(
-        ( e.clientX / window.innerWidth ) * 1.5 - 0.75, // subtract for looking more to left
-        - ( e.clientY / window.innerHeight ) * 1.5 + 0.33, // subtract for looking more down
-        1.2 );
-
-      final3Dobject.current.lookAt(mouse3D);
-  })  
-}
+  const onSelectWallet = (index, value) => {
+    setSelectedWallet(value);
+    setValue('selectedWalletField', value, { shouldValidate: true });
+  };
 
   return (
-    <div className='black-bg'>
-      <MenuHeader changeNodeButton={true} />
-        <div className="d-flex w-100 justify-content-center">
-          <div className="mt-2" id="moving-scene" style={{height: '100px'}}>
-          </div>
+    <div className="black-bg screen">
+      <MenuHeader changeNodeButton />
+
+      <div className="screen-body unlock-screen">
+        <div className="unlock-mark">
+          <img alt="" src={require('../../../assets/logo.svg')} width="52" />
         </div>
-        <div className='ml-2 mr-2'>
-          <form onSubmit={handleSubmit(onFormSubmit)}>
-            <h2 className='mt-2'>Enter your password</h2>
-            <div className='mt-5'>
-              <div className='custom-control'>  
-                <ControlledDropdown dropdownComponent = 'CustomDropdown'
-                  {...register("selectedWalletField", { required: true })} control={control} 
-                  name="selectedWalletField" 
-                  options={walletNames} 
-                  onChange={onSelectWallet} 
-                  value={selectedWallet} 
-                  placeholder="Select wallet"
-                  className={`${errors.selectedWalletField?'custom-label-error':''}`} />
+        <h2 className="unlock-title">Welcome back</h2>
 
-                <div className={`input-error ${errors.selectedWalletField?.type === 'required'?'':'invisible'}`}>
-                  Wallet is required
-                </div> 
-              </div>  
-
-              <div className='custom-control'> 
-                <input name="passwordField" {...register("passwordField", { required: true })} 
-                  className={`w-100 custom-label ${errors.passwordField?'custom-label-error':''}`} 
-                  placeholder="Type your password"  value={walletPassword} onChange={(e) => {setWalletPassword(e.target.value); setValue('passwordField', e.target.value, {shouldValidate: true})}} type='password'></input>
-                
-                <div className={`input-error ${errors.passwordField?.type === 'required'?'':'invisible'}`}>
-                  Password is required
-                </div> 
+        <form onSubmit={handleSubmit(() => unlock(password, selectedWallet))}>
+          {walletNames.length > 1 && (
+            <div className="custom-control">
+              <ControlledDropdown
+                dropdownComponent="CustomDropdown"
+                {...register('selectedWalletField', { required: true })}
+                control={control}
+                name="selectedWalletField"
+                options={walletNames}
+                onChange={onSelectWallet}
+                value={selectedWallet}
+                placeholder="Select wallet"
+                className={errors.selectedWalletField ? 'custom-label-error' : ''}
+              />
+              <div className={`input-error ${errors.selectedWalletField ? '' : 'invisible'}`}>
+                Choose a wallet
               </div>
             </div>
-            
+          )}
 
-            <input value={unlockStatusLabel} type="submit" name="submitButton" className='button primary w-100 text-white'></input>
-          </form>
-          {
-            <div className='mt-5 mb-5 text-center text-gray'>
-              <b>Or <span onClick={()=>navigate('/auth')} className="text-primary cursor-pointer">create new wallet</span></b>
+          <div className="custom-control">
+            <input
+              {...passwordField}
+              ref={(element) => {
+                // react-hook-form wants the node and so does the wrong-password
+                // path, which puts the cursor back in the field.
+                passwordField.ref(element);
+                passwordInput.current = element;
+              }}
+              className={`w-100 custom-label ${
+                errors.passwordField || wrongPassword ? 'custom-label-error' : ''
+              }`}
+              placeholder="Password"
+              autoFocus
+              value={password}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                setWrongPassword(false);
+                setValue('passwordField', event.target.value, { shouldValidate: true });
+              }}
+              type="password"
+            />
+            <div
+              className={`input-error ${errors.passwordField || wrongPassword ? '' : 'invisible'}`}
+            >
+              {wrongPassword ? 'Wrong password' : 'Password is required'}
             </div>
-          }
+          </div>
+
+          <button
+            type="submit"
+            className="button primary w-100 text-white"
+            disabled={isUnlocking}
+          >
+            {isUnlocking ? 'Unlocking…' : 'Unlock'}
+          </button>
+        </form>
+
+        <div className="unlock-alternative text-gray">
+          <span className="text-primary cursor-pointer" onClick={() => navigate('/auth')}>
+            Create or import a wallet
+          </span>
         </div>
+      </div>
     </div>
   );
 };

@@ -1,200 +1,140 @@
-import React, { useEffect, useState, useContext } from 'react';
-import { useForm } from 'react-hook-form';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { toast } from 'react-toastify';
 import { Zenon } from 'znn-ts-sdk';
-import ChangeNodeItem from '../../../components/change-node-item/change-node-item';
-import { SpinnerContext } from '../../../services/hooks/spinner/spinnerContext';
-import { storeNodeUrl } from '../../../services/redux/connectionParametersSlice';
+
+import NodeList from '../../../components/node-list/node-list';
+import useNodeList from '../../../services/hooks/useNodeList';
+import { storeChainIdentifier } from '../../../services/redux/connectionParametersSlice';
+import { detectNodeChainId, mainnetChainId, parseChainId } from '../../../services/utils/chainId';
+import { notify } from '../../../services/utils/notify';
+import { announceChain } from '../../../services/wallet/announce';
+
+// Node and chain settings.
+//
+// The chain identifier is signed into every block, so a wallet pointed at a
+// devnet while still signing for mainnet produces blocks the node rejects with
+// an error that says nothing about why. The node is asked what chain it is on
+// and the mismatch is offered as a one-press fix.
 
 const ChangeNode = () => {
-  const [currentNode, setCurrentNode] = useState('');
-  const [nodeToBeAdded, setNodeToBeAdded] = useState('');
-  const { register, handleSubmit, formState: { errors }, reset, setValue } = useForm();
-  const zenon = Zenon.getSingleton();
-  const { handleSpinner } = useContext(SpinnerContext);
-  const connectionParameters = useSelector(state => state.connectionParameters);
   const dispatch = useDispatch();
-  let defaultNodes = [
-    "wss://my.hc1node.com:35998",
-    "wss://secure.deeznnodez.com:35998",
-    "ws://127.0.0.1:35998",
-  ]
+  const nodeList = useNodeList();
+  const address = useSelector((state) => state.wallet.address);
 
-  const [nodeItems, setNodeItems] = useState(JSON.parse(localStorage.getItem("nodeList")) || []);
+  const [chainId, setChainId] = useState(() => Zenon.getChainIdentifier());
+  const [draftChainId, setDraftChainId] = useState(() => String(Zenon.getChainIdentifier()));
+  const [detected, setDetected] = useState({ isDetecting: true, chainId: null });
 
-  useEffect(() => {
-    localStorage.setItem("currentNodeUrl", localStorage.getItem("currentNodeUrl") || connectionParameters.nodeUrl);
-
-    if (nodeItems.length === 0) {
-      if (!defaultNodes.includes(connectionParameters.nodeUrl)) {
-        defaultNodes.push(connectionParameters.nodeUrl);
-      }
-      setNodeItems(defaultNodes);
-      localStorage.setItem("nodeList", JSON.stringify(nodeItems));
-    }
-    setCurrentNode(connectionParameters.nodeUrl);
+  const detect = useCallback(async () => {
+    setDetected({ isDetecting: true, chainId: null });
+    setDetected({ isDetecting: false, chainId: await detectNodeChainId(Zenon.getSingleton()) });
   }, []);
 
-  const sendChangeNodeEvent = async (newNode) => {
-    chrome.runtime.sendMessage({
-      message: "znn.nodeChanged", 
-      data: {newNode: newNode}
-    });
-  } 
+  useEffect(() => {
+    detect();
+  }, [detect, nodeList.currentNode]);
 
-  const onSelectNode = async (node) => {
-    const showSpinner = handleSpinner(
-      <div>
-        Connecting to {node}
-        <div className='button secondary mt-2' onClick={() => showSpinner(false)}>Cancel</div>
-      </div>
-    );
+  // Nothing is reconnected here: the chain identifier is not a property of the
+  // connection but of the blocks this wallet signs, and the SDK reads it back
+  // from storage for every block it builds.
+  const applyChainId = async (value) => {
+    const parsed = parseChainId(value);
 
-    try {
-      showSpinner(true);
-
-      zenon.clearSocketConnection();
-      await zenon.initialize(node, false, 2500)
-      setCurrentNode(node);
-      localStorage.setItem("currentNodeUrl", node);
-      dispatch(storeNodeUrl(node));
-      sendChangeNodeEvent(node);
-      
-      toast("Updated node url", {
-        position: "bottom-center",
-        autoClose: 2500,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        newestOnTop: true,
-        type: 'success',
-        theme: 'dark'
-      });
-      showSpinner(false);
+    if (parsed === null) {
+      notify.error('The chain identifier must be a whole number, 1 or higher.');
+      return;
     }
-    catch (err) {
-      // Connect back to default node
-      try {
-        await zenon.initialize(connectionParameters.nodeUrl, false, 2500);
-        let readableError = err;
-        if (err.message) {
-          readableError = err.message;
-        }
-        readableError = (readableError + "").split("Error: ")[(readableError + "").split("Error: ").length - 1];
-  
-        console.error("Error ", readableError);
-        toast(readableError + "", {
-          position: "top-center",
-          autoClose: 2500,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          newestOnTop: true,
-          type: 'error',
-          theme: 'dark'
-        });
-        showSpinner(false);  
-      }
-      catch (err) {
-        showSpinner(false);
-        let readableError = err;
-        if (err.message) {
-          readableError = err.message;
-        }
-        readableError = (readableError + "").split("Error: ")[(readableError + "").split("Error: ").length - 1];
-  
-        console.error("Error ", readableError);
-        toast(readableError + "", {
-          position: "top-center",
-          autoClose: 2500,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: true,
-          draggable: true,
-          newestOnTop: true,
-          type: 'error',
-          theme: 'dark'
-        });
-        showSpinner(false);
-      }
+    Zenon.setChainIdentifier(parsed);
+    setChainId(parsed);
+    setDraftChainId(String(parsed));
+    dispatch(storeChainIdentifier(parsed));
+    await announceChain(parsed, address);
+
+    notify.success(`Signing for chain ${parsed}`);
+  };
+
+  const detectedLabel = () => {
+    if (detected.isDetecting) {
+      return 'Asking the node…';
     }
-  }
+    if (detected.chainId === null) {
+      return 'This node did not report a chain';
+    }
+    return `This node is on chain ${detected.chainId}`;
+  };
 
-  const addNodeItem = (node) => {
-    let updatedNodes = [];
-    setNodeItems(prevNodes => {
-      updatedNodes = [...prevNodes, node];
-      return updatedNodes;
-    })
-    setNodeToBeAdded("");
-
-    localStorage.setItem("nodeList", JSON.stringify(updatedNodes));
-  }
-
-  const removeNodeItem = (node) => {
-    let updatedNodes = [];
-    setNodeItems(prevNodes => {
-      updatedNodes = prevNodes.filter((v) => v !== node)
-      return updatedNodes;
-    })
-
-    localStorage.setItem("nodeList", JSON.stringify(updatedNodes));
-  }
-
-  const isInNodeList = (nodeList, node) => {
-    return nodeList.some(nodeInList => node === nodeInList)
-  }
-
-  const validateAddNode = (input) => {
-    if (input.startsWith("ws://") || input.startsWith("wss://")) {
-      if (isInNodeList(nodeItems, input)) {
-        return "Node already in list"
-      } else return true;
-    } else return "Invalid address"
-  }
+  const isMismatched =
+    !detected.isDetecting && detected.chainId !== null && detected.chainId !== chainId;
 
   return (
-    <div className='black-bg'>
-      <h1 className='mt-1'>Change node</h1>
+    <div className="page">
+      <NodeList
+        nodes={nodeList.nodes}
+        currentNode={nodeList.currentNode}
+        onSelect={nodeList.select}
+        onRemove={nodeList.remove}
+        onAdd={nodeList.add}
+        isValidNodeUrl={nodeList.isValidNodeUrl}
+        disabled={nodeList.isConnecting}
+      />
 
-      <div className='mt-2 ml-2 mr-2'>
-        {
-          nodeItems.map((item, index) => {
-            return <ChangeNodeItem isSelected={currentNode === item} key={"change-node-item-" + index} onSelect={onSelectNode} onRemove={removeNodeItem} url={item}></ChangeNodeItem>
-          })
-        }
+      <h3 className="section-title">Chain identifier</h3>
 
-        <form className='mt-2' id="addNodeForm" onSubmit={handleSubmit(() => addNodeItem(nodeToBeAdded))}>
-          <div className='custom-control'>
-            <div className={`w-100`}>
-              <input name="nodeToBeAddedField" {...register("nodeToBeAddedField",
-                {
-                  required: true,
-                  validate: (input) => validateAddNode(input)
-                })}
-                className={`w-100 custom-label pr-3 ${errors.nodeToBeAddedField ? 'custom-label-error' : ''}`}
-                placeholder="Add a node (Ex. ws://192.168.0.0:35998)"
-                value={nodeToBeAdded} 
-                onChange={(e) => { setNodeToBeAdded(e.target.value); setValue('nodeToBeAddedField', e.target.value, { shouldValidate: true }) }} 
-                type='text'></input>
-
-            </div>
-
-            <div className={`input-error ${errors.nodeToBeAddedField ? '' : 'invisible'}`}>
-              {errors.nodeToBeAddedField?.message || 'Type an url'}
-            </div>
-          </div>
-        </form>
-
-        <div className='mt-2 d-flex'>
-          <input className='button primary w-100 d-flex justify-content-center text-white'
-            value={"Add node"} type="submit" form="addNodeForm" name="submitButton"></input>
+      <div className="chain-id-card">
+        <div className="chain-id-card-data">
+          <div className="chain-id-current">Signing for chain {chainId}</div>
+          <div className="text-gray text-xs">{detectedLabel()}</div>
         </div>
-
       </div>
+
+      {isMismatched && (
+        <div className="chain-id-suggestion">
+          <div className="text-xs">
+            The node is on chain <b>{detected.chainId}</b> and this wallet signs for{' '}
+            <b>{chainId}</b>. Blocks will be rejected until they match.
+          </div>
+          <button
+            type="button"
+            className="button secondary w-100 mt-2"
+            onClick={() => applyChainId(detected.chainId)}
+          >
+            Use chain {detected.chainId}
+          </button>
+        </div>
+      )}
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          applyChainId(draftChainId);
+        }}
+      >
+        <div className="custom-control">
+          <div className="input-with-button w-100">
+            <input
+              className="w-100 custom-label pr-3"
+              placeholder={`Chain identifier (${mainnetChainId} is mainnet)`}
+              value={draftChainId}
+              onChange={(event) => setDraftChainId(event.target.value)}
+              inputMode="numeric"
+              type="text"
+            />
+            <button type="submit" className="input-chip-button">
+              Save
+            </button>
+          </div>
+        </div>
+      </form>
+
+      {chainId !== mainnetChainId && (
+        <button
+          type="button"
+          className="button secondary w-100"
+          onClick={() => applyChainId(mainnetChainId)}
+        >
+          Back to mainnet
+        </button>
+      )}
     </div>
   );
 };

@@ -1,136 +1,103 @@
-import React, { useEffect, useState, useContext, useRef } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { KeyStoreManager, Constants } from 'znn-ts-sdk';
+
 import ChangeAddressItem from '../../../components/change-address-item/change-address-item';
-import { SpinnerContext } from '../../../services/hooks/spinner/spinnerContext';
-import { storeMaxAddressIndex, storeSelectedAddressIndex } from '../../../services/redux/walletSlice';
-import { toast } from 'react-toastify';
+import { storeMaxAddressIndex, storeSelectedAddress } from '../../../services/redux/walletSlice';
+import { getLabels, setLabel, setAddressInfo } from '../../../services/utils/storage';
+import { notify } from '../../../services/utils/notify';
+import { announceAddress } from '../../../services/wallet/announce';
+import { invalidateAccountCache } from '../../../services/hooks/useAccount';
+import session from '../../../services/wallet/session';
+import vault from '../../../services/wallet/vault';
+
+// Choosing which derived address the wallet is using.
+//
+// It used to re-open the keystore — an Argon2id run — every time it rendered
+// the list or added an address, and it wrote the whole `addressInfo` blob back
+// to localStorage from three different places with slightly different contents.
+// Deriving now goes through the already-open keystore, and the write goes
+// through one function that validates what it stores.
 
 const ChangeAddress = () => {
-  const [currentAddress, setCurrentAddress] = useState();
-  const { handleSpinner } = useContext(SpinnerContext);
-  const walletCredentials = useSelector(state => state.wallet);
   const dispatch = useDispatch();
-  let [addresses, setAddresses] = useState([]); 
-  const addressInfo = useRef({});
+  const { walletName, selectedAddressIndex, maxAddressIndex } = useSelector(
+    (state) => state.wallet
+  );
 
-  useEffect(() => {
-     const fetchAddresses = async() => {
-      await getAddresses(walletCredentials.walletPassword, walletCredentials.walletName, walletCredentials.maxAddressIndex);
-  
-      addressInfo.current = JSON.parse(localStorage.getItem("addressInfo")) || {};
-      addressInfo.current[walletCredentials.walletName] = {
-        selectedAddressIndex: walletCredentials.selectedAddressIndex,
-        maxAddressIndex: walletCredentials.maxAddressIndex
-      }
-      localStorage.setItem("addressInfo", JSON.stringify(addressInfo.current));
-      
-      setCurrentAddress(walletCredentials.selectedAddressIndex);
+  const [addresses, setAddresses] = useState([]);
+  const [labels, setLabelsState] = useState(() => getLabels());
+  const [isLoading, setIsLoading] = useState(true);
+
+  const deriveAddresses = useCallback(async (count) => {
+    setIsLoading(true);
+    try {
+      setAddresses(await vault.getAddresses(count));
+    } catch (err) {
+      notify.error(err);
+    } finally {
+      setIsLoading(false);
     }
-    fetchAddresses();
   }, []);
 
-  const getAddresses = async (pass, name, maxIndex)=>{
-    const _keyManager = new KeyStoreManager();
-    const showSpinner = handleSpinner(
-      <>
-        <div className='text-bold'>
-          Loading addresses ...
-        </div>
-      </>
-    );
-    
-    try{
-      showSpinner(true);
-      setAddresses([]);
-      const decrypted = await _keyManager.readKeyStore(pass, name);
-      let newAddresses = [];
-      if(decrypted){
-        for(let i = 0 ; i<maxIndex; i++){
-          const currentKeyPair = decrypted.getKeyPair(i);
-          const addr = (await currentKeyPair.getAddress()).toString();
-          newAddresses.push(addr);
-        }
+  useEffect(() => {
+    deriveAddresses(maxAddressIndex);
+  }, [deriveAddresses, maxAddressIndex]);
 
-        setAddresses(prevAddresses => {
-          addresses = [...prevAddresses, ...newAddresses];
-          return addresses
-        });
+  const select = async (index) => {
+    const address = addresses[index];
 
-      }
-      else{
-        console.error("Error decrypting");
-      }
-      showSpinner(false);
+    if (!address) {
+      return;
     }
-    catch(err){
-      showSpinner(false);
-      console.error("Error ", err);
-    }
-  }
-  
-  const sendChangeAddressEvent = async (newAddress) => {
-    chrome.runtime.sendMessage({
-      message: "znn.addressChanged", 
-      data: {newAddress: newAddress}
-    });
-  } 
+    setAddressInfo(walletName, { selectedAddressIndex: index, maxAddressIndex });
+    vault.setSelectedIndex(index);
+    dispatch(storeSelectedAddress({ index, address }));
 
-  const onSelectAddress = async (address) => {
-    setCurrentAddress(address);
-    dispatch(storeSelectedAddressIndex(address));
-    
-    addressInfo.current[walletCredentials.walletName] = {
-      selectedAddressIndex: address,
-      maxAddressIndex: walletCredentials.maxAddressIndex
-    }
-    localStorage.setItem("addressInfo", JSON.stringify(addressInfo.current));
+    // The cached balances belong to the address being left behind.
+    invalidateAccountCache();
+    await session.touch({ selectedAddressIndex: index });
+    await announceAddress(address);
 
-    sendChangeAddressEvent(addresses[address]);
-  
-    toast(`Successfully changed address`, {
-      position: "top-center",
-      autoClose: 2500,
-      hideProgressBar: false,
-      closeOnClick: true,
-      pauseOnHover: true,
-      draggable: true,
-      newestOnTop: true,
-      type: 'success',
-      theme: 'dark'
-    });
-  }
-   
-  const addAddress = () => {    
-    addressInfo.current[walletCredentials.walletName] = {
-      selectedAddressIndex: walletCredentials.selectedAddressIndex,
-      maxAddressIndex: walletCredentials.maxAddressIndex+1
-    }
-    localStorage.setItem("addressInfo", JSON.stringify(addressInfo.current));
+    notify.success('Address changed');
+  };
 
-    dispatch(storeMaxAddressIndex(walletCredentials.maxAddressIndex+1));
+  const addAddress = () => {
+    const next = maxAddressIndex + 1;
+    setAddressInfo(walletName, { selectedAddressIndex, maxAddressIndex: next });
+    dispatch(storeMaxAddressIndex(next));
+  };
 
-    getAddresses(walletCredentials.walletPassword, walletCredentials.walletName, walletCredentials.maxAddressIndex+1);
-  }
-
+  const rename = (address, label) => {
+    setLabel(address, label);
+    setLabelsState(getLabels());
+  };
 
   return (
-    <div className='black-bg'>
-      <h1 className='mt-1'>Change address</h1>
+    <div className="page">
+      <div className="address-list">
+        {addresses.map((address, index) => (
+          <ChangeAddressItem
+            key={address}
+            address={address}
+            index={index}
+            label={labels[address]}
+            isSelected={selectedAddressIndex === index}
+            onSelect={select}
+            onRename={rename}
+          />
+        ))}
 
-      <div className='mt-2 ml-2 mr-2'>
-        {
-          addresses.map((item, index) => {
-            return <ChangeAddressItem isSelected={currentAddress === index} key={"change-address-item-" + index} index={index} onSelect={onSelectAddress} address={item}></ChangeAddressItem>
-          })
-        }
-
-        <div className='mt-2 stick-bottom d-flex'>
-          <div className='button primary w-100 d-flex justify-content-center text-white'
-            onClick={addAddress} name="submitButton">Add address</div>
-        </div>
-
+        {isLoading && !addresses.length && <p className="empty-note">Deriving addresses…</p>}
       </div>
+
+      <button
+        type="button"
+        className="button secondary w-100 mt-2"
+        onClick={addAddress}
+        disabled={isLoading}
+      >
+        Add address
+      </button>
     </div>
   );
 };

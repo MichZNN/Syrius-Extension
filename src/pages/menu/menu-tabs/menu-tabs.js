@@ -1,48 +1,56 @@
-import React, { useState } from 'react';
-import { useNavigate } from "react-router-dom";
+import React from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 
-const MenuTabs =  () => {
-  const [currentTab, setCurrentTab] = useState('dashboard');
-  const [indicatorPercentage, setIndicatorPercentage] = useState(0);
-  const navigate = useNavigate();
+import Icon from '../../../components/icon/icon';
 
-  const moveIndicator = (newTab, percentage) => {
-    setIndicatorPercentage(percentage);
-    setCurrentTab(newTab);
-    
-    setTimeout(()=>{
-      navigate(newTab);
-    }, 300);
-  }
+// The bottom navigation.
+//
+// Two things were wrong with it. The active tab was component state set on
+// click, so it had no idea about the browser back button, a redirect or a deep
+// link — going back from Send left the indicator on whichever tab was pressed
+// last. And every tap ran `setTimeout(() => navigate(tab), 300)`, so the wallet
+// answered a quarter of a second late by construction; that delay existed to
+// let an indicator animation finish, which the animation can do on its own.
+//
+// The location is the source of truth now, and navigation happens on press.
+
+const tabs = [
+  { to: 'dashboard', label: 'Home', icon: 'home' },
+  { to: 'tokens', label: 'Tokens', icon: 'tokens' },
+  { to: 'delegate', label: 'Delegate', icon: 'delegate' },
+  { to: 'plasma', label: 'Plasma', icon: 'plasma' },
+  { to: 'stake', label: 'Stake', icon: 'stake' },
+];
+
+const MenuTabs = () => {
+  const location = useLocation();
+
+  const activeIndex = Math.max(
+    0,
+    tabs.findIndex((tab) => location.pathname.includes(`/tabs/${tab.to}`))
+  );
 
   return (
-    <div className='tab-menu'>
-      <div className='active-tab-container'>
-        <div style={{left: indicatorPercentage+"%"}} className='active-tab-indicator'></div>
+    <nav className="tab-menu">
+      <div className="active-tab-container">
+        <div
+          className="active-tab-indicator"
+          style={{ left: `${(activeIndex * 100) / tabs.length}%`, width: `${100 / tabs.length}%` }}
+        />
       </div>
-      <div className='d-flex justify-content-around w-100'>
-        <div className={`tab-item ${currentTab === 'dashboard'? 'active' : ''}`} 
-         onClick={() => moveIndicator('dashboard', 0)}>
-          <img alt="" className="tab-item-icon" src={require('./../../../assets/logo.svg')} width='20px'></img>
-          <span className="tab-item-text">Dashboard</span>
-        </div>
-        <div className={`tab-item ${currentTab === 'delegate'? 'active' : ''}`} 
-         onClick={() => moveIndicator('delegate', 25)}>
-          <img alt="" className="tab-item-icon" src={require('./../../../assets/pillar.svg')} width='20px'></img>
-          <span className="tab-item-text">Delegate</span>
-        </div>
-        <div className={`tab-item ${currentTab === 'plasma'? 'active' : ''}`} 
-         onClick={() => moveIndicator('plasma', 50)}>
-          <img alt="" className="tab-item-icon" src={require('./../../../assets/lightning.svg')} width='20px'></img>
-          <span className="tab-item-text">Plasma</span>
-        </div>
-        <div className={`tab-item ${currentTab === 'stake'? 'active' : ''}`} 
-         onClick={() => moveIndicator('stake', 75)}>
-          <img alt="" className="tab-item-icon" src={require('./../../../assets/blocks.svg')} width='20px'></img>
-          <span className="tab-item-text">Stake</span>
-        </div>
+      <div className="d-flex justify-content-around w-100">
+        {tabs.map((tab) => (
+          <NavLink
+            key={tab.to}
+            to={tab.to}
+            className={({ isActive }) => `tab-item ${isActive ? 'active' : ''}`}
+          >
+            <Icon name={tab.icon} className="tab-item-icon" />
+            <span className="tab-item-text">{tab.label}</span>
+          </NavLink>
+        ))}
       </div>
-    </div>
+    </nav>
   );
 };
 

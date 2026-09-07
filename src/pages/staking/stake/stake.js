@@ -1,425 +1,306 @@
-import React, { useEffect, useState, useRef, useContext } from 'react';
-import { KeyStoreManager, Zenon, Primitives } from 'znn-ts-sdk';
-import fallbackValues from '../../../services/utils/fallbackValues';
-import StakeItem from '../../../components/stake-item/stake-item';
-import { motion } from 'framer-motion';
-import animationVariants from '../../../layouts/tabsLayout/animationVariants';
-import { useSelector } from 'react-redux';
-import { ModalContext } from '../../../services/hooks/modal/modalContext';
-import AlertModal from '../../../components/modals/alert-modal'
+import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
+import { Zenon } from 'znn-ts-sdk';
+
+import AlertModal from '../../../components/modals/alert-modal';
 import ControlledDropdown from '../../../components/custom-dropdown/controlled-dropdown';
-import { toast } from 'react-toastify';
+import StakeItem from '../../../components/stake-item/stake-item';
+import { ModalContext } from '../../../services/hooks/modal/modalContext';
+import useAccount from '../../../services/hooks/useAccount';
+import useBackgroundSender from '../../../services/hooks/useBackgroundSender';
+import usePagedList from '../../../services/hooks/usePagedList';
+import vault from '../../../services/wallet/vault';
+import { znnZts } from '../../../services/wallet/account';
+import fallbackValues from '../../../services/utils/fallbackValues';
+import { formatAmount, formatExact, parseAmount, toBigNumber, toDecimals } from '../../../services/utils/format';
+import { notify } from '../../../services/utils/notify';
+
+// Staking.
+//
+// Two real defects. The amount was converted with
+// `parseInt(toStakeAmount) * Math.pow(10, 8)`, and `parseInt("1.5")` is 1 — so
+// staking 1.5 ZNN silently staked one, locked for the chosen period, with the
+// wallet reporting success. And "Staked N ZNN" read from `stakedZnnAmount`,
+// a state value that was declared, initialised to 0, and never assigned; the
+// total was therefore always zero however much was staked.
 
 const Stake = () => {
-  const [address, setAddress] = useState(""); 
-  const [znnAmount, setZnnAmount] = useState(0); 
-  const [stakeDuration, setStakeDuration] = useState(""); 
-  const [stakedZnnAmount, setStakedZnnAmount] = useState(0); 
-  const [uncollectedZnnReward, setUncollectedZnnReward] = useState(""); 
-  const [toStakeAmount, setToStakeAmount] = useState(""); 
-  const [noStakeItemsLabel, setNoStakeItemsLabel] = useState(false); 
-  const [shouldLoadMore, setShouldLoadMore] = useState(true); 
-  const [stakeLabel, setStakeLabel] = useState("Stake ZNN"); 
-  let [stakedItems, setStakedItems] = useState([]); 
-  const myAddressObject = useRef({}); 
-  const stakeListObserver = useRef({}); 
-  const currentKeyPair = useRef({});
-  const zenon = Zenon.getSingleton();
-  const currentStakePage = useRef(0);
-  const availableStakeDurations = fallbackValues.stakingDurations;
-  const pageSize = 5;
-  const walletCredentials = useSelector(state => state.wallet);
-  const { handleModal } = useContext(ModalContext);
-  const { register, handleSubmit, control, formState: { errors }, reset, setValue } = useForm();
+  const navigate = useNavigate();
+  const { address, balanceMap } = useAccount();
+  const { openModal } = useContext(ModalContext);
+  const { sendInBackground } = useBackgroundSender();
+
+  const [addressObject, setAddressObject] = useState(null);
+  const [amount, setAmount] = useState('');
+  const [duration, setDuration] = useState('');
+  const [uncollectedQsr, setUncollectedQsr] = useState(0);
+
+  const znn = balanceMap[znnZts];
+  const decimals = toDecimals(znn?.token?.decimals);
+
+  const {
+    register,
+    control,
+    handleSubmit,
+    formState: { errors },
+    reset: resetForm,
+    setValue,
+    trigger,
+  } = useForm({ mode: 'onChange' });
+
+  const loadRewards = useCallback(async (object) => {
+    try {
+      const uncollected = await Zenon.getSingleton().embedded.stake.getUncollectedReward(object);
+      setUncollectedQsr(uncollected?.qsrAmount ?? 0);
+    } catch (err) {
+      // Reported by the header.
+    }
+  }, []);
 
   useEffect(() => {
-    const loadMoreStakeItemsTrigger = document.getElementById("loadMoreStakeItemsTrigger");
-      const fetchData = async() => {
-        await getWalletInfo(walletCredentials.walletPassword, walletCredentials.walletName);
-        stakeListObserver.current = (new IntersectionObserver(loadStakeItems, {
-          root: null,
-          rootMargin: `0px 0px 0px 0px`,
-          threshold: 1.0
-        }));
-        stakeListObserver.current.observe(loadMoreStakeItemsTrigger);
-      }
-      fetchData();
-    
-      return ()=>{
-        stakeListObserver.current.unobserve(loadMoreStakeItemsTrigger);
-      }
-    }, []);
+    let cancelled = false;
 
-
-  const getWalletInfo = async (pass, name)=>{
-    const _keyManager = new KeyStoreManager();
-    
-    try{
-      const decrypted = await _keyManager.readKeyStore(pass, name);
-      
-      if(decrypted){
-        currentKeyPair.current = decrypted.getKeyPair(walletCredentials.selectedAddressIndex);
-        const addr = (await currentKeyPair.current.getAddress()).toString();
-        myAddressObject.current = Primitives.Address.parse(addr);
-        setAddress(addr); 
-
-        const getUncollectedReward = await zenon.embedded.stake.getUncollectedReward(myAddressObject.current);
-        setUncollectedZnnReward(getUncollectedReward.qsrAmount/Math.pow(10, fallbackValues.availableTokens["zts1znnxxxxxxxxxxxxx9z4ulx"]?.token.decimals || fallbackValues.decimals))
-
-        const getAccountInfoByAddress = await zenon.ledger.getAccountInfoByAddress(myAddressObject.current);
-        if(Object.keys(getAccountInfoByAddress.balanceInfoMap).length) {         
-          if(getAccountInfoByAddress.balanceInfoMap['zts1znnxxxxxxxxxxxxx9z4ulx']){
-            setZnnAmount(getAccountInfoByAddress.balanceInfoMap['zts1znnxxxxxxxxxxxxx9z4ulx'].balance/Math.pow(10, fallbackValues.availableTokens["zts1znnxxxxxxxxxxxxx9z4ulx"]?.token.decimals || fallbackValues.decimals));
-          }
+    vault
+      .getAddressObject()
+      .then((object) => {
+        if (cancelled) {
+          return;
         }
-      }
-      else{
-        console.error("Error decrypting");
-      }
-    }
-    catch(err){
-      console.error("Error ", err);
-    }
-  }
+        setAddressObject(object);
+        loadRewards(object);
+      })
+      .catch(() => {});
 
-  const transformStakeItem = (stakeItem) =>{
-    return{
-      amount: stakeItem.amount/Math.pow(10, fallbackValues.availableTokens["zts1znnxxxxxxxxxxxxx9z4ulx"]?.token.decimals || fallbackValues.decimals),
-      address: stakeItem.address.toString(),
-      expiration: (stakeItem.expirationTimestamp - Date.now()/1000)/3600,
-      period: (stakeItem.expirationTimestamp - stakeItem.startTimestamp)/3600/24/30,
-      id: stakeItem.id
-    }
-  }
+    return () => {
+      cancelled = true;
+    };
+  }, [loadRewards]);
 
-  const onFormSubmit = (stakeDuration, toStakeAmount) => {
-    openStakeModal(stakeDuration, toStakeAmount);
+  const fetchPage = useCallback(
+    (page, pageSize) =>
+      Zenon.getSingleton().embedded.stake.getEntriesByAddress(addressObject, page, pageSize),
+    [addressObject]
+  );
+
+  const entries = usePagedList(fetchPage, { pageSize: 10, enabled: Boolean(addressObject) });
+
+  // The total that was always zero. `StakeList` carries it on the same paged
+  // response the entries come back on.
+  const stakedTotal = entries.meta?.totalAmount;
+
+  // Through `toBigNumber`, because a balance reaches here as a BigNumber from
+  // the node, as the number 0 from the placeholder token map, or as undefined
+  // before the first response.
+  const znnBalance = useMemo(() => toBigNumber(znn?.balance), [znn]);
+
+  const maxAmount = useMemo(
+    () => formatAmount(znnBalance, decimals, { maxDecimals: decimals, group: false }),
+    [znnBalance, decimals]
+  );
+
+  const validateAmount = (input) => {
+    const parsed = parseAmount(input, decimals);
+
+    if (parsed === null) {
+      return 'Enter a ZNN amount';
+    }
+    // The stake contract's floor is one ZNN.
+    if (parsed.lt(parseAmount('1', decimals))) {
+      return 'Minimum of 1 ZNN';
+    }
+    // Unconditional: an account holding no ZNN has a balance of literal 0,
+    // which is falsy, so the old `znn?.balance && …` guard skipped the
+    // comparison for exactly the account that needed it.
+    if (parsed.gt(znnBalance)) {
+      return znnBalance.isZero() ? 'You have no ZNN to stake' : `You only have ${maxAmount} ZNN`;
+    }
+    return true;
   };
 
-  const openStakeModal = (stakeDuration, toStakeAmount) => {
-    handleModal(<AlertModal
-        type="confirm"
-        title="Are you sure ?"
-        onDismiss={()=>onStakeDismiss()}
-        onSuccess={()=>onStakeSuccess(stakeDuration, toStakeAmount)}>
-        <div>
-          <div>Are you sure you want to stake</div>
-          <div>
-            <b>{toStakeAmount} ZNN</b> 
-            {" for "}
-          </div>         
-          <b>{parseFloat(parseFloat(stakeDuration)/3600/24/30).toFixed(0)} month{parseFloat(parseFloat(stakeDuration)/3600/24/30).toFixed(0)>1?'s':''} ?</b>
-        </div>
-      </AlertModal>)
-  }
+  // Balances arrive after the first render, so an amount typed against the
+  // placeholder zero has to be re-checked when the real one lands.
+  useEffect(() => {
+    if (amount) {
+      trigger('stakeAmountField');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [znnBalance.toString()]);
 
-  const onStakeDismiss = ()=>{
-  }
+  const stake = () => {
+    // Checked again here, not just in the form. The confirmation modal sits
+    // between validation and this, and a balance can move underneath it.
+    const problem = validateAmount(amount);
 
-  const onStakeSuccess = (stakeDuration, toStakeAmount)=>{
-    stakeZnn(stakeDuration, toStakeAmount);
-  }
+    if (problem !== true) {
+      notify.error(problem);
+      return;
+    }
 
-  const stakeZnn = async (stakeDuration, toStakeAmount) => {
-    try{
-      const amountWithDecimals = parseInt(toStakeAmount) * Math.pow(10, fallbackValues.availableTokens["zts1znnxxxxxxxxxxxxx9z4ulx"]?.token.decimals || fallbackValues.decimals)
-      setStakeLabel("Staking...");
-      const stake = zenon.embedded.stake.stake(stakeDuration, amountWithDecimals);
-      await zenon.send(stake, currentKeyPair.current);
-      
-      setToStakeAmount("");
-      setStakeDuration("");
-      setStakeLabel("Staked !");
-      reset();
+    try {
+      const parsed = parseAmount(amount, decimals);
+      const template = Zenon.getSingleton().embedded.stake.stake(Number(duration), parsed);
 
-      toast(`Successfully staked ${toStakeAmount} ZNN`, {
-        position: "bottom-center",
-        autoClose: 2500,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        newestOnTop: true,
-        type: 'success',
-        theme: 'dark'
+      sendInBackground(template, {
+        successMessage: `Staked ${amount} ZNN`,
+        row: {
+          owner: address,
+          label: `Staking ${amount} ZNN`,
+          amount: parsed.toString(),
+          decimals,
+          tokenSymbol: znn?.token?.symbol || 'ZNN',
+        },
       });
 
-      setTimeout(()=>{
-        setStakeLabel("Stake ZNN");
-      }, 2500);
-
+      setAmount('');
+      setDuration('');
+      resetForm();
+      navigate('/tabs/dashboard');
+    } catch (err) {
+      notify.error(err);
     }
-    catch(err){
-      console.error("err ", err);
-      let readableError = err;
-      if(err.message) {
-        readableError = err.message;
-      }
-      readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
+  };
 
-      toast(readableError + "",{
-        position: "bottom-center",
-        autoClose: 2500,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        newestOnTop: true,
-        type: 'error',
-        theme: 'dark'
+  const withdraw = (id) => {
+    try {
+      sendInBackground(Zenon.getSingleton().embedded.stake.cancel(id), {
+        successMessage: 'Stake withdrawn',
+        row: { owner: address, label: 'Withdrawing stake' },
       });
-      setStakeLabel("Error staking");
 
-      setTimeout(()=>{
-        setStakeLabel("Stake ZNN");
-      }, 2500);
-
-      console.error("Error ", readableError);
+      navigate('/tabs/dashboard');
+    } catch (err) {
+      notify.error(err);
     }
-  }
+  };
 
-  const openCollectRewardModal = () => {
-    handleModal(<AlertModal
-        type="confirm"
-        title="Are you sure ?"
-        onDismiss={()=>onCollectRewardDismiss()}
-        onSuccess={()=>onCollectRewardSuccess()}>
-        <div>
-          <div>Are you sure you want to collect</div>
-          <div>
-            <b>{uncollectedZnnReward} QSR</b> ?
-          </div>         
-        </div>
-      </AlertModal>)
-  }
-
-  const onCollectRewardDismiss = ()=>{
-  }
-
-  const onCollectRewardSuccess = ()=>{
-    collectStakeReward();
-  }
-
-  const collectStakeReward = async () => {
-    try{
-      const stake = zenon.embedded.stake.collectReward();
-      await zenon.send(stake, currentKeyPair.current);
-      
-      setToStakeAmount("");
-      setStakeLabel("Staked !");
-
-      setTimeout(()=>{
-        setStakeLabel("Stake ZNN");
-      }, 2500);
-
-      toast(`Succesfully collected`, {
-        position: "bottom-center",
-        autoClose: 1000,
-        hideProgressBar: true,
-        closeOnClick: true,
-        pauseOnHover: false,
-        draggable: true,
-        newestOnTop: true,
-        type: 'success',
-        theme: 'dark'
+  const collect = () => {
+    try {
+      sendInBackground(Zenon.getSingleton().embedded.stake.collectReward(), {
+        successMessage: 'Rewards collected',
+        row: { owner: address, label: 'Collecting rewards' },
       });
+
+      navigate('/tabs/dashboard');
+    } catch (err) {
+      notify.error(err);
     }
-    catch(err){
-      console.error(err);
-      let readableError = err;
-      if(err.message) {
-        readableError = err.message;
-      }
-      readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
+  };
 
-      toast(readableError + "",{    
-        position: "bottom-center",
-        autoClose: 2500,
-        hideProgressBar: true,
-        closeOnClick: true,
-        pauseOnHover: false,
-        draggable: true,
-        newestOnTop: true,
-        type: 'error',
-        theme: 'dark'
-      });
-    }
-  }
+  const months = duration ? Math.round(Number(duration) / 2592000) : 0;
 
-  // ToDo: properly test cancelStake
-  const cancelStake = async (fuseId) => {
-    try{
-      setStakeLabel("Canceling...");
-      const cancelStake = zenon.embedded.stake.cancel(fuseId);
-      await zenon.send(cancelStake, currentKeyPair.current);
-      
-      setToStakeAmount("");
-      setStakeLabel("Canceled !");
+  const confirmStake = () =>
+    openModal(
+      <AlertModal type="confirm" title="Stake ZNN" confirmLabel="Stake" onSuccess={stake}>
+        <p>
+          Lock <b>{amount} ZNN</b> for <b>{months} month{months === 1 ? '' : 's'}</b>? It cannot be
+          withdrawn before then.
+        </p>
+      </AlertModal>
+    );
 
-      setTimeout(()=>{
-        setStakeLabel("Stake");
-      }, 2500);
-
-      toast(`Succesfully canceled`, {
-        position: "bottom-center",
-        autoClose: 1000,
-        hideProgressBar: true,
-        closeOnClick: true,
-        pauseOnHover: false,
-        draggable: true,
-        newestOnTop: true,
-        type: 'success',
-        theme: 'dark'
-      });
-    }
-    catch(err){
-      console.error(err);
-      let readableError = err;
-      if(err.message) {
-        readableError = err.message;
-      }
-      readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
-
-      toast(readableError + "",{    
-        position: "bottom-center",
-        autoClose: 2500,
-        hideProgressBar: true,
-        closeOnClick: true,
-        pauseOnHover: false,
-        draggable: true,
-        newestOnTop: true,
-        type: 'error',
-        theme: 'dark'
-      });
-    }
-  }
-
-  const handleSetDuration = (i, value)=>{
-    setStakeDuration(value.value);
-  }
-
-  
-  const loadStakeItems = async() =>{
-    if(shouldLoadMore){
-                     
-      const getEntriesByAddress = await zenon.embedded.stake.getEntriesByAddress(myAddressObject.current, currentStakePage.current, pageSize);
-
-      if(getEntriesByAddress.list.length > 0){
-        const newStakeItem = getEntriesByAddress.list.map((fuseItem)=>{
-          return transformStakeItem(fuseItem);
-        });
-        setStakedItems(stakes => {
-          stakedItems = [...stakes, ...newStakeItem];
-          return stakedItems;
-        });
-        currentStakePage.current = currentStakePage.current + 1;
-        // ToDo: Replace this count thing 
-        if(getEntriesByAddress.count >= stakedItems.length){
-          setShouldLoadMore(true);
-        }else{
-          setShouldLoadMore(false);
-        }
-      }
-      else{
-        setShouldLoadMore(false);
-        if(stakedItems.length === 0){
-          setNoStakeItemsLabel(true);
-        }
-      }
-    }
-  }
+  const hasRewards = !toBigNumber(uncollectedQsr).isZero();
 
   return (
-    <motion.div 
-      className='black-bg transition-animated'
-      initial={"pageTransitionInitial"}
-      animate={"pageTransitionAnimate"}
-      exit={"pageTransitionExit"}
-      variants={animationVariants}>
-      
-      <h1 className='mt-1'>Staking</h1>
-      <div className='mt-2 ml-2 mr-2'>
-        <form id="stakeForm" onSubmit={handleSubmit(()=>onFormSubmit(stakeDuration, toStakeAmount))}>
-          <div className='custom-control'> 
-            <div className={`input-with-button w-100`}>
-              <input name="stakeAmountField" {...register("stakeAmountField", 
-                { required: true, 
-                  min: {
-                    value: 1,
-                    message: 'Minimum of 1'
-                  },
-                  max: {
-                    value: parseFloat(znnAmount),
-                    message: 'Maximum of ' + parseFloat(znnAmount)
-                  }
-                })} 
-                control={control}
-                className={`w-100 custom-label pr-3 ${errors.stakeAmountField?'custom-label-error':''}`}
-                placeholder='Stake ZNN'
-                value={toStakeAmount} onChange={(e) => {setToStakeAmount(e.target.value); setValue('stakeAmountField', e.target.value, {shouldValidate: true})}} type='number'></input>
-              <div className='primary input-chip-button'
-                onClick={()=>{setToStakeAmount(znnAmount); setValue('stakeAmountField', znnAmount, { shouldValidate: true })}}>
-                <span>{"MAX: " + parseFloat(znnAmount).toFixed(0)}</span>
-              </div>
-            </div>
-
-            <div className={`input-error ${errors.stakeAmountField?'':'invisible'}`}>
-              { errors.stakeAmountField?.message || 'Amount is required'}
-            </div> 
+    <div className="page">
+      <div className="stat-row">
+        <div>
+          <div className="stat-value" title={formatExact(stakedTotal, decimals)}>
+            {formatAmount(stakedTotal, decimals)} ZNN
           </div>
-
-          <div className='custom-control'>  
-            <ControlledDropdown dropdownComponent = 'CustomDropdown'
-              {...register("stakeDurationField", { required: true })} control={control} 
-              name="stakeDurationField" 
-              options={availableStakeDurations}
-              onChange={handleSetDuration} 
-              value={stakeDuration} 
-              placeholder={"Staking duration"}
-              displayKey={"label"}
-              className={`${errors.stakeDurationField?'custom-label-error':''}`} />
-
-            <div className={`input-error ${errors.stakeDurationField?'':'invisible'}`}>
-              {errors.stakeDurationField?.message || 'Staking period is required'}
-            </div> 
-          </div>  
-        </form>
-
-        <input className='button primary w-100 d-flex justify-content-center text-white' 
-              value={stakeLabel} type="submit" form="stakeForm" name="submitButton"></input>
-
-        <div className="d-flex justify-content-between align-items-center mt-3">
-          <div className="text-left">Staked {stakedZnnAmount} ZNN</div>
-          <div onClick={()=>{openCollectRewardModal()}} 
-            className={`thin-button blue d-flex justify-content-center tooltip ${(uncollectedZnnReward>0)?'':'disabled'}`}>
-            Collect {parseFloat(uncollectedZnnReward).toFixed(0)} QSR
-            <span className='tooltip-text'>{parseFloat(uncollectedZnnReward).toFixed(3)} QSR</span>
-          </div>
+          <div className="stat-label">Staked</div>
         </div>
-          
-        <div className='transactions mt-3'>
-          {
-            stakedItems.map((transaction, i) => {
-              return <StakeItem key={"stake-item-" + transaction.id.toString() + "-" + i} cancelStake={cancelStake} period={transaction.period} id={transaction.id} amount={transaction.amount} expiration={transaction.expiration}></StakeItem>
-            })
-          }
-        </div>
-
-        {(shouldLoadMore || noStakeItemsLabel) && 
-          <div className='mt-2 center-items'>
-            <span className='text-gray ml-1'>{
-              noStakeItemsLabel?'No staking history':<span id="loadMoreStakeItemsTrigger">Loading...</span>
-            }</span>
-          </div>
-        }
-
-        {/* <div className='mt-2 stick-bottom d-flex'>
-            <input className='button primary w-100 d-flex justify-content-center text-white' 
-              value={stakeLabel} type="submit" form="stakeForm" name="submitButton"></input>
-        </div> */}
+        <button
+          type="button"
+          className="thin-button blue"
+          onClick={collect}
+          disabled={!hasRewards}
+        >
+          Collect {formatAmount(uncollectedQsr, 8)} QSR
+        </button>
       </div>
-    </motion.div>
+
+      <form id="stakeForm" onSubmit={handleSubmit(confirmStake)}>
+        <div className="custom-control">
+          <div className="input-with-button w-100">
+            <input
+              {...register('stakeAmountField', { required: true, validate: validateAmount })}
+              className={`w-100 custom-label pr-3 ${
+                errors.stakeAmountField ? 'custom-label-error' : ''
+              }`}
+              placeholder="ZNN to stake"
+              value={amount}
+              onChange={(event) => {
+                setAmount(event.target.value);
+                setValue('stakeAmountField', event.target.value, { shouldValidate: true });
+              }}
+              inputMode="decimal"
+              type="text"
+            />
+            <button
+              type="button"
+              className="input-chip-button"
+              onClick={() => {
+                setAmount(maxAmount);
+                setValue('stakeAmountField', maxAmount, { shouldValidate: true });
+              }}
+            >
+              Max
+            </button>
+          </div>
+          <div className={`input-error ${errors.stakeAmountField ? '' : 'invisible'}`}>
+            {errors.stakeAmountField?.message || 'Amount is required'}
+          </div>
+        </div>
+
+        <div className="custom-control">
+          <ControlledDropdown
+            dropdownComponent="CustomDropdown"
+            {...register('stakeDurationField', { required: true })}
+            control={control}
+            name="stakeDurationField"
+            options={fallbackValues.stakingDurations}
+            onChange={(index, option) => {
+              setDuration(option.value);
+              setValue('stakeDurationField', option.value, { shouldValidate: true });
+            }}
+            value={fallbackValues.stakingDurations.find((entry) => entry.value === duration)}
+            placeholder="Lock period"
+            displayKey="label"
+            className={errors.stakeDurationField ? 'custom-label-error' : ''}
+          />
+          <div className={`input-error ${errors.stakeDurationField ? '' : 'invisible'}`}>
+            Choose how long to lock
+          </div>
+        </div>
+      </form>
+
+      {/* No pending state: confirming leaves this screen immediately and the
+          stake reports itself on the dashboard from there. */}
+      <button type="submit" form="stakeForm" className="button primary w-100 text-white">
+        Stake ZNN
+      </button>
+
+      <div className="list mt-3">
+        {entries.items.map((entry) => (
+          <StakeItem
+            key={entry.id.toString()}
+            id={entry.id}
+            amount={entry.amount}
+            decimals={decimals}
+            startTimestamp={entry.startTimestamp}
+            expirationTimestamp={entry.expirationTimestamp}
+            cancelStake={withdraw}
+          />
+        ))}
+
+        {entries.isEmpty && <p className="empty-note">Nothing staked yet</p>}
+
+        <div ref={entries.sentinelRef} className="load-more-sentinel">
+          {entries.isLoading && <span className="text-gray">Loading…</span>}
+        </div>
+      </div>
+    </div>
   );
 };
 

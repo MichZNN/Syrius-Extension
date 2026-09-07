@@ -1,0 +1,87 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Read manifest version
+        id: manifest
+        run: echo "version=$(node -p "require('./src/manifest.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Check tag matches manifest version
+        if: github.ref_type == 'tag'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest="${{ steps.manifest.outputs.version }}"
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::Tag v$tag does not match manifest version $manifest"
+            exit 1
+          fi
+
+      - name: Build extension
+        run: npm run build
+
+      # Chrome installs an unpacked build/ directory only via "Load unpacked"
+      # in developer mode. Packing it into a signed .crx lets it be installed
+      # by dragging a single file onto chrome://extensions (still requires
+      # developer mode, but no folder picker / no keeping the source around).
+      - name: Prepare signing key
+        run: |
+          if [ -n "${{ secrets.CRX_PRIVATE_KEY }}" ]; then
+            echo "${{ secrets.CRX_PRIVATE_KEY }}" | base64 -d > key.pem
+          else
+            echo "::warning::No CRX_PRIVATE_KEY secret configured — signing with a freshly generated key. The packed extension's ID will be different on every release. Set a CRX_PRIVATE_KEY repo secret (base64 of a 2048-bit RSA PEM key) to keep a stable extension ID across releases."
+            openssl genrsa -out key.pem 2048
+          fi
+
+      - name: Setup Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Pack extension (.crx)
+        run: |
+          "${{ steps.setup-chrome.outputs.chrome-path }}" \
+            --pack-extension=build \
+            --pack-extension-key=key.pem \
+            --no-sandbox --headless=new --disable-gpu
+          mv build.crx "syrius-extension-${{ steps.manifest.outputs.version }}.crx"
+
+      - name: Remove signing key from workspace
+        run: rm -f key.pem
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: syrius-extension-${{ steps.manifest.outputs.version }}
+          path: syrius-extension-${{ steps.manifest.outputs.version }}.crx
+
+      - name: Create GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            "syrius-extension-${{ steps.manifest.outputs.version }}.crx" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes

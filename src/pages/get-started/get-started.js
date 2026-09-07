@@ -1,327 +1,251 @@
-import React, { useState, useEffect } from 'react';
-import NavBack from '../../components/nav-back/nav-back';
-import ProgressSteps from '../../components/progress-steps/progress-steps';
-import {
-  KeyStoreManager,
-  Constants
-} from 'znn-ts-sdk';
-
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {arrayShuffle, loadStorageWalletNames} from '../../services/utils/utils';
-import OrderWords from '../../components/order-words/order-words';
+import { useDispatch } from 'react-redux';
 import { useForm } from 'react-hook-form';
-import { toast } from 'react-toastify';
+import { KeyStoreManager } from 'znn-ts-sdk';
+
+import NavBack from '../../components/nav-back/nav-back';
+import OrderWords from '../../components/order-words/order-words';
+import ProgressSteps from '../../components/progress-steps/progress-steps';
 import fallbackValues from '../../services/utils/fallbackValues';
+import { arrayShuffle, loadStorageWalletNames } from '../../services/utils/utils';
+import { copyToClipboard, notify } from '../../services/utils/notify';
+import { completeUnlock } from '../../services/wallet/bootstrap';
+
+// Creating a wallet.
+//
+// Two things were wrong at the end of it. `saveKeyStore(...)` was called
+// without `await`, so the flow moved on before the keystore had been written
+// and a failure there surfaced as an unhandled rejection while the screen said
+// the wallet was ready. And the last step read "Open the extension and sign in"
+// — advice given from inside the extension, to somebody who had just typed the
+// password it was asking them to go and type. It now opens the wallet.
+
+const steps = ['Choose a password', 'Your recovery phrase', 'Confirm the phrase'];
 
 const GetStarted = () => {
-  const [mnemonic, setMnemonic] = useState("");
-  const [newlyCreatedStore, setNewlyCreatedStore] = useState();
-  const [walletName, setWalletName] = useState("");
-  const [password, setPassword] = useState("");
-  const [repeatPassword, setRepeatPassword] = useState("");
-  const [currentFlowStep, setCurrentFlowStep] = useState(0);
-  const [shuffledMnemonic, setShuffledMnemonic] = useState([]);
-  const [orderedMnemonic, setOrderedMnemonic] = useState([]);
-  const { register, handleSubmit, formState: { errors }, reset, setValue } = useForm();
   const navigate = useNavigate();
-  const [savedMnemonicCheckbox, setSavedMnemonicCheckbox] = useState(false);
-  const passwordValidationInfo = fallbackValues.passwordValidationInfo;
+  const dispatch = useDispatch();
 
-  useEffect(() => {
-    setShuffledMnemonic(shuffledMnemonic);
-  }, [shuffledMnemonic]);
+  const [step, setStep] = useState(0);
+  const [walletName, setWalletName] = useState('');
+  const [password, setPassword] = useState('');
+  const [repeatPassword, setRepeatPassword] = useState('');
 
-  const validateCredentials = async (walletName, password, repeatPassword) => {
-    if(walletName && password && password === repeatPassword){
-      try{
-        const isValidName = validateWalletName(walletName);
+  const [keyStore, setKeyStore] = useState(null);
+  const [mnemonic, setMnemonic] = useState('');
+  const [shuffled, setShuffled] = useState([]);
+  const [ordered, setOrdered] = useState([]);
+  const [hasSavedPhrase, setHasSavedPhrase] = useState(false);
+  const [isBusy, setIsBusy] = useState(false);
 
-        if(isValidName!==true){
-          return new Error(isValidName);
-        }
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    setValue,
+  } = useForm();
 
-        return true
-      }
-      catch(err){
-        console.error(err);
-        throw new Error(err);
-      }
+  const { strongRegex, passwordCriteria } = fallbackValues.passwordValidationInfo;
+
+  const validateWalletName = (name) => {
+    if (!name?.trim()) {
+      return 'Give this wallet a name';
     }
-    else{
-      console.error("Not valid");
-      throw new Error("Invalid wallet name or password");
+    if (loadStorageWalletNames().includes(name)) {
+      return 'You already have a wallet with that name';
     }
-  }
-  
-  const validateWalletName = (walletName) =>{
-    if(walletName){
-      const loadedWallets = loadStorageWalletNames();
-
-      if((loadedWallets.length > 0) && (loadedWallets.filter((existingWallet)=>existingWallet===walletName).length > 0)){
-        return 'Wallet name already used'
-      }
-      return true
-    }else{
-      return "Invalid wallet name"
-    }
-  }
-
-  const saveKeyStore = async (store, pass, name) => {
-    const _keyManager = new KeyStoreManager();
-    return await _keyManager.saveKeyStore(store, pass, name);
-  }
-
-  const getNewStore = async () => {
-    const _keyManager = new KeyStoreManager();
-    return await _keyManager.getNewKeystore();
+    return true;
   };
-    
-  const nextStep = async () => {
-      let isValidated = false;
-      
-      switch(currentFlowStep){
-        default:
-        case 0:{
-          try{
-            const isValid = await validateCredentials(walletName, password, repeatPassword);
-            if(isValid!==true) {
-              throw new Error(isValid);
-            }
-            const newStore = await getNewStore()
-            setNewlyCreatedStore(newStore);
-            const generatedMnemonic = newStore['mnemonic'];
-            setMnemonic(generatedMnemonic);
-            setShuffledMnemonic(arrayShuffle(generatedMnemonic.split(" ")));
-            isValidated = true;
-          }
-          catch(err){
-            console.error(err);
-            let readableError = err;
-            if(err.message) {
-              readableError = err.message;
-            }
-            readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
-      
-            toast(readableError + "",{    
-              position: "bottom-center",
-              autoClose: 2500,
-              hideProgressBar: true,
-              closeOnClick: true,
-              pauseOnHover: false,
-              draggable: true,
-              newestOnTop: true,
-              type: 'error',
-              theme: 'dark'
-            });
-          }
-          break;
-        }
-        case 1:{
-          isValidated = savedMnemonicCheckbox;
-          break;
-        }
-        case 2:{
-          try{
-            if(isCorrectMnemonic(orderedMnemonic)){
-              saveKeyStore(newlyCreatedStore, password, walletName);
-              isValidated = true;
-            }
-            else{
-              console.error("Invalid mnemonic");
-              throw(Error("Invalid mnemonic"));
-            }
-          }
-          catch(err){
-            console.error(err);
-            let readableError = err;
-            if(err.message) {
-              readableError = err.message;
-            }
-            readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
-      
-            toast(readableError + "",{    
-              position: "bottom-center",
-              autoClose: 2500,
-              hideProgressBar: true,
-              closeOnClick: true,
-              pauseOnHover: false,
-              draggable: true,
-              newestOnTop: true,
-              type: 'error',
-              theme: 'dark'
-            });
-          }
-        break;
-      }
 
-      case 3:{
-        navigate("/password");
-        break;
-      }
+  const createKeyStore = async () => {
+    setIsBusy(true);
 
-    }
-
-    if(isValidated) {
-      setCurrentFlowStep(currentFlowStep+1);
+    try {
+      const store = await new KeyStoreManager().getNewKeystore();
+      setKeyStore(store);
+      setMnemonic(store.mnemonic);
+      setShuffled(arrayShuffle(store.mnemonic.split(' ')));
+      setStep(1);
+    } catch (err) {
+      notify.error(err);
+    } finally {
+      setIsBusy(false);
     }
   };
 
-  const onFormSubmit = (walletName, password, repeatPassword) => {
-    nextStep();
-  };
+  const isPhraseCorrect =
+    ordered.length === mnemonic.split(' ').length &&
+    ordered.every((word, index) => word === mnemonic.split(' ')[index]);
 
-  const validatePasswords = (repeatedPassword) =>{
-    if(repeatedPassword === password){
-      return true
-    }else{
-      return "Passwords don't match"
+  const finish = async () => {
+    if (!isPhraseCorrect) {
+      return;
     }
-  }
+    setIsBusy(true);
 
-  const isCorrectMnemonic = (orderedMnemonic) =>{
-    const originalMnemonic = mnemonic.split(" ");
+    try {
+      // Awaited, unlike before: nothing may claim the wallet exists until it
+      // has actually been written.
+      await new KeyStoreManager().saveKeyStore(keyStore, password, walletName);
 
-    return orderedMnemonic.length === originalMnemonic.length && orderedMnemonic.every((value, index) => value === originalMnemonic[index])
-  }
+      // Straight into the wallet with the password just chosen, rather than
+      // sending somebody to a login screen they have every reason to think
+      // they have already passed.
+      await completeUnlock({ walletName, password, dispatch });
+      notify.success('Wallet created');
+      navigate('/tabs', { replace: true });
+    } catch (err) {
+      notify.error(err);
+    } finally {
+      setIsBusy(false);
+    }
+  };
 
   return (
-    <div className='black-bg onboarding-layout'>
-      <div className='header'>
-        <div className='back-button-container'>
-          <NavBack/>
-        </div>
-        <h1 className='mt-0'>Backup phrase</h1>
-        {/* <h1 className='mt-0'>Confirm backup phrase</h1> */}
+    <div className="black-bg onboarding-layout">
+      <div className="onboarding-header">
+        <NavBack />
+        <h1>{steps[step]}</h1>
       </div>
-      {currentFlowStep === 0 &&
-        <div className=''>
-          <p>Let's set up a new passcode </p>
-          <form onSubmit={handleSubmit(()=>onFormSubmit(walletName, password, repeatPassword))}>
-            <div className='custom-control'> 
-              <input name="walletNameField" {...register("walletNameField", { required: true, 
-                    minLength: {
-                      value: 2,
-                      message: 'Minimum of 2 characters'
-                    },
-                    maxLength: {
-                      value: 512,
-                      message: 'Maximum of 512 characters'
-                    }
-                  })} 
-                className={`w-100 custom-label ${errors.walletNameField?'custom-label-error':''}`} 
-                placeholder="Wallet name" value={walletName} onChange={(e) => {setWalletName(e.target.value); setValue('walletNameField', e.target.value, {shouldValidate: true})}} type='text'></input>
 
-              <div className={`input-error ${errors.walletNameField?'':'invisible'}`}>
-                { errors.walletNameField?.message || 'Wallet name is required' }
-              </div> 
-            </div>
-            
-            <div className='custom-control'> 
-              <input name="passwordField" {...register("passwordField", { required: true, 
-                    minLength: {
-                      value: 8,
-                      message: 'Minimum of 8 characters'
-                    },
-                    maxLength: {
-                      value: 512,
-                      message: 'Maximum of 512 characters'
-                    },
-                    validate: (value)=>RegExp(passwordValidationInfo.strongRegex).test(value) || passwordValidationInfo.passwordCriteria
-                  })} 
-                className={`w-100 custom-label ${errors.passwordField?'custom-label-error':''}`} 
-                placeholder="New password" value={password} onChange={(e) => {setPassword(e.target.value); setValue('passwordField', e.target.value, {shouldValidate: true})}} type='password'></input>
-
-              <div className={`input-error long-error-message ${errors.passwordField?'':'invisible'}`}>
-                { errors.passwordField?.message || 'New password is required'}
-              </div> 
-            </div>
-
-            <div className='custom-control'> 
-              <input name="repeatPasswordField" {...register("repeatPasswordField", { required: true, 
-                    minLength: {
-                      value: 8,
-                      message: 'Minimum of 8 characters'
-                    },
-                    maxLength: {
-                      value: 512,
-                      message: 'Maximum of 512 characters'
-                    },
-                    validate: (value)=>validatePasswords(value)
-                  })} 
-                className={`w-100 custom-label ${errors.repeatPasswordField?'custom-label-error':''}`} 
-                placeholder="Confirm password" value={repeatPassword} onChange={(e) => {setRepeatPassword(e.target.value); setValue('repeatPasswordField', e.target.value, {shouldValidate: true})}} type='password'></input>
-
-              <div className={`input-error ${errors.repeatPasswordField?'':'invisible'}`}>
-                { errors.repeatPasswordField?.message || 'Please confirm password'}
-              </div> 
-            </div>
-
-            <input className={`button primary w-100 text-white`} 
-              value='Next' type="submit" name="submitButton"></input>
-          </form>
-        </div>
-      }
-
-      {currentFlowStep === 1 &&
-        <div className=''>
-          <p>Your secret 12-word recovery phrase is the only way to recover your funds if you lose access to your wallet</p>
-          <div className='mt-4 secret-phrase-container'>
-          <div className='secret-phrase-text'>{mnemonic}</div>
-            <div onClick={() => {try{navigator.clipboard.writeText(mnemonic); toast(`Copied to clipboard`, {
-                    position: "bottom-center",
-                    autoClose: 1000,
-                    hideProgressBar: true,
-                    closeOnClick: true,
-                    pauseOnHover: false,
-                    draggable: true,
-                    newestOnTop: true,
-                    type: 'success',
-                    theme: 'dark'
-                  })}catch(err){console.error(err)}
-              }} className='copy-button'>
-              <img alt="" src={require('./../../assets/copy-icon.png')} width='14px'></img>
+      {step === 0 && (
+        <form onSubmit={handleSubmit(createKeyStore)}>
+          <div className="custom-control">
+            <input
+              {...register('walletNameField', { required: true, validate: validateWalletName })}
+              className={`w-100 custom-label ${errors.walletNameField ? 'custom-label-error' : ''}`}
+              placeholder="Wallet name"
+              value={walletName}
+              onChange={(event) => {
+                setWalletName(event.target.value);
+                setValue('walletNameField', event.target.value, { shouldValidate: true });
+              }}
+              type="text"
+              autoFocus
+            />
+            <div className={`input-error ${errors.walletNameField ? '' : 'invisible'}`}>
+              {errors.walletNameField?.message || 'Wallet name is required'}
             </div>
           </div>
 
-          <div className='mt-4 text-left custom-checkbox-container'>
-            <label className='pt-3 pb-3 custom-checkbox' htmlFor='agree_phrase'>
-              <input className='mr-3 custom-checkbox' id="agree_phrase" type='checkbox'
-                value={savedMnemonicCheckbox} onChange={(e) => {setSavedMnemonicCheckbox(!savedMnemonicCheckbox)}}></input>
-                <span className='custom-checkmark'></span>
-                I saved my backup phrase
-              </label>
+          <div className="custom-control">
+            <input
+              {...register('passwordField', {
+                required: true,
+                validate: (value) => strongRegex.test(value) || passwordCriteria,
+              })}
+              className={`w-100 custom-label ${errors.passwordField ? 'custom-label-error' : ''}`}
+              placeholder="Password"
+              value={password}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                setValue('passwordField', event.target.value, { shouldValidate: true });
+              }}
+              type="password"
+            />
+            <div className={`input-error long-error-message ${errors.passwordField ? '' : 'invisible'}`}>
+              {errors.passwordField?.message || 'Password is required'}
+            </div>
           </div>
 
-          <div className='mt-4 buttons-container'>
-            <div className={`button primary ${!savedMnemonicCheckbox?'disabled':''}`} onClick={nextStep}>Next</div>
+          <div className="custom-control">
+            <input
+              {...register('repeatPasswordField', {
+                required: true,
+                validate: (value) => value === password || "The passwords don't match",
+              })}
+              className={`w-100 custom-label ${
+                errors.repeatPasswordField ? 'custom-label-error' : ''
+              }`}
+              placeholder="Repeat password"
+              value={repeatPassword}
+              onChange={(event) => {
+                setRepeatPassword(event.target.value);
+                setValue('repeatPasswordField', event.target.value, { shouldValidate: true });
+              }}
+              type="password"
+            />
+            <div className={`input-error ${errors.repeatPasswordField ? '' : 'invisible'}`}>
+              {errors.repeatPasswordField?.message || 'Repeat your password'}
+            </div>
           </div>
-        </div>
-      }
 
-      {currentFlowStep === 2 &&
-          <div className=''>
-          <p>Put the words in order </p>
-          
-          <OrderWords ordered={orderedMnemonic} setOrder={setOrderedMnemonic} shuffled={shuffledMnemonic}></OrderWords>
+          <p className="text-gray text-xs">
+            This password encrypts the wallet on this computer. It cannot be recovered.
+          </p>
 
-          <div className={`input-error ${!isCorrectMnemonic(orderedMnemonic)?'':'invisible'}`}>
-            { 'Words are not in the correct order'}
-          </div> 
+          <button type="submit" className="button primary w-100 text-white" disabled={isBusy}>
+            {isBusy ? 'Creating…' : 'Continue'}
+          </button>
+        </form>
+      )}
 
-          <div className='mt-2 buttons-container'>
-            <div className={`button primary ${!isCorrectMnemonic(orderedMnemonic)?'disabled':''}`} onClick={nextStep}>Next</div>
+      {step === 1 && (
+        <>
+          <p className="text-gray">
+            These twelve words are the only way back into this wallet. Write them down and keep
+            them offline.
+          </p>
+
+          <div className="secret-phrase-container">
+            <div className="secret-phrase-text">{mnemonic}</div>
+            <button
+              type="button"
+              className="copy-button"
+              onClick={() => copyToClipboard(mnemonic, 'Recovery phrase copied')}
+            >
+              <img alt="" src={require('./../../assets/copy-icon.png')} width="14" />
+            </button>
           </div>
-        </div>
-      }
 
-      {currentFlowStep === 3 &&
-        <div className=''>
-          <p>Open the extension and sign in</p>
-          <div className='mt-4 button primary' onClick={nextStep}>Done</div>
-        </div>
-      }
-      
-      <ProgressSteps currentStep={currentFlowStep} maxSteps={3}/>
+          <div className="custom-checkbox-container">
+            <label className="custom-checkbox" htmlFor="agree_phrase">
+              <input
+                className="custom-checkbox"
+                id="agree_phrase"
+                type="checkbox"
+                checked={hasSavedPhrase}
+                onChange={() => setHasSavedPhrase((saved) => !saved)}
+              />
+              <span className="custom-checkmark" />
+              I have written the phrase down
+            </label>
+          </div>
+
+          <button
+            type="button"
+            className="button primary w-100 text-white"
+            disabled={!hasSavedPhrase}
+            onClick={() => setStep(2)}
+          >
+            Continue
+          </button>
+        </>
+      )}
+
+      {step === 2 && (
+        <>
+          <p className="text-gray">Tap the words in the right order.</p>
+
+          <OrderWords ordered={ordered} setOrder={setOrdered} shuffled={shuffled} />
+
+          <div className={`input-error ${ordered.length && !isPhraseCorrect ? '' : 'invisible'}`}>
+            That is not the right order
+          </div>
+
+          <button
+            type="button"
+            className="button primary w-100 text-white"
+            disabled={!isPhraseCorrect || isBusy}
+            onClick={finish}
+          >
+            {isBusy ? 'Creating…' : 'Create wallet'}
+          </button>
+        </>
+      )}
+
+      <ProgressSteps currentStep={step} totalSteps={steps.length} />
     </div>
   );
 };

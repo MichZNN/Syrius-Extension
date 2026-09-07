@@ -1,86 +1,59 @@
-.mnemonic-word{
+// A single word of a recovery phrase.
+//
+// Masked until it is hovered or tapped, so the phrase is not simply sitting on
+// screen in a room with other people in it.
+.mnemonic-word {
   display: flex;
-  flex: 1;
-  justify-content: flex-start;
-  background: #232323;
-  border-radius: 6px;
-  padding: 0.5em 1em;
   align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  border: 1px solid transparent;
   user-select: none;
   cursor: pointer;
-  transition: all 0.2s ease-out;
-  border-bottom: 2px solid transparent;
+  transition: background 140ms ease, border-color 140ms ease;
+  min-width: 0;
 
-  .mnemonic-word-index{
-    border-radius: 100%;
-    height: 28px;
-    min-height: 28px;
-    width: 28px;
-    min-width: 28px;
-    display: flex;
-    justify-content: center;
-    align-content: center;
-    align-items: center;
-    color: white;
-    border: solid 2px transparent;
-    font-weight: bold;
+  .mnemonic-word-index {
+    flex: 0 0 auto;
+    width: 18px;
+    color: var(--text-faint);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
   }
 
-  .mnemonic-word-text{
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: flex-start;
+  .mnemonic-word-text {
+    min-width: 0;
+    flex: 1;
   }
 
-  .mnemonic-hashed-word{
+  .mnemonic-hashed-word {
     display: block;
+    letter-spacing: 1px;
+    color: var(--text-faint);
   }
-  .mnemonic-original-word{
+
+  .mnemonic-original-word {
     display: none;
   }
 
+  &:hover,
+  &.is-visible {
+    background: var(--surface-hover);
+    border-color: var(--znn-dim);
 
-  &.is-hidden{
-    color: #3BDA57;
-  }
-
-  &.is-visible{
-    color: #3BDA57;
-    border-bottom: 2px solid #3BDA57;
-    color: white;
-
-    .mnemonic-hashed-word{
+    .mnemonic-hashed-word {
       display: none;
     }
-    .mnemonic-original-word{
+
+    .mnemonic-original-word {
       display: block;
     }
 
-    .mnemonic-word-index{
-      background: #3BDA57;
-      color: #232323;
+    .mnemonic-word-index {
+      color: var(--znn);
     }
-  }
-
-
-  &:hover{
-    background: lighten($color: #232323, $amount: 5);
-    box-shadow: 0px 0px 12px 6px rgba(0, 0, 0, 0.2);
-    border-bottom: 2px solid #3BDA57;
-
-    .mnemonic-hashed-word{
-      display: none;
-    }
-    .mnemonic-original-word{
-      display: block;
-    }
-    .mnemonic-word-index{
-      border: solid 2px #3BDA57;
-    }
-    .mnemonic-word-text{
-      color: white;
-    } 
   }
 }

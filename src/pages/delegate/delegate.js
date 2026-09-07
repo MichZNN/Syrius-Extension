@@ -1,367 +1,194 @@
-import React, {useRef, useState, useEffect, useContext} from 'react';
-import { KeyStoreManager, Zenon, Primitives } from 'znn-ts-sdk';
-import PillarItem from '../../components/pillar-item/pillar-item';
-import { motion } from 'framer-motion';
-import animationVariants from '../../layouts/tabsLayout/animationVariants';
-import { useSelector } from 'react-redux';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Zenon } from 'znn-ts-sdk';
+
 import AlertModal from '../../components/modals/alert-modal';
+import PillarItem from '../../components/pillar-item/pillar-item';
 import { ModalContext } from '../../services/hooks/modal/modalContext';
-import { toast } from 'react-toastify';
-import fallbackValues from '../../services/utils/fallbackValues';
+import useBackgroundSender from '../../services/hooks/useBackgroundSender';
+import usePagedList from '../../services/hooks/usePagedList';
+import useAccount from '../../services/hooks/useAccount';
+import vault from '../../services/wallet/vault';
+import { formatAmount } from '../../services/utils/format';
+import { notify } from '../../services/utils/notify';
+
+// Delegation.
+//
+// The uncollected rewards were divided by the wrong token's decimals — the ZNN
+// amount by QSR's and the QSR amount by ZNN's. Both happen to be 8 today, so
+// nothing was visibly wrong, but the two lines were one differing token away
+// from showing numbers off by orders of magnitude.
 
 const Delegate = () => {
-  const [address, setAddress] = useState(""); 
-  let [pillarItems, setPillarItems] = useState([]); 
-  const [delegatedPillar, setDelegatedPillar] = useState({name:"", weightWithDecimals: ""}); 
-  const delegatedPillarName = useRef(); 
-  const myAddressObject = useRef({}); 
-  const currentKeyPair = useRef({});
-  const zenon = Zenon.getSingleton(); 
-  const currentPillarsPage = useRef(0); 
-  const [shouldLoadMore, setShouldLoadMore] = useState(true); 
-  const pageSize = 5;
-  const pillarListObserver = useRef({}); 
-  const [noPillarItemsLabel, setNoPillarItemsLabel] = useState(false); 
-  const walletCredentials = useSelector(state => state.wallet);
-  const { handleModal } = useContext(ModalContext);
+  const navigate = useNavigate();
+  const { address } = useAccount({ balances: false });
+  const { openModal } = useContext(ModalContext);
+  const { sendInBackground } = useBackgroundSender();
 
-  const [uncollectedZnnReward, setUncollectedZnnReward] = useState(0); 
-  const [uncollectedQsrReward, setUncollectedQsrReward] = useState(0); 
+  const [delegated, setDelegated] = useState(null);
+  const [rewards, setRewards] = useState({ znn: 0, qsr: 0 });
+
+  const loadDelegation = useCallback(async (object) => {
+    const zenon = Zenon.getSingleton();
+
+    try {
+      const [pillar, uncollected] = await Promise.all([
+        zenon.embedded.pillar.getDelegatedPillar(object),
+        zenon.embedded.pillar.getUncollectedReward(object),
+      ]);
+      setDelegated(pillar && pillar.name ? pillar : null);
+      setRewards({ znn: uncollected?.znnAmount ?? 0, qsr: uncollected?.qsrAmount ?? 0 });
+    } catch (err) {
+      // The header already reports a node that cannot be reached.
+    }
+  }, []);
 
   useEffect(() => {
-    const loadMorePillarsTrigger = document.getElementById("loadMorePillarsTrigger");
-      const fetchData = async() => {
-        await getWalletInfo(walletCredentials.walletPassword, walletCredentials.walletName);
-        pillarListObserver.current = (new IntersectionObserver(loadPillars, {
-          root: null,
-          rootMargin: `0px 0px 0px 0px`,
-          threshold: 1.0
-        }));
-        pillarListObserver.current.observe(loadMorePillarsTrigger);
-      }
-      fetchData();
-    
-      return ()=>{
-        pillarListObserver.current.unobserve(loadMorePillarsTrigger);
-      }
-  }, []);
-  
+    let cancelled = false;
 
-  const getWalletInfo = async (pass, name)=>{
-    const _keyManager = new KeyStoreManager();
-    
-    try{
-      const decrypted = await _keyManager.readKeyStore(pass, name);
-      
-      if(decrypted){
-        currentKeyPair.current = decrypted.getKeyPair(walletCredentials.selectedAddressIndex);
-        const addr = (await currentKeyPair.current.getAddress()).toString();
-        myAddressObject.current = Primitives.Address.parse(addr);
-        setAddress(addr); 
-            
-        const getDelegatedPillar = await zenon.embedded.pillar.getDelegatedPillar(myAddressObject.current);
-        if(getDelegatedPillar){
-          setDelegatedPillar(getDelegatedPillar);
-          delegatedPillarName.current = getDelegatedPillar.name
+    vault
+      .getAddressObject()
+      .then((object) => {
+        if (cancelled) {
+          return;
         }
+        loadDelegation(object);
+      })
+      .catch(() => {});
 
-        const getUncollectedReward = await zenon.embedded.pillar.getUncollectedReward(myAddressObject.current);
-        setUncollectedZnnReward(getUncollectedReward.znnAmount/ Math.pow(10, fallbackValues.availableTokens['zts1qsrxxxxxxxxxxxxxmrhjll']?.token.decimals || fallbackValues.decimals));
-        setUncollectedQsrReward(getUncollectedReward.qsrAmount/ Math.pow(10, fallbackValues.availableTokens['zts1znnxxxxxxxxxxxxx9z4ulx']?.token.decimals || fallbackValues.decimals));
-      }
-      else{
-        console.error("Error decrypting");
-      }
+    return () => {
+      cancelled = true;
+    };
+  }, [loadDelegation]);
+
+  const fetchPage = useCallback(
+    (page, pageSize) => Zenon.getSingleton().embedded.pillar.getAll(page, pageSize),
+    []
+  );
+
+  const pillars = usePagedList(fetchPage, { pageSize: 10 });
+
+  // Builds the block, hands it to the background sender and goes home. Nothing
+  // here waits on proof of work; the dashboard reports it instead.
+  const runInBackground = async (buildTemplate, label, successMessage) => {
+    try {
+      sendInBackground(await buildTemplate(), {
+        successMessage,
+        row: { owner: address, label },
+      });
+
+      navigate('/tabs/dashboard');
+    } catch (err) {
+      notify.error(err);
     }
-    catch(err){
-      console.error("Error ", err);
-    }
-  }
+  };
 
-  const transformPillarItem = (pillarItem) =>{
-    return{
-      name: pillarItem.name,
-      giveDelegateRewardPercentage: pillarItem.giveDelegateRewardPercentage,
-      giveMomentumRewardPercentage: pillarItem.giveMomentumRewardPercentage,
-      weight: pillarItem.weight.toString(),
-      producedMomentums: pillarItem.currentStats.producedMomentums,
-      expectedMomentums: pillarItem.currentStats.expectedMomentums,
-      producerAddress: pillarItem.producerAddress.toString(),
-      // ToDo: Where to find the uptime?
-      uptime: "100",
-      isDelegatedPillar: pillarItem.name === delegatedPillarName.current
-    }
-  }
-  
-  const loadPillars = async() =>{
-    if(shouldLoadMore){           
-      const getAll = await zenon.embedded.pillar.getAll(currentPillarsPage.current, pageSize);
-      console.log("getAll", getAll);
-      if(getAll.list.length > 0){
-        const newPillarItems = getAll.list.map((pillarItem)=>{
-          return transformPillarItem(pillarItem);
-        });
-        console.log("newPillarItems", newPillarItems);
-
-        setPillarItems(pillars => {
-          pillarItems = [...pillars, ...newPillarItems];
-          return pillarItems;
-        });
-
-        currentPillarsPage.current = currentPillarsPage.current + 1;
-
-        if(getAll.count >= pillarItems.length){
-          setShouldLoadMore(true);
-        }else{
-          setShouldLoadMore(false);
+  const delegate = (name) =>
+    openModal(
+      <AlertModal
+        type="confirm"
+        title="Delegate"
+        confirmLabel="Delegate"
+        onSuccess={() =>
+          runInBackground(
+            () => Zenon.getSingleton().embedded.pillar.delegate(name),
+            `Delegating to ${name}`,
+            `Delegated to ${name}`
+          )
         }
-      }
-      else{
-        setShouldLoadMore(false);
-        if(pillarItems.length === 0){
-          setNoPillarItemsLabel(true);
+      >
+        <p>
+          Delegate your weight to <b>{name}</b>? Your ZNN stays in your wallet and can be
+          undelegated at any time.
+        </p>
+      </AlertModal>
+    );
+
+  const undelegate = () =>
+    openModal(
+      <AlertModal
+        type="warning"
+        title="Undelegate"
+        confirmLabel="Undelegate"
+        onSuccess={() =>
+          runInBackground(
+            () => Zenon.getSingleton().embedded.pillar.undelegate(),
+            'Undelegating',
+            'Undelegated'
+          )
         }
-      }
-    }
-  }
+      >
+        <p>Stop delegating to {delegated?.name}? You stop earning delegation rewards.</p>
+      </AlertModal>
+    );
 
-  const openDelegateModal = (pillarName) => {
-    handleModal(<AlertModal
-        type="confirm"
-        title="Are you sure ?"
-        onDismiss={()=>onDelegateDismiss()}
-        onSuccess={()=>onDelegateSuccess(pillarName)}>
-        <div>
-          <div>Are you sure you want to delegate to</div>
-          <div>
-            <b>{pillarName}</b> ?
-          </div>         
-        </div>
-      </AlertModal>)
-  }
+  const collect = () =>
+    runInBackground(
+      () => Zenon.getSingleton().embedded.pillar.collectReward(),
+      'Collecting rewards',
+      'Rewards collected'
+    );
 
-  const onDelegateDismiss = ()=>{
-  }
-
-  const onDelegateSuccess = (pillarName)=>{
-    delegatePillar(pillarName);
-  }
-
-  const delegatePillar = async (name) =>{
-    try{
-      const delegate = zenon.embedded.pillar.delegate(name);
-      await zenon.send(delegate, currentKeyPair.current);
-
-      toast(`Succesfully delegated`, {
-        position: "bottom-center",
-        autoClose: 1000,
-        hideProgressBar: true,
-        closeOnClick: true,
-        pauseOnHover: false,
-        draggable: true,
-        newestOnTop: true,
-        type: 'success',
-        theme: 'dark'
-      });
-    }
-    catch(err){
-      console.error(err);
-      let readableError = err;
-      if(err.message) {
-        readableError = err.message;
-      }
-      readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
-
-
-      toast(readableError + "",{    
-        position: "bottom-center",
-        autoClose: 2500,
-        hideProgressBar: true,
-        closeOnClick: true,
-        pauseOnHover: false,
-        draggable: true,
-        newestOnTop: true,
-        type: 'error',
-        theme: 'dark'
-      });
-    }
-  }
-
-
-  const openUndelegateModal = () => {
-    handleModal(<AlertModal
-        type="confirm"
-        title="Are you sure ?"
-        onDismiss={()=>onUndelegateDismiss()}
-        onSuccess={()=>onUndelegateSuccess()}>
-        <div>
-          <div>Are you sure you want to undelegate ?</div>
-        </div>
-      </AlertModal>)
-  }
-
-  const onUndelegateDismiss = ()=>{
-  }
-
-  const onUndelegateSuccess = ()=>{
-    undelegatePillar();
-  }
-
-  const undelegatePillar = async () =>{
-    try{
-      const delegate = zenon.embedded.pillar.undelegate();
-      await zenon.send(delegate, currentKeyPair.current);
-      toast(`Succesfully undelegated`, {
-        position: "bottom-center",
-        autoClose: 1000,
-        hideProgressBar: true,
-        closeOnClick: true,
-        pauseOnHover: false,
-        draggable: true,
-        newestOnTop: true,
-        type: 'success',
-        theme: 'dark'
-      });
-    }
-    catch(err){
-      console.error(err);
-      let readableError = err;
-      if(err.message) {
-        readableError = err.message;
-      }
-      readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
-
-
-      toast(readableError + "",{    
-        position: "bottom-center",
-        autoClose: 2500,
-        hideProgressBar: true,
-        closeOnClick: true,
-        pauseOnHover: false,
-        draggable: true,
-        newestOnTop: true,
-        type: 'error',
-        theme: 'dark'
-      });
-    }
-  }
-
-  const openCollectRewardModal = (uncollectedZnnReward, uncollectedQsrReward) => {
-    handleModal(<AlertModal
-        type="confirm"
-        title="Are you sure ?"
-        onDismiss={()=>onCollectRewardDismiss()}
-        onSuccess={()=>onCollectRewardSuccess()}>
-        <div>
-          <div>Are you sure you want to collect ?</div>
-          <div><b>{uncollectedZnnReward} ZNN </b>and</div> 
-          <div><b>{uncollectedQsrReward} QSR </b>?</div> 
-        </div>
-      </AlertModal>)
-  }
-
-  const onCollectRewardDismiss = ()=>{
-  }
-
-  const onCollectRewardSuccess = ()=>{
-    collectReward();
-  }
-
-  const collectReward = async () =>{
-    try{
-      const collectReward = zenon.embedded.pillar.collectReward();
-      await zenon.send(collectReward, currentKeyPair.current);
-      toast(`Succesfully collected`, {
-        position: "bottom-center",
-        autoClose: 1000,
-        hideProgressBar: true,
-        closeOnClick: true,
-        pauseOnHover: false,
-        draggable: true,
-        newestOnTop: true,
-        type: 'success',
-        theme: 'dark'
-      });
-    }
-    catch(err){
-      console.error(err);
-      let readableError = err;
-      if(err.message) {
-        readableError = err.message;
-      }
-      readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
-
-      toast(readableError + "",{    
-        position: "bottom-center",
-        autoClose: 2500,
-        hideProgressBar: true,
-        closeOnClick: true,
-        pauseOnHover: false,
-        draggable: true,
-        newestOnTop: true,
-        type: 'error',
-        theme: 'dark'
-      });
-    }
-  }
+  const hasRewards =
+    formatAmount(rewards.znn, 8) !== '0' || formatAmount(rewards.qsr, 8) !== '0';
 
   return (
-    <motion.div 
-      className='black-bg transition-animated'
-      initial={"pageTransitionInitial"}
-      animate={"pageTransitionAnimate"}
-      exit={"pageTransitionExit"}
-      variants={animationVariants}>
-
-      <h1 className='mt-1'>Delegate</h1>
-
-      <div className='ml-2 mr-2'>
-        {
-          delegatedPillar.name!=="" && 
-          <>
-            <div className='d-flex align-items-center justify-content-between w-100 text-left'>
-              <div>
-                <div><b className='text-gray'>Delegated:</b> {delegatedPillar?.name}</div>
-                <div><b className='text-gray'>Weight:</b> {parseFloat(delegatedPillar?.weightWithDecimals).toFixed(0)}</div>
-              </div>
-              <div onClick={()=>openUndelegateModal()} className='thin-button secondary d-flex justify-content-center'>
-                  Undelegate
-              </div>
+    <div className="page">
+      {delegated && (
+        <div className="stat-row">
+          <div>
+            <div className="stat-value">{delegated.name}</div>
+            <div className="stat-label">
+              Delegated · {formatAmount(delegated.weightWithDecimals, 0, { maxDecimals: 0 })} weight
             </div>
-            {
-              (uncollectedQsrReward>-1 || uncollectedZnnReward>-1) &&
-              <div className='mt-2 d-flex align-items-center justify-content-between w-100 text-left'>
-                <div>
-                  <div><b className='text-gray'>Rewarded ZNN:</b> {parseFloat(uncollectedZnnReward).toFixed(0)}</div>
-                  <div><b className='text-gray'>Rewarded QSR:</b> {parseFloat(uncollectedQsrReward).toFixed(0)}</div>
-                </div>
-                <div onClick={()=>openCollectRewardModal(uncollectedZnnReward, uncollectedQsrReward)} 
-                  className={`thin-button primary d-flex justify-content-center ${(uncollectedQsrReward>0 || uncollectedZnnReward>0)?'':'disabled'}`}>
-                    Collect
-                </div>
-              </div>
-            }
-          </>
-        }
-
-        <div className='transactions mt-2'>
-          {
-            pillarItems.map((pillar, i) => {
-              return <PillarItem key={"pillar-"+i} delegatePillar={openDelegateModal} undelegatePillar={openUndelegateModal} isDelegatedPillar={pillar.isDelegatedPillar} name={pillar.name} giveDelegateRewardPercentage={pillar.giveDelegateRewardPercentage} giveMomentumRewardPercentage={pillar.giveMomentumRewardPercentage} weight={pillar.weight} producedMomentums={pillar.producedMomentums} expectedMomentums={pillar.expectedMomentums} producerAddress={pillar.producerAddress} uptime={pillar.uptime} ></PillarItem>
-            })
-          }
-        </div>
-        
-        {(shouldLoadMore || noPillarItemsLabel) && 
-          <div className='mt-2 center-items'>
-            <span className='text-gray ml-1'>{
-              noPillarItemsLabel?'No pillars':<span id="loadMorePillarsTrigger">Loading...</span>
-            }</span>
           </div>
-        }
-      </div>
+          <button type="button" className="thin-button secondary" onClick={undelegate}>
+            Undelegate
+          </button>
+        </div>
+      )}
 
-  </motion.div>
+      {hasRewards && (
+        <div className="stat-row">
+          <div>
+            <div className="stat-value">
+              {formatAmount(rewards.znn, 8)} ZNN · {formatAmount(rewards.qsr, 8)} QSR
+            </div>
+            <div className="stat-label">Uncollected rewards</div>
+          </div>
+          <button
+            type="button"
+            className="thin-button primary"
+            onClick={collect}
+          >
+            Collect
+          </button>
+        </div>
+      )}
+
+      <div className="list mt-2">
+        {pillars.items.map((pillar) => (
+          <PillarItem
+            key={pillar.name}
+            name={pillar.name}
+            giveDelegateRewardPercentage={pillar.giveDelegateRewardPercentage}
+            weight={pillar.weight}
+            producedMomentums={pillar.currentStats?.producedMomentums}
+            expectedMomentums={pillar.currentStats?.expectedMomentums}
+            producerAddress={pillar.producerAddress?.toString() || ''}
+            isDelegatedPillar={pillar.name === delegated?.name}
+            onDelegate={delegate}
+            onUndelegate={undelegate}
+          />
+        ))}
+
+        {pillars.isEmpty && <p className="empty-note">No pillars found</p>}
+
+        <div ref={pillars.sentinelRef} className="load-more-sentinel">
+          {pillars.isLoading && <span className="text-gray">Loading…</span>}
+        </div>
+      </div>
+    </div>
   );
 };
 

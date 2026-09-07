@@ -1,304 +1,398 @@
-import React, { useEffect, useState, useRef, useContext } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { KeyStoreManager, Zenon, Primitives, Constants } from 'znn-ts-sdk';
-import TokenDropdown from '../../../components/token-dropdown/token-dropdown';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useDispatch, useSelector } from 'react-redux';
+import { Zenon } from 'znn-ts-sdk';
+
 import TransactionItem from '../../../components/transaction-item/transaction-item';
-import fallbackValues from '../../../services/utils/fallbackValues';
-import { receiveAllBlocks } from '../../../services/utils/utils';
-import { motion } from 'framer-motion';
-import animationVariants from '../../../layouts/tabsLayout/animationVariants';
-import { useSelector } from 'react-redux';
-import { SilentSpinnerContext } from '../../../services/hooks/silent-spinner/silentSpinnerContext'
-import { toast } from 'react-toastify';
-import { ethers } from 'ethers';
+import Icon from '../../../components/icon/icon';
+import useAccount from '../../../services/hooks/useAccount';
+import useTransactions from '../../../services/hooks/useTransactions';
+import vault from '../../../services/wallet/vault';
+import {
+  countPendingBlocks,
+  receivePendingBlocks,
+  receivePhase,
+  znnZts,
+  qsrZts,
+} from '../../../services/wallet/account';
+import { embeddedContractName } from '../../../services/utils/contracts';
+import { contractDisplayName } from '../../../services/utils/contractCalls';
+import { formatAmount, formatExact, truncateAddress } from '../../../services/utils/format';
+import { copyToClipboard, notify } from '../../../services/utils/notify';
+import { getSettings, setSetting } from '../../../services/utils/storage';
+import {
+  pendingStatus,
+  clearPendingTransaction,
+  clearSettledTransactions,
+} from '../../../services/redux/pendingTransactionsSlice';
+
+// The wallet's front page.
+//
+// It used to open by silently receiving every pending block on the account
+// before it would show anything — an unbounded loop of on-chain transactions,
+// each one possibly generating proof of work, behind a spinner, that the person
+// had not asked for and could not stop. Receiving is still offered, and still
+// happens on its own when the setting is on, but it is bounded, it says what it
+// is doing, and it never blocks the first paint.
+
+// The row shown for the block being received right now.
+//
+// It is built from the unreceived block itself rather than from history,
+// because until the receive is signed and published there is nothing in this
+// account's chain to list — which is exactly the stretch where proof of work
+// runs and the wallet looked like it had stopped.
+const describePendingBlock = (block) => {
+  const sender = block.address?.toString() || '';
+  const contract = embeddedContractName(sender);
+
+  return {
+    amount: block.amount,
+    decimals: block.token?.decimals,
+    tokenSymbol: block.token?.symbol || '',
+    address: sender,
+    counterpartyName: contract ? contractDisplayName(contract) : null,
+  };
+};
 
 const Dashboard = () => {
-  const availableTokens = Object.keys(fallbackValues.availableTokens);
   const navigate = useNavigate();
-  const [address, setAddress] = useState(""); 
-  const [tokenColor, setTokenColor] = useState("green"); 
-  let [transactions, setTransactions] = useState([]); 
-  const [selectedToken, setSelectedToken] = useState(availableTokens[0]); 
-  const [walletInfo, setWalletInfo] = useState({
-    balanceInfoMap: fallbackValues.availableTokens
-  }); 
-  const transactionsCount = useRef(0); 
-  const currentTransactionsPage = useRef(0); 
-  const myAddressObject = useRef({}); 
-  const [shouldLoadMore, setShouldLoadMore] = useState(true); 
-  const [noTransactionsLabel, setNoTransactionsLabel] = useState(false); 
-  const transactionsObserver = useRef({}); 
-  const zenon = Zenon.getSingleton(); 
-  const pageSize = 200;
-  const walletCredentials = useSelector(state => state.wallet);
-  const { handleSilentSpinner } = useContext(SilentSpinnerContext);
+  const dispatch = useDispatch();
+  const { address, balanceMap, isLoading, refresh } = useAccount();
+  // Blocks this wallet has sent that are not in the account's chain yet. They
+  // outlive the screen that started them, which is the whole point.
+  const allOutgoing = useSelector((state) => state.pendingTransactions.items);
+
+  const [addressObject, setAddressObject] = useState(null);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [isReceiving, setIsReceiving] = useState(false);
+  const [receiveProgress, setReceiveProgress] = useState('');
+  // The block being received at this moment, and whether it is paying for
+  // itself with proof of work. Null whenever nothing is in flight.
+  const [receivingBlock, setReceivingBlock] = useState(null);
+  const [hideBalances, setHideBalances] = useState(() => getSettings().hideBalances);
+
+  // A send belongs to the address that made it; switching address should not
+  // show it under the new one.
+  const outgoing = useMemo(
+    () => allOutgoing.filter((entry) => !entry.owner || entry.owner === address),
+    [allOutgoing, address]
+  );
+
+  const transactions = useTransactions(addressObject, address);
+  // Destructured because the hook returns a fresh object each render: an effect
+  // that depended on `transactions` would re-run every time, and one that
+  // depended on nothing would close over a stale `loadMore`.
+  const {
+    loadMore: loadMoreTransactions,
+    reset: resetTransactions,
+    refreshNewest: refreshNewestTransactions,
+    hasPending,
+  } = transactions;
+  const loadMoreRef = useRef(null);
+  const hasAutoReceived = useRef(false);
 
   useEffect(() => {
-  const loadMoreTransactionsTrigger = document.getElementById("loadMoreTransactionsTrigger");
-    const fetchData = async() => {
-      await getWalletInfo(walletCredentials.walletPassword, walletCredentials.walletName);
-      transactionsObserver.current = (new IntersectionObserver(loadTransactions, {
-        root: null,
-        rootMargin: `0px 0px 0px 0px`,
-        threshold: 1.0
-      }));
-      transactionsObserver.current.observe(loadMoreTransactionsTrigger);
-    }
-    fetchData();
-  
-    return ()=>{
-      transactionsObserver.current.unobserve(loadMoreTransactionsTrigger);
-    }
-  }, []);
+    let cancelled = false;
 
-  const getWalletInfo = async (pass, name)=>{
-    const _keyManager = new KeyStoreManager();
-    const showSilentSpinner = handleSilentSpinner(
-      <>
-        <div className='text-bold'>
-          Receiving transactions ...
-        </div>
-      </>
-    );
-    showSilentSpinner(true);
-    
-    try{
-      const decrypted = await _keyManager.readKeyStore(pass, name);
-
-      if(decrypted){
-        const currentKeyPair = decrypted.getKeyPair(walletCredentials.selectedAddressIndex);
-        const addr = (await currentKeyPair.getAddress()).toString();
-        myAddressObject.current = Primitives.Address.parse(addr);
-        setAddress(addr); 
-
-        const updateAccountInfo = async() => {
-          let getAccountInfoByAddress = await zenon.ledger.getAccountInfoByAddress(myAddressObject.current);
-          console.log("getAccountInfoByAddress", getAccountInfoByAddress);
-          if(Object.keys(getAccountInfoByAddress.balanceInfoMap).length) {
-            getAccountInfoByAddress.balanceInfoMap = {...walletInfo.balanceInfoMap, ...getAccountInfoByAddress.balanceInfoMap}
-            setWalletInfo(getAccountInfoByAddress);
-          }
+    vault
+      .getAddressObject()
+      .then((object) => {
+        if (!cancelled) {
+          setAddressObject(object);
         }
-        await updateAccountInfo();
+      })
+      .catch(() => {});
 
-        await receiveAllBlocks(zenon, currentKeyPair);
-        // console.log("receiveAllBlocks", )
-        await updateAccountInfo();
-        showSilentSpinner(false);
-      }
-      else{
-        console.error("Error decrypting");
-      }
-    }
-    catch(err){
-      showSilentSpinner(false);
-      console.error("Error ", err);
-    }
-  }
+    return () => {
+      cancelled = true;
+    };
+  }, [address]);
 
-  const loadTransactions = async() =>{
-    try{
-      if(shouldLoadMore){
-        const getBlocksByPage = await zenon.ledger.getBlocksByPage(myAddressObject.current, currentTransactionsPage.current, pageSize);         
-          console.log("getBlocksByPage - page", currentTransactionsPage.current, getBlocksByPage)
-          if(getBlocksByPage.list.length > 0){
-            transactionsCount.current += getBlocksByPage.list.length;
-            console.log("getBlocksByPage", getBlocksByPage);
-            let newTransactions = getBlocksByPage.list;
-            newTransactions = await Promise.all(newTransactions.map(async (transaction) => {
-              return await transformTransactionItem(transaction.toJson());
-            }));          
-            console.log("newTransactions", newTransactions);
-            setTransactions(prevTransactions => {
-              // console.log("prevTransactions", prevTransactions);
-              transactions = [...prevTransactions, ...newTransactions];
-              // console.log("transactions", transactions);
-              return transactions
-            });
-            currentTransactionsPage.current = currentTransactionsPage.current + 1;
-          if(getBlocksByPage.count >= transactionsCount){
-            setShouldLoadMore(true);
-          }else{
-            setShouldLoadMore(false);
+  const refreshPending = useCallback(async () => {
+    if (!addressObject) {
+      return;
+    }
+    try {
+      setPendingCount(await countPendingBlocks(Zenon.getSingleton(), addressObject));
+    } catch (err) {
+      // The node is unreachable; the header already says so.
+    }
+  }, [addressObject]);
+
+  const receive = useCallback(async () => {
+    if (!addressObject || isReceiving) {
+      return;
+    }
+    setIsReceiving(true);
+    setReceiveProgress('Receiving…');
+
+    try {
+      const keyPair = await vault.getSigningKeyPair();
+      const received = await receivePendingBlocks(Zenon.getSingleton(), keyPair, addressObject, {
+        onProgress: (done, total) => setReceiveProgress(`Receiving ${done} of ${total}…`),
+        onBlock: (block, phase) => {
+          if (phase === receivePhase.done) {
+            setReceivingBlock(null);
+            return;
           }
-        }
-        else{
-          setShouldLoadMore(false);
-          if(transactionsCount === 0){
-            setNoTransactionsLabel(true);
-          }
-        }
-      }
-    }
-    catch(err){
-      console.error(err);
-      let readableError = err;
-      if(err.message) {
-        readableError = err.message;
-      }
-      readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
-
-      toast(readableError + "",{    
-        position: "bottom-center",
-        autoClose: 2500,
-        hideProgressBar: true,
-        closeOnClick: true,
-        pauseOnHover: false,
-        draggable: true,
-        newestOnTop: true,
-        type: 'error',
-        theme: 'dark'
+          setReceivingBlock({
+            ...describePendingBlock(block),
+            isGeneratingPlasma: phase === receivePhase.generatingPlasma,
+          });
+        },
       });
-    }
-  }
 
-  const transformTransactionItem = async (transactionItem) =>{
-    console.log("transactionItem", transactionItem);
-    let transaction;
-    if(transactionItem.blockType === 3 || transactionItem.blockType === '3'){
-      transaction = await getReferencedTransaction(transactionItem);
-      console.log("transaction", transaction);
-    }else{
-      transaction = transactionItem;
-    }
-    
-    console.log("ethers.utils.formatUnits(ethers.BigNumber.from(transaction.amount.toString() || 0), ethers.BigNumber.from(((transaction.token?.decimals || fallbackValues.availableTokens[transaction.tokenStandard?.toString()]?.token.decimals || fallbackValues.decimals).toString() || 8)+''))", ethers.utils.formatUnits(ethers.BigNumber.from(transaction.amount.toString() || 0), ethers.BigNumber.from(((transaction.token?.decimals || fallbackValues.availableTokens[transaction.tokenStandard?.toString()]?.token.decimals || fallbackValues.decimals).toString() || 8)+'')));
-    console.log("parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(transaction.amount.toString() || 0), ethers.BigNumber.from(((transaction.token?.decimals || fallbackValues.availableTokens[transaction.tokenStandard?.toString()]?.token.decimals || fallbackValues.decimals).toString() || 8)+'')))", parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(transaction.amount.toString() || 0), ethers.BigNumber.from(((transaction.token?.decimals || fallbackValues.availableTokens[transaction.tokenStandard?.toString()]?.token.decimals || fallbackValues.decimals).toString() || 8)+''))));
-    const transformedTransaction = {
-      type: identifyTransactionType(transaction),
-      amount: parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(transaction.amount.toString() || 0), ethers.BigNumber.from(((transaction.token?.decimals || fallbackValues.availableTokens[transaction.tokenStandard?.toString()]?.token.decimals || fallbackValues.decimals).toString() || 8)+''))),
-      // amount: transaction.amount / Math.pow(10, transaction.token?.decimals || fallbackValues.availableTokens[transaction.tokenStandard?.toString()]?.token.decimals || fallbackValues.decimals),
-      tokenSymbol: transaction.token?.symbol || fallbackValues.availableTokens[transaction.tokenStandard?.toString()]?.token.symbol || "?",
-      address: transaction.toAddress.toString(),
-      hash: transaction.hash.toString()
-    }
-
-    switch(transformedTransaction.type){
-      case 'delegated':{
-          transformedTransaction.amount = null;
-          transformedTransaction.tokenSymbol = null;
-        break;
+      if (received > 0) {
+        notify.success(`Received ${received} transaction${received === 1 ? '' : 's'}`);
+        await refresh({ quiet: true });
+        resetTransactions();
       }
-      default:{}
+      await refreshPending();
+    } catch (err) {
+      notify.error(err);
+    } finally {
+      setIsReceiving(false);
+      setReceiveProgress('');
+      setReceivingBlock(null);
     }
+  }, [addressObject, isReceiving, refresh, refreshPending, resetTransactions]);
 
-    return transformedTransaction;
-  }
-
-  const identifyTransactionType = (transactionItem) =>{
-    if(transactionItem.toAddress.toString() === myAddressObject.current.toString()){
-      return 'received';
-    }else if(transactionItem.toAddress.toString() === Constants.plasmaAddress.toString()){
-      return 'fused';
-    }else if(transactionItem.toAddress.toString() === Constants.pillarAddress.toString()){
-      return 'delegated';
-    }else if(transactionItem.toAddress.toString() === Constants.stakeAddress.toString()){
-      return 'staked';
+  // Auto-receive is a setting now, and runs once per mount rather than on every
+  // render pass that happened to re-enter the effect.
+  useEffect(() => {
+    if (!addressObject) {
+      return;
     }
-    else{
-      return 'sent';
-    }
-  }
-
-  const getReferencedTransaction = async (transactionItem)=>{
-    return (await zenon.ledger.getBlockByHash(transactionItem.fromBlockHash)).toJson();
-  }
-
-  const goToSend = () => {
-    navigate('send', {
-      state: {
-        currentSelectedToken: selectedToken,
+    refreshPending().then(() => {
+      if (getSettings().autoReceive && !hasAutoReceived.current) {
+        hasAutoReceived.current = true;
+        countPendingBlocks(Zenon.getSingleton(), addressObject)
+          .then((count) => (count > 0 ? receive() : null))
+          .catch(() => {});
       }
     });
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressObject]);
 
-  const switchToken = () =>{
-    setSelectedToken(availableTokens[(availableTokens.indexOf(selectedToken)+1)%(availableTokens.length)]);
-    if(tokenColor === 'green'){
-      setTokenColor('blue');
-    }else{
-      setTokenColor('green');
+  // Infinite scroll, observing a sentinel at the end of the list.
+  useEffect(() => {
+    const sentinel = loadMoreRef.current;
+
+    if (!sentinel || !addressObject) {
+      return undefined;
     }
-  }
-  
-  const selectToken = (index, value) => {
-    setSelectedToken(value.token.tokenStandard);
-    if(value.token.symbol === 'ZNN'){
-      setTokenColor('green');
-    }else{
-      setTokenColor('blue');
-    }
-  }
-  
-  return (
-    <motion.div 
-      className='black-bg transition-animated'
-      initial={"pageTransitionInitial"}
-      animate={"pageTransitionAnimate"}
-      exit={"pageTransitionExit"}
-      variants={animationVariants}>
-
-      <div className='mt-2 ml-2 mr-2 d-flex justify-content-center'>
-        <div className={`wallet-circle circle-${tokenColor}`}>
-          <h2 className='mb-0 tooltip'>
-            {/* {parseFloat(walletInfo.balanceInfoMap[selectedToken].balance/Math.pow(10, walletInfo.balanceInfoMap[selectedToken].token.decimals)).toFixed(0)}
-            <span className='tooltip-text mt-2'>{parseFloat(walletInfo.balanceInfoMap[selectedToken].balance/Math.pow(10, walletInfo.balanceInfoMap[selectedToken].token.decimals))}</span> */}
-          {
-            parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(walletInfo.balanceInfoMap[selectedToken].balance.toString() || 0), ethers.BigNumber.from(((walletInfo.balanceInfoMap[selectedToken].token.decimals || fallbackValues.availableTokens[selectedToken]?.token.decimals || fallbackValues.decimals).toString() || 8)+''))).toFixed(0)
-          }
-          <span className='tooltip-text mt-2'>{parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(walletInfo.balanceInfoMap[selectedToken].balance.toString() || 0), ethers.BigNumber.from(((walletInfo.balanceInfoMap[selectedToken].token.decimals || fallbackValues.availableTokens[selectedToken]?.token.decimals || fallbackValues.decimals).toString() || 8)+'')))}</span>
-
-          </h2>
-          <h4 className='mb-0 mt-1 text-gray'>{walletInfo.balanceInfoMap[selectedToken].token.symbol}</h4>
-          <h4 className='m-0 text-gray tooltip cursor-pointer' onClick={() => {try{navigator.clipboard.writeText(address); toast(`Address copied`, {
-                position: "bottom-center",
-                autoClose: 1000,
-                hideProgressBar: true,
-                closeOnClick: true,
-                pauseOnHover: false,
-                draggable: true,
-                newestOnTop: true,
-                type: 'success',
-                theme: 'dark'
-              })}catch(err){console.error(err)} }}>
-            {address.slice(0, 3) + '...' + address.slice(-3)}
-            <span className='tooltip-text'>{address}</span>
-          </h4>
-          <img alt="" onClick={()=>{switchToken()}} className='mt-1 p-2 button' src={require(`./../../../assets/switch-${tokenColor}.svg`)} width='16px'></img>
-        </div>  
-      </div>
-      
-      <div className='mt-2 ml-2 mr-2 d-flex justify-content-center'>
-        <TokenDropdown options={Object.keys(walletInfo.balanceInfoMap).map((value)=>{return walletInfo.balanceInfoMap[value]})} tokenSymbolPath={`token.symbol`} onChange={selectToken} value={selectedToken} placeholder="Select token" />
-      </div>
-
-      <div className='mt-2 ml-2 mr-2 d-flex'>
-        <div onClick={goToSend} className='button secondary w-100 mr-2 d-flex justify-content-center'>
-          Send
-          <img alt="" className='ml-1' src={require('./../../../assets/send-right-green.svg')} width='20px'></img>
-        </div>
-        <Link to="receive" className='button secondary w-100 d-flex justify-content-center'>
-          Receive
-          <img alt="" className='ml-1' src={require('./../../../assets/send-left-green.svg')} width='20px'></img>
-        </Link>
-      </div>
-      <div className='transactions mt-2 ml-2 mr-2'>
-        {
-          transactions.map((transaction, i) => {
-            return <TransactionItem  key={"transaction-"+i} type={transaction.type} amount={transaction.amount} tokenSymbol={transaction.tokenSymbol} address={transaction.address} hash={transaction.hash}></TransactionItem>
-          })
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          loadMoreTransactions();
         }
+      },
+      { threshold: 1.0 }
+    );
+    observer.observe(sentinel);
+
+    return () => observer.disconnect();
+  }, [addressObject, loadMoreTransactions]);
+
+  // A settled block is one the node has accepted but the history has not been
+  // re-read for yet. Its placeholder row is cleared only after the refresh has
+  // landed, so the row is replaced by the real one rather than disappearing for
+  // a second first.
+  const hasSettled = outgoing.some((entry) => entry.status === pendingStatus.settled);
+
+  useEffect(() => {
+    if (!hasSettled) {
+      return undefined;
+    }
+    let cancelled = false;
+
+    (async () => {
+      await refreshNewestTransactions();
+      await refresh({ quiet: true });
+
+      if (!cancelled) {
+        dispatch(clearSettledTransactions());
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasSettled, refreshNewestTransactions, refresh, dispatch]);
+
+  // Only while a block is waiting on a momentum, so the wallet is not polling
+  // the node for the sake of it. The effect tears itself down when the last
+  // pending row confirms.
+  useEffect(() => {
+    if (!hasPending) {
+      return undefined;
+    }
+    const timer = setInterval(() => {
+      refreshNewestTransactions();
+      refresh({ quiet: true });
+    }, 8000);
+
+    return () => clearInterval(timer);
+  }, [hasPending, refreshNewestTransactions, refresh]);
+
+  const toggleHidden = () => {
+    const next = !hideBalances;
+    setHideBalances(next);
+    setSetting('hideBalances', next);
+  };
+
+  const znn = balanceMap[znnZts];
+  const qsr = balanceMap[qsrZts];
+
+  const renderBalance = (entry) =>
+    hideBalances ? '••••' : formatAmount(entry?.balance, entry?.token?.decimals);
+
+  return (
+    <div className="page">
+      <section className="balance-card">
+        <div className="balance-row">
+          <button
+            type="button"
+            className="balance-figure"
+            onClick={toggleHidden}
+            title={hideBalances ? 'Show balances' : 'Hide balances'}
+          >
+            <span className="balance-amount" title={formatExact(znn?.balance, znn?.token?.decimals)}>
+              {renderBalance(znn)}
+            </span>
+            <span className="balance-symbol znn">ZNN</span>
+          </button>
+
+          <button
+            type="button"
+            className="balance-figure"
+            onClick={toggleHidden}
+            title={hideBalances ? 'Show balances' : 'Hide balances'}
+          >
+            <span className="balance-amount" title={formatExact(qsr?.balance, qsr?.token?.decimals)}>
+              {renderBalance(qsr)}
+            </span>
+            <span className="balance-symbol qsr">QSR</span>
+          </button>
+        </div>
+
+        <button
+          type="button"
+          className="balance-address"
+          onClick={() => copyToClipboard(address, 'Address copied')}
+          title={address}
+        >
+          {truncateAddress(address, 8, 6)}
+          <img alt="" src={require('./../../../assets/copy-icon.png')} width="10" />
+        </button>
+      </section>
+
+      <div className="action-row">
+        <button
+          type="button"
+          className="button secondary w-100"
+          onClick={() => navigate('send')}
+        >
+          <Icon name="send" size={16} />
+          Send
+        </button>
+        <button
+          type="button"
+          className="button secondary w-100"
+          onClick={() => navigate('receive')}
+        >
+          <Icon name="receive" size={16} />
+          Receive
+        </button>
       </div>
 
-      {(shouldLoadMore || noTransactionsLabel) && 
-        <div className='mt-2 center-items'>
-          <span className='text-gray ml-1'>{
-            noTransactionsLabel?'No transactions':<span id="loadMoreTransactionsTrigger">Loading...</span>
-          }</span>
+      {/* Only shown when there is something to act on. */}
+      {(pendingCount > 0 || isReceiving) && (
+        <button type="button" className="pending-banner" onClick={receive} disabled={isReceiving}>
+          {isReceiving
+            ? receiveProgress || 'Receiving…'
+            : `${pendingCount} pending — tap to receive`}
+        </button>
+      )}
+
+      <section className="activity">
+        <h3 className="section-title">Activity</h3>
+
+        {/* Blocks this wallet sent that have not landed yet. Above the receive
+            in flight and above history, because they are the newest thing that
+            happened and the only ones still moving. */}
+        {outgoing.map((entry) => (
+          <TransactionItem
+            key={entry.id}
+            type={entry.type}
+            label={entry.label}
+            icon={entry.icon}
+            amount={entry.amount}
+            decimals={entry.decimals}
+            tokenSymbol={entry.tokenSymbol}
+            address={entry.address}
+            counterpartyName={entry.counterpartyName}
+            isUnconfirmed
+            isGeneratingPlasma={entry.status === pendingStatus.generatingPlasma}
+            isFailed={entry.status === pendingStatus.failed}
+            error={entry.error}
+            onDismiss={
+              entry.status === pendingStatus.failed
+                ? () => dispatch(clearPendingTransaction(entry.id))
+                : undefined
+            }
+          />
+        ))}
+
+        {/* The block in flight, above the settled history. It carries no hash
+            yet — the receive block does not exist until this finishes — so it
+            gets no explorer link. */}
+        {receivingBlock && (
+          <TransactionItem
+            type="received"
+            label="Receiving"
+            icon="receive"
+            amount={receivingBlock.amount}
+            decimals={receivingBlock.decimals}
+            tokenSymbol={receivingBlock.tokenSymbol}
+            address={receivingBlock.address}
+            counterpartyName={receivingBlock.counterpartyName}
+            isUnconfirmed
+            isGeneratingPlasma={receivingBlock.isGeneratingPlasma}
+          />
+        )}
+
+        {transactions.items.map((transaction, index) => (
+          <TransactionItem
+            key={transaction.hash || `transaction-${index}`}
+            type={transaction.type}
+            label={transaction.label}
+            icon={transaction.icon}
+            amount={transaction.amount}
+            decimals={transaction.decimals}
+            tokenSymbol={transaction.tokenSymbol}
+            address={transaction.address}
+            counterpartyName={transaction.counterpartyName}
+            hash={transaction.hash}
+            isUnconfirmed={transaction.isUnconfirmed}
+            confirmations={transaction.confirmations}
+          />
+        ))}
+
+        {/* Not "no transactions" while one is on screen waiting to land. */}
+        {transactions.isEmpty && !outgoing.length && !receivingBlock && (
+          <p className="empty-note">No transactions yet</p>
+        )}
+        {transactions.error && !transactions.items.length && (
+          <p className="empty-note">Could not load activity</p>
+        )}
+
+        <div ref={loadMoreRef} className="load-more-sentinel">
+          {(transactions.isLoading || isLoading) && <span className="text-gray">Loading…</span>}
         </div>
-      }
-  </motion.div>
+      </section>
+    </div>
   );
 };
 
-export default Dashboard
+export default Dashboard;

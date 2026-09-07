@@ -20,3 +20,13 @@
 
 # secrets
 secrets.*.js
+
+# dev harness: throwaway chrome profile, its wallet and its screenshots
+/.dev-harness
+
+# the SDK's StorageController writes this when it is required outside a browser,
+# which the checks in utils/ do
+/znn-local-storage
+
+# Windows Explorer folder settings
+desktop.ini

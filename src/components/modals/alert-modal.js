@@ -1,91 +1,61 @@
-import React , {useContext} from "react";
-import { ModalContext } from "../../services/hooks/modal/modalContext";
+import React, { useContext } from 'react';
+import { ModalContext } from '../../services/hooks/modal/modalContext';
 
-const AlertModal = ({children, title, type, onDismiss, onSuccess}) => {
-  const { handleModal } = useContext(ModalContext);
-  const handleDismiss = () => {
-    onDismiss();
-    return handleModal();
-  }
+// The confirmation dialog.
+//
+// Its `returnModalDividerClass` and `returnModalButtons` switches had no
+// default branch, so a type it did not recognise rendered a dialog with no
+// buttons at all — dismissable only by clicking the backdrop.
 
-  const handleSuccess = () => {
-    onSuccess();
-    return handleModal();
-  }
+const styles = {
+  confirm: { accent: 'green', confirmLabel: 'Confirm', confirmClass: 'primary' },
+  warning: { accent: 'warning', confirmLabel: 'Proceed', confirmClass: 'warning' },
+  danger: { accent: 'warning', confirmLabel: 'Remove', confirmClass: 'warning' },
+};
 
-  const returnModalDividerClass = (type) => {
-    switch(type){
-      case "confirm":{
-        return "green";
-      }
-      case "success":{
-        return "green";
-      }
-      case "warning":{
-        return "warning";
-      }
-      case "error":{
-        return "warning";
-      }
-    }
-  }
+const AlertModal = ({ children, title, type = 'confirm', onDismiss, onSuccess, confirmLabel }) => {
+  const { closeModal } = useContext(ModalContext);
+  const style = styles[type] || styles.confirm;
 
-  const returnModalButtons = (type) => {
-    switch(type){
-      case "confirm":{
-        return (
-          <div className="modal-action-area d-flex mt-2">
-            <div className={"mr-2 secondary button w-100 d-flex justify-content-center"}
-              onClick={()=>{handleDismiss()}} >
-              Cancel
-            </div>
-            <div className={"ml-2 primary button w-100 d-flex justify-content-center"}
-              onClick={()=>{handleSuccess()}} >
-              OK
-            </div>
-          </div>
-        )
-      }
-      case "success":{
-        break;
-      }
-      case "warning":{
-        return (
-          <div className="modal-action-area d-flex mt-2">
-            <div className={"mr-2 secondary button w-100 d-flex justify-content-center"}
-              onClick={()=>{handleDismiss()}} >
-              Cancel
-            </div>
-            <div className={"ml-2 warning button w-100 d-flex justify-content-center"}
-              onClick={()=>{handleSuccess()}} >
-              Proceed
-            </div>
-          </div>
-        )
-      }
-      case "error":{
-        break;
-      }
-    }
-  }
+  const dismiss = () => {
+    closeModal();
+    onDismiss?.();
+  };
+
+  const confirm = () => {
+    closeModal();
+    onSuccess?.();
+  };
 
   return (
-    <div>
-      <div className='modal-header d-flex justify-content-center p-2'>
-        {title}
-        <img alt="" src={require('./../../assets/close-icon.svg')} onClick={()=>{handleDismiss()}} className='close-modal p-2'></img>
+    <div className="alert-modal">
+      <div className="modal-header">
+        <span>{title}</span>
+        <button type="button" className="close-modal" onClick={dismiss} aria-label="Close">
+          <img alt="" src={require('./../../assets/close-icon.svg')} width="12" />
+        </button>
       </div>
 
-      <div className={`modal-divider ${returnModalDividerClass(type)}`}></div>
+      <div className={`modal-divider ${style.accent}`} />
 
-      <div className='modal-content p-2'>
+      <div className="modal-content">
         {children}
 
-        {returnModalButtons(type)}
+        <div className="modal-action-area">
+          <button type="button" className="button secondary w-100" onClick={dismiss}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={`button ${style.confirmClass} w-100`}
+            onClick={confirm}
+          >
+            {confirmLabel || style.confirmLabel}
+          </button>
+        </div>
       </div>
-
     </div>
   );
-}
+};
 
 export default AlertModal;

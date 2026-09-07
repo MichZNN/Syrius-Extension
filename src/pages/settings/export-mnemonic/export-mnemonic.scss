@@ -1,6 +1,8 @@
-
-.mnemonic-words{
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1em;
+// Twelve words in a 360px popup: two columns, numbered, so they can be read
+// down and checked against a written copy. They used to wrap as free-flowing
+// flex items, which put a variable number per line and made that impossible.
+.mnemonic-words {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
 }

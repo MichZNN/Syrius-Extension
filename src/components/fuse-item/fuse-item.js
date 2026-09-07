@@ -1,29 +1,36 @@
 import React from 'react';
 
-const FuseItem = ({id, amount, beneficiary, expiration, cancelFuse}) => {
+import { formatAmount, momentumsToDuration, truncateAddress } from '../../services/utils/format';
+
+// One plasma fusion.
+//
+// The expiry used to be computed by the page as
+// `(expirationHeight - momentumHeight) * 10 / 3600` and rendered as
+// "3.47 h" — hours to two decimal places, which nobody reads. It also divided
+// by a hard-coded 1e8 rather than the token's decimals.
+const FuseItem = ({ id, amount, decimals, beneficiary, expirationHeight, momentumHeight, cancelFuse }) => {
+  const remaining = Number(expirationHeight) - Number(momentumHeight);
+  const isUnlocked = !momentumHeight || remaining <= 0;
+
   return (
-    <div className='transaction mt-2 d-flex justify-content-between'>
-      <div className='mr-2 align-items-start text-left w-100'>
-        {"Fused " + amount + " QSR"}
-        <div className='text-gray text-xs tooltip w-100'>
-          For: {beneficiary.slice(0, 3) + '...' + beneficiary.slice(-3)}
-          <span className="tooltip-text text-md">{beneficiary}</span>
+    <div className="list-row">
+      <div className="list-row-main">
+        <div className="list-row-title">{formatAmount(amount, decimals)} QSR</div>
+        <div className="list-row-note" title={beneficiary}>
+          For {truncateAddress(beneficiary)}
         </div>
       </div>
 
-      {
-        expiration > 0 && 
-      <div className='text-right align-items-end'>
-        <div className='white-space-nowrap'>Expiring in</div>
-        <div className='text-gray text-xs'>{expiration.toFixed(2)} h</div>
-      </div>
-      }
-
-      {
-        expiration <= 0 && 
-        <img alt="" onClick={()=>cancelFuse(id)} src={require('./../../assets/close.svg')} className='close-icon'/>
-      }
-
+      {isUnlocked ? (
+        <button type="button" className="thin-button secondary" onClick={() => cancelFuse(id)}>
+          Cancel
+        </button>
+      ) : (
+        <div className="list-row-side">
+          <div className="list-row-note">Unlocks in</div>
+          <div className="list-row-value">{momentumsToDuration(remaining)}</div>
+        </div>
+      )}
     </div>
   );
 };

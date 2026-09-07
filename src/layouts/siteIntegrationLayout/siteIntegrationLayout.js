@@ -1,521 +1,443 @@
-import React, {useState, useEffect, useRef, useContext} from 'react';
-import { useDispatch, useSelector } from 'react-redux';
-import { nextIntegrationStep } from '../../services/redux/integrationSlice';
-import { KeyStoreManager, Zenon, Primitives } from 'znn-ts-sdk';
-import TransactionItem from '../../components/transaction-item/transaction-item';
-import fallbackValues from '../../services/utils/fallbackValues';
-import { toast } from 'react-toastify';
-import { SpinnerContext } from '../../services/hooks/spinner/spinnerContext';
-import { Enums, utils } from "znn-ts-sdk";
+import React, { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
+import { Primitives, Zenon, utils as sdkUtils } from 'znn-ts-sdk';
 
-const SiteIntegrationLayout = ()=>{
-  const [address, setAddress] = useState(""); 
-  const [signedHash, setSignedHash] = useState({}); 
-  const dispatch = useDispatch();
-  const integrationState = useSelector(state => state.integrationFlow);
-  const walletCredentials = useSelector(state => state.wallet);
-  const myAddressObject = useRef({}); 
-  const connectionParameters = useSelector(state => state.connectionParameters)
-  const zenon = Zenon.getSingleton(); 
-  const [walletInfo, setWalletInfo] = useState({
-    balanceInfoMap: fallbackValues.availableTokens
-  }); 
-  const [isFormValid, setIsFormValid] = useState(true);
-  const [displayedBlock, setDisplayedBlock] = useState({});
-  const { handleSpinner } = useContext(SpinnerContext);
+import useAccount from '../../services/hooks/useAccount';
+import useBlockSender from '../../services/hooks/useBlockSender';
+import vault from '../../services/wallet/vault';
+import { sendInternal } from '../../services/utils/messaging';
+import {
+  formatAmount,
+  formatExact,
+  toBigNumber,
+  truncateAddress,
+} from '../../services/utils/format';
+import { readableError } from '../../services/utils/errors';
+import { notify } from '../../services/utils/notify';
 
+// What a site is asking for, and the choice about it.
+//
+// The old version was one component holding a three-flow, three-step state
+// machine in Redux, with nine nested ternaries in its render and three copies
+// of the signing code. It also never showed which site was asking — the whole
+// screen said "this website" — so the only way to know what you were approving
+// was to remember what you had just clicked. And it indexed
+// `balanceInfoMap[tokenStandard]` without a guard, so a request for a token the
+// account did not hold threw before the screen drew at all.
 
-  useEffect(()=>{
-    async function fetchData() {
-      await getWalletInfo(walletCredentials.walletPassword, walletCredentials.walletName);
-
-      if(integrationState.currentIntegrationFlow === 'accountBlockSending' ){
-        const filledBlock = await setSendingBlockFields();
-        setDisplayedBlock(filledBlock.toJson());
-      }
-
-      if(integrationState.currentIntegrationFlow === 'transactionSigning' ){
-        const filledBlock = await setSigningBlockFields();
-        setDisplayedBlock(filledBlock.toJson());
-      }
-
-      if(integrationState.currentIntegrationStep === "opening"){
-        dispatch(nextIntegrationStep());
-      }
-    }
-    fetchData();  
-  }, []);
-
-  const setSendingBlockFields = async() => {
-    const _keyManager = new KeyStoreManager();          
-    const decrypted = await _keyManager.readKeyStore(walletCredentials.walletPassword, walletCredentials.walletName);
-    const currentKeyPair = decrypted.getKeyPair(walletCredentials.selectedAddressIndex);
-    const transaction = Primitives.AccountBlockTemplate.fromJson(integrationState.accountBlockData);    
-
-    return utils.BlockUtils._checkAndSetFields(zenon, transaction, currentKeyPair)
+const hostOf = (origin) => {
+  try {
+    return new URL(origin).host;
+  } catch (err) {
+    return origin || 'Unknown site';
   }
+};
 
-  const setSigningBlockFields = async() => {
-    const _keyManager = new KeyStoreManager();          
-    const decrypted = await _keyManager.readKeyStore(walletCredentials.walletPassword, walletCredentials.walletName);
-    const currentKeyPair = decrypted.getKeyPair(walletCredentials.selectedAddressIndex);
-    const transaction = Primitives.AccountBlockTemplate.send(
-      Primitives.Address.parse(integrationState.transactionData.to),
-      Primitives.TokenStandard.parse(integrationState.transactionData.tokenStandard),
-      parseFloat(integrationState.transactionData.amount));      
+const SiteHeader = ({ request }) => (
+  <div className="site-header">
+    {request.favicon ? (
+      <img
+        className="site-favicon"
+        alt=""
+        src={request.favicon}
+        width="28"
+        height="28"
+      />
+    ) : (
+      <div className="site-favicon site-favicon-blank" />
+    )}
+    <div className="site-header-text">
+      <div className="site-host">{hostOf(request.origin)}</div>
+      {/* Many pages title themselves after their own URL, and printing the host
+          twice is noise rather than information. */}
+      {request.title && request.title !== hostOf(request.origin) && (
+        <div className="site-title">{request.title}</div>
+      )}
+    </div>
+  </div>
+);
 
-    return utils.BlockUtils._checkAndSetFields(zenon, transaction, currentKeyPair)
-  }
+const SiteIntegrationLayout = () => {
+  const navigate = useNavigate();
+  const { address, isUnlocked } = useSelector((state) => state.wallet);
+  const { chainIdentifier, nodeUrl } = useSelector(
+    (state) => state.connectionParameters
+  );
+  const { balanceMap } = useAccount();
+  const { send, isSending, isGeneratingPlasma } = useBlockSender();
 
-  
-  const getAddress = async()=>{
-    await getWalletInfo(walletCredentials.walletPassword, walletCredentials.walletName);    
-    chrome.runtime.sendMessage({
-      message: "znn.grantedWalletRead", 
-      data: {
-        address: myAddressObject.current.toString(),
-        chainId: connectionParameters.chainIdentifier,
-        nodeUrl: connectionParameters.nodeUrl
-      }
-    });
-    dispatch(nextIntegrationStep());
-  }
+  const [request, setRequest] = useState(undefined);
+  const [preview, setPreview] = useState(null);
+  const [isBusy, setIsBusy] = useState(false);
 
-  const denyWalletRead = async () => {
-    chrome.runtime.sendMessage({
-      message: "znn.deniedWalletRead", 
-      error: "User denied wallet read",
-      data: {}
-    });
-    window.close();
-  } 
-
-  const signTransaction = async()=>{
-    if(walletInfo.balanceInfoMap[integrationState.transactionData.tokenStandard].balance
-      && parseFloat(walletInfo.balanceInfoMap[integrationState.transactionData.tokenStandard].balance) >= 
-      parseFloat(integrationState.transactionData.amount)){
-        setIsFormValid(true);
-        const showSpinner = handleSpinner(
-          <>
-            <div className='text-bold'>
-              Sending ...
-            </div>
-          </>
-        );
-        try{
-          showSpinner(true);
-      
-          const accountBlockTemplateSend = Primitives.AccountBlockTemplate.send(
-            Primitives.Address.parse(integrationState.transactionData.to),
-            Primitives.TokenStandard.parse(integrationState.transactionData.tokenStandard),
-            parseFloat(integrationState.transactionData.amount));    
-
-          const _keyManager = new KeyStoreManager();          
-          const decrypted = await _keyManager.readKeyStore(walletCredentials.walletPassword, walletCredentials.walletName);
-          if(decrypted){
-            const currentKeyPair = decrypted.getKeyPair(walletCredentials.selectedAddressIndex);
-
-            const showPoWSpinner = handleSpinner(
-              <>
-                <div className='text-bold'>
-                  Sending ...
-                </div>
-                <div className='text-bold'>
-                  Generating Plasma ...
-                </div>
-              </>
-            );
-            const generatingPowCallback = (powStatus)=>{
-              if(powStatus === Enums.PowStatus.generating){
-                showSpinner(false);
-                showPoWSpinner(true);
-              }
-              if(powStatus === Enums.PowStatus.done){
-                showPoWSpinner(false);
-                showSpinner(true);
-              }
-            }
-  
-            const signedTransaction = await zenon.send(accountBlockTemplateSend, currentKeyPair, generatingPowCallback);
-            setSignedHash(signedTransaction.hash.toString());      
-            chrome.runtime.sendMessage({
-              message: "znn.signedTransaction", 
-              data: {
-                originalTransaction: integrationState.transactionData,
-                accountBlock: accountBlockTemplateSend,
-                signedTransaction: signedTransaction
-              }
-            });
-            dispatch(nextIntegrationStep());  
-            showSpinner(false);
-          }      
-        }
-        catch(err){
-          showSpinner(false);
-          console.error(err);
-          let readableError = err;
-          if(err.message) {
-            readableError = err.message;
-          }
-          readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
-        
-          toast(readableError + "",{    
-            position: "bottom-center",
-            autoClose: 5000,
-            hideProgressBar: false,
-            closeOnClick: true,
-            pauseOnHover: false,
-            draggable: true,
-            newestOnTop: true,
-            type: 'error',
-            theme: 'dark'
-          });
-            }
-      }else{
-        setIsFormValid(false);
-        console.error("Insufficient funds");
-      }
-  }
-
-  const denySignTransaction = async () => {
-    chrome.runtime.sendMessage({
-      message: "znn.deniedSignTransaction", 
-      error: "User denied transaction signing",
-      data: {}
-    });
-    window.close();
-  } 
-
-  const sendAccountBlock = async()=>{
-      setIsFormValid(true);
-      const showSpinner = handleSpinner(
-        <>
-          <div className='text-bold'>
-            Sending ...
-          </div>
-        </>
-      );
-      showSpinner(true);
-      
-      try{
-        const accountBlockTemplateSend = Primitives.AccountBlockTemplate.fromJson(integrationState.accountBlockData);
-        const _keyManager = new KeyStoreManager();        
-        const decrypted = await _keyManager.readKeyStore(walletCredentials.walletPassword, walletCredentials.walletName);
-        
-        if(decrypted){
-          const currentKeyPair = decrypted.getKeyPair(walletCredentials.selectedAddressIndex);
-          console.log("currentKeyPair", currentKeyPair);
-
-          const showPoWSpinner = handleSpinner(
-            <>
-              <div className='text-bold'>
-                Sending ...
-              </div>
-              <div className='text-bold'>
-                Generating Plasma ...
-              </div>
-            </>
-          );
-          const generatingPowCallback = (powStatus)=>{
-            if(powStatus === Enums.PowStatus.generating){
-              showSpinner(false);
-              showPoWSpinner(true);
-            }
-            if(powStatus === Enums.PowStatus.done){
-              showPoWSpinner(false);
-              showSpinner(true);
-            }
-          }
-
-          const completedBlock = await utils.BlockUtils._checkAndSetFields(zenon, accountBlockTemplateSend, currentKeyPair)
-          console.log("completedBlock", completedBlock);
-
-          const signedTransaction = await zenon.send(accountBlockTemplateSend, currentKeyPair, generatingPowCallback);
-          console.log("signedTransaction", signedTransaction);
-          setSignedHash(signedTransaction.hash.toString());
-    
-          chrome.runtime.sendMessage({
-            message: "znn.accountBlockSent", 
-            data: {
-              originalTransaction: integrationState.accountBlockData,
-              accountBlock: accountBlockTemplateSend,
-              signedTransaction: signedTransaction.toJson()
-            }
-          });
-          dispatch(nextIntegrationStep());  
-          showSpinner(false);
-        }      
-      }
-      catch(err){
-        showSpinner(false);
-        console.error(err);
-        let readableError = err;
-        if(err.message) {
-          readableError = err.message;
-        }
-        readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
-
-          toast(readableError + "",{    
-          position: "bottom-center",
-          autoClose: 5000,
-          hideProgressBar: false,
-          closeOnClick: true,
-          pauseOnHover: false,
-          draggable: true,
-          newestOnTop: true,
-          type: 'error',
-          theme: 'dark'
-        });
-      }
-  }
-
-  const denySendAccountBlock = async () => {
-    chrome.runtime.sendMessage({
-      message: "znn.deniedSendAccountBlock", 
-      error: "User denied sending account block",
-      data: {}
-    });
-    window.close();
-  } 
-
-  const getWalletInfo = async (pass, name)=>{
-    const _keyManager = new KeyStoreManager();
-    
-    try{
-      const decrypted = await _keyManager.readKeyStore(pass, name);
-      
-      if(decrypted){
-        const currentKeyPair = decrypted.getKeyPair(walletCredentials.selectedAddressIndex);
-        const addr = (await currentKeyPair.getAddress()).toString();
-        myAddressObject.current = Primitives.Address.parse(addr);
-        setAddress(addr); 
-
-        const getAccountInfoByAddress = await zenon.ledger.getAccountInfoByAddress(myAddressObject.current);
-
-        if(Object.keys(getAccountInfoByAddress.balanceInfoMap).length) {
-          getAccountInfoByAddress.balanceInfoMap = {...walletInfo.balanceInfoMap, ...getAccountInfoByAddress.balanceInfoMap}
-          setWalletInfo(getAccountInfoByAddress);
-        }
-
-      }
-      else{
-        console.error("Error decrypting");
-      }
-    }
-    catch(err){
-      console.error(err);
-      let readableError = err;
-      if(err.message) {
-        readableError = err.message;
-      }
-      readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
-
-
-      toast(readableError + "",{    
-        position: "bottom-center",
-        autoClose: 5000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: false,
-        draggable: true,
-        newestOnTop: true,
-        type: 'error',
-        theme: 'dark'
+  // A locked wallet cannot answer anything. The password screen is told where
+  // to come back to so the request is not lost.
+  useEffect(() => {
+    if (!isUnlocked) {
+      navigate('/password', {
+        replace: true,
+        state: { returnTo: '/site-integration' },
       });
     }
+  }, [isUnlocked, navigate]);
+
+  const loadNext = useCallback(async () => {
+    try {
+      const next = await sendInternal('approvals.next');
+      setRequest(next || null);
+
+      // Nothing left to answer means this window was only ever open for the
+      // queue, and the queue is empty.
+      if (!next) {
+        window.close();
+      }
+      return next;
+    } catch (err) {
+      setRequest(null);
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isUnlocked) {
+      loadNext();
+    }
+  }, [isUnlocked, loadNext]);
+
+  // For an arbitrary account block, what will actually be signed — with the
+  // fields the SDK fills in (chain, height, previous hash) resolved, rather
+  // than the bare JSON the page sent.
+  useEffect(() => {
+    if (!request || request.type !== 'signAndSendBlock') {
+      setPreview(null);
+      return;
+    }
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const zenon = Zenon.getSingleton();
+        const template = Primitives.AccountBlockTemplate.fromJson(
+          request.params
+        );
+        const keyPair = vault.getKeyPair();
+        const filled = await sdkUtils.BlockUtils._checkAndSetFields(
+          zenon,
+          template,
+          keyPair
+        );
+
+        if (!cancelled) {
+          setPreview(filled.toJson());
+        }
+      } catch (err) {
+        if (!cancelled) {
+          // Falling back to what the site sent is better than a blank panel:
+          // the point of this screen is that the block is visible before it is
+          // signed.
+          setPreview(request.params);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [request]);
+
+  const finish = async (id, result, grantOrigin = false) => {
+    await sendInternal('approvals.resolve', { id, result, grantOrigin });
+    await loadNext();
+  };
+
+  const reject = async () => {
+    if (!request) {
+      return;
+    }
+    await sendInternal('approvals.reject', { id: request.id });
+    await loadNext();
+  };
+
+  //
+  // Connect
+  //
+  const approveConnect = async () => {
+    setIsBusy(true);
+    try {
+      await finish(request.id, [address], true);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  //
+  // Send a plain transfer
+  //
+  const tokenFor = (tokenStandard) => balanceMap[tokenStandard];
+
+  const approveSendTransaction = async () => {
+    setIsBusy(true);
+
+    try {
+      const { to, tokenStandard, amount } = request.params;
+      const template = Primitives.AccountBlockTemplate.send(
+        Primitives.Address.parse(to),
+        Primitives.TokenStandard.parse(tokenStandard),
+        amount
+      );
+      const signed = await send(template);
+
+      await finish(request.id, {
+        hash: signed.hash?.toString(),
+        block: signed.toJson?.() ?? null,
+      });
+      notify.success('Transaction sent');
+    } catch (err) {
+      notify.error(err);
+      await sendInternal('approvals.reject', {
+        id: request.id,
+        error: { code: -32603, message: readableError(err) },
+      });
+      await loadNext();
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  //
+  // Sign and send an arbitrary block
+  //
+  const approveSignAndSend = async () => {
+    setIsBusy(true);
+
+    try {
+      const template = Primitives.AccountBlockTemplate.fromJson(request.params);
+      const signed = await send(template);
+
+      await finish(request.id, {
+        hash: signed.hash?.toString(),
+        block: signed.toJson?.() ?? null,
+      });
+      notify.success('Block sent');
+    } catch (err) {
+      notify.error(err);
+      await sendInternal('approvals.reject', {
+        id: request.id,
+        error: { code: -32603, message: readableError(err) },
+      });
+      await loadNext();
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  if (request === undefined) {
+    return (
+      <div className="page approval-screen">
+        <p className="empty-note">Loading request…</p>
+      </div>
+    );
   }
 
+  if (!request) {
+    return (
+      <div className="page approval-screen">
+        <p className="empty-note">Nothing to approve.</p>
+      </div>
+    );
+  }
+
+  const busy = isBusy || isSending;
+  // The site is blocked on the signed block, so this screen is the one place
+  // that still waits — but it waits in place, on its own button, rather than
+  // behind a modal that hides what is being approved.
+  const busyLabel = isGeneratingPlasma ? 'Generating plasma…' : 'Sending…';
+
+  // A site can ask for more than the account holds, and the wallet used to sign
+  // it and let the node do the refusing — after the proof of work. Both request
+  // shapes carry the amount and the token the same way, so one check covers a
+  // plain transfer and an arbitrary block; a contract call with no value has an
+  // amount of zero and never trips it.
+  const shortfall = (() => {
+    const { tokenStandard, amount } = request.params || {};
+    const wanted = toBigNumber(amount);
+
+    if (wanted.isZero()) {
+      return null;
+    }
+    const entry = tokenFor(tokenStandard);
+
+    if (!entry) {
+      return 'This account holds none of that token.';
+    }
+    const balance = toBigNumber(entry.balance);
+
+    if (!wanted.gt(balance)) {
+      return null;
+    }
+    return `This account holds only ${formatAmount(
+      balance,
+      entry.token?.decimals
+    )} ${entry.token?.symbol || ''}.`.trim();
+  })();
+
   return (
-    <div className='text-white align-items-center d-flex h-100 justify-content-center' style={{height: '100vh'}}>
-        { integrationState.currentIntegrationFlow === 'walletAccess' ? 
-            <div className="w-100">
-              {
-                integrationState.currentIntegrationStep === 'accepting' ?
-                  <div className="mr-2 ml-2 max-w-100vw">
-                    <div className='tooltip'>
-                      <p className="text-xs mb-0">Current Address</p>
-                      <span className="text-xs text-gray word-break-all" onClick={() => {try{navigator.clipboard.writeText(address); toast(`Copied to clipboard`, {
-                                position: "bottom-center",
-                                autoClose: 1000,
-                                hideProgressBar: true,
-                                closeOnClick: true,
-                                pauseOnHover: false,
-                                draggable: true,
-                                newestOnTop: true,
-                                type: 'success',
-                                theme: 'dark'
-                              })}catch(err){console.error(err)}
-                            }}>{address}</span>
-                        <span className='tooltip-text mt-4'>Click to copy. Go to settings to change address.</span>
-                    </div>
+    <div className="page approval-screen">
+      <SiteHeader request={request} />
 
-                    <h3 className="mt-4">Do you grant this website permission to read your <b>Address</b>, <b>Chain Identifier</b> and <b>Node URL</b> ?</h3>
-                    <div className='d-flex w-100 justify-content-around mt-4'>
-                      <div onClick={()=>{denyWalletRead()}} className='button secondary pl-5 pr-5'>No</div>
-                      <div onClick={()=>{getAddress()}} className={`button primary pl-5 pr-5 ${isFormValid?'':'disabled'}`}>Yes</div>
-                    </div>
-                    <h5 className='text-gray mt-4 d-flex'>
-                      <img alt="" className='mr-1' src={require(`./../../assets/info-icon.svg`)} width='18px'></img>
-                      <span>You can change the current wallet and address from the Syrius Extension Settings</span>
-                    </h5>
-                  </div> 
-                :''
-              }
-            <div>
-            </div>
-              {
-                integrationState.currentIntegrationStep === 'displayingInfo' ?
-                  <div className="mr-2 ml-2 max-w-100vw">
-                    <h3>Granted <b>read</b> access to</h3>
-                    <p className="text-xs mb-0 mt-5">Address</p>
-                    <span className="text-xs text-gray word-break-all">{address}</span>
+      {request.type === 'connect' && (
+        <>
+          <div className="approval-body">
+            <h2 className="approval-title">Connect this wallet?</h2>
+            <p className="approval-note">
+              {hostOf(request.origin)} will be able to see your address, the
+              chain you are signing for and your node URL. It cannot move
+              anything without asking again.
+            </p>
 
-                    <p className="text-xs mb-0 mt-2">Chain identifier</p>
-                    <span className="text-xs text-gray word-break-all">{connectionParameters.chainIdentifier}</span>
+            <dl className="confirm-details">
+              <dt>Address</dt>
+              <dd className="word-break-all">{address}</dd>
+              <dt>Chain</dt>
+              <dd>{chainIdentifier}</dd>
+              <dt>Node</dt>
+              <dd className="word-break-all">{nodeUrl}</dd>
+            </dl>
+          </div>
 
-                    <p className="text-xs mb-0 mt-2">Current node</p>
-                    <span className="text-xs text-gray word-break-all">{connectionParameters.nodeUrl}</span>
+          <div className="action-row sticky-actions">
+            <button
+              type="button"
+              className="button secondary w-100"
+              onClick={reject}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="button primary w-100 text-white"
+              onClick={approveConnect}
+              disabled={busy}
+            >
+              Connect
+            </button>
+          </div>
+        </>
+      )}
 
-                    <div className='d-flex mt-5 w-100 justify-content-center'>
-                        <div onClick={()=>{window.close()}} className='button primary pl-5 pr-5'>Done</div>
-                      </div>
-                  </div>
+      {request.type === 'sendTransaction' && (
+        <>
+          <div className="approval-body">
+            <h2 className="approval-title">Confirm transfer</h2>
 
-                :''
-              }
-            </div>
-          :''
-        }
+            {(() => {
+              const { to, tokenStandard, amount } = request.params;
+              // Guarded, unlike before: a token this account holds none of is a
+              // perfectly ordinary request, not a crash.
+              const entry = tokenFor(tokenStandard);
+              const decimals = entry?.token?.decimals;
+              const symbol = entry?.token?.symbol;
 
-        { integrationState.currentIntegrationFlow === 'transactionSigning' ? 
-            <div className="w-100">
-              {
-                integrationState.currentIntegrationStep === 'accepting' ?
-                  <div>
-                    <div className='ml-2 mr-2 d-flex justify-content-center max-w-100vw'>
-                      <div className='wallet-circle circle-green'>
-                        <h4 className='m-0 text-gray'>Available</h4>
-                        <h2 className='mb-0 mt-1 tooltip'>
-                          <span className='m-0 '>{parseFloat(walletInfo.balanceInfoMap[integrationState.transactionData.tokenStandard].balance / Math.pow(10, walletInfo.balanceInfoMap[integrationState.transactionData.tokenStandard].token.decimals)).toFixed(0)}</span>
-                          <span className='mb-0 text-gray'> {walletInfo.balanceInfoMap[integrationState.transactionData.tokenStandard].token.symbol}</span>
-                          <span className='tooltip-text'>{parseFloat(walletInfo.balanceInfoMap[integrationState.transactionData.tokenStandard].balance/Math.pow(10, walletInfo.balanceInfoMap[integrationState.transactionData.tokenStandard].token.decimals)).toFixed(walletInfo.balanceInfoMap[integrationState.transactionData.tokenStandard].token.decimals)}</span>
-                        </h2>
+              return (
+                <dl className="confirm-details">
+                  <dt>Amount</dt>
+                  <dd
+                    title={
+                      decimals !== undefined
+                        ? formatExact(amount, decimals)
+                        : undefined
+                    }
+                  >
+                    {decimals !== undefined ? (
+                      `${formatAmount(amount, decimals)} ${symbol}`
+                    ) : (
+                      <>
+                        {amount?.toString()}{' '}
+                        <span className="text-gray">base units</span>
+                      </>
+                    )}
+                  </dd>
+                  {decimals === undefined && (
+                    <>
+                      <dt>Token</dt>
+                      <dd className="word-break-all">{tokenStandard}</dd>
+                    </>
+                  )}
+                  <dt>To</dt>
+                  <dd className="word-break-all">{to}</dd>
+                  <dt>From</dt>
+                  <dd title={address}>{truncateAddress(address, 10, 6)}</dd>
+                </dl>
+              );
+            })()}
 
-                        <h4 onClick={() => {try{navigator.clipboard.writeText(address); toast(`Copied to clipboard`, {
-                              position: "bottom-center",
-                              autoClose: 1000,
-                              hideProgressBar: true,
-                              closeOnClick: true,
-                              pauseOnHover: false,
-                              draggable: true,
-                              newestOnTop: true,
-                              type: 'success',
-                              theme: 'dark'
-                            })}catch(err){console.error(err)}
-                          }} className='mb-0 mt-1 text-gray tooltip'>
-                          {address.slice(0, 3) + '...' + address.slice(-3)}
-                          <span className='tooltip-text'>{address}</span>
-                        </h4>
-                      </div>
-                    </div>
-                    <div className="mt-4 mr-2 ml-2">
-                      <h3>Do you want to make this transaction ?</h3>
-                      <TransactionItem displayFullAddress={false} type="send" amount={parseFloat(integrationState.transactionData.amount/Math.pow(10, walletInfo.balanceInfoMap[integrationState.transactionData.tokenStandard].token.decimals))}
-                      tokenSymbol={walletInfo.balanceInfoMap[integrationState.transactionData.tokenStandard].token.symbol} address={integrationState.transactionData.to}></TransactionItem>
+            {shortfall && (
+              <p className="approval-warning" role="alert">
+                Not enough balance for this transfer. {shortfall}
+              </p>
+            )}
+          </div>
 
-                      <div className='d-flex mt-4 w-100 justify-content-around'>
-                        <div onClick={()=>{denySignTransaction()}} className='button secondary pl-5 pr-5'>No</div>
-                        <div onClick={()=>{signTransaction()}} className={`button primary pl-5 pr-5 ${isFormValid?'':'disabled'}`}>Yes</div>
-                      </div>
+          <div className="action-row sticky-actions">
+            <button
+              type="button"
+              className="button secondary w-100"
+              onClick={reject}
+            >
+              Reject
+            </button>
+            <button
+              type="button"
+              className="button primary w-100 text-white"
+              onClick={approveSendTransaction}
+              disabled={busy || Boolean(shortfall)}
+            >
+              {busy ? busyLabel : 'Confirm'}
+            </button>
+          </div>
+        </>
+      )}
 
-                      <h5 className='text-gray mt-4 d-flex'>
-                        <img alt="" className='mr-1' src={require(`./../../assets/info-icon.svg`)} width='18px'></img>
-                        <span>You can change the current wallet and address from the Syrius Extension Settings</span>
-                      </h5>
+      {request.type === 'signAndSendBlock' && (
+        <>
+          <div className="approval-body">
+            <h2 className="approval-title">Sign this block?</h2>
+            <p className="approval-note">
+              This is a raw account block. It can call any contract — read it
+              before approving.
+            </p>
 
-                    </div>
-                  </div> 
-                :''
-              }
-              <div>
-              </div>
-              {
-                integrationState.currentIntegrationStep === 'displayingInfo' ?
-                <div className="mr-2 ml-2 max-w-100vw">
-                  <h3>Transaction successfully executed !</h3>
-                  <p className="text-xs mt-5">Transaction hash</p>
-                  <span className="text-xs text-gray word-break-all">{signedHash}</span>
-                  
-                  <div className='d-flex mt-4 w-100 justify-content-center'>
-                      <div onClick={()=>{window.close()}} className='button primary pl-5 pr-5'>Done</div>
-                    </div>
-                </div>
-                :''
-              }
-            </div>
-          :''
-        }
+            <pre className="block-preview">
+              {JSON.stringify(preview ?? request.params, null, 2)}
+            </pre>
 
-      { integrationState.currentIntegrationFlow === 'accountBlockSending' ? 
-            <div className="w-100">
-              {
-                integrationState.currentIntegrationStep === 'accepting' ?
-                  <div>
-                    <div className='tooltip'>
-                      <p className="text-xs mb-0 mt-5">Current Address</p>
-                      <span className="text-xs text-gray word-break-all" onClick={() => {try{navigator.clipboard.writeText(address); toast(`Copied to clipboard`, {
-                                position: "bottom-center",
-                                autoClose: 1000,
-                                hideProgressBar: true,
-                                closeOnClick: true,
-                                pauseOnHover: false,
-                                draggable: true,
-                                newestOnTop: true,
-                                type: 'success',
-                                theme: 'dark'
-                              })}catch(err){console.error(err)}
-                            }}>{address}</span>
-                        <span className='tooltip-text mt-4'>Click to copy. Go to settings to change address.</span>
-                    </div>
+            {shortfall && (
+              <p className="approval-warning" role="alert">
+                Not enough balance for this block. {shortfall}
+              </p>
+            )}
+          </div>
 
-                    <div className="mt-4 mr-2 ml-2 max-w-100vw">
-                      <h3>Do you want to send this account block ?</h3>
-                      <pre style={{maxHeight: '220px', overflow: 'scroll', textAlign: 'left'}}>
-                        {JSON.stringify(displayedBlock, undefined, 2)}
-                      </pre>
-
-                      <div className='d-flex mt-4 w-100 justify-content-around max-w-100vw'>
-                        <div onClick={()=>{denySendAccountBlock()}} className='button secondary pl-5 pr-5'>No</div>
-                        <div onClick={()=>{sendAccountBlock()}} className={`button primary pl-5 pr-5 ${isFormValid?'':'disabled'}`}>Yes</div>
-                      </div>
-
-                      <h5 className='text-gray mt-4 d-flex'>
-                        <img alt="" className='mr-1' src={require(`./../../assets/info-icon.svg`)} width='18px'></img>
-                        <span>You can change the current wallet and address from the Syrius Extension Settings</span>
-                      </h5>
-
-                    </div>
-                  </div> 
-                :''
-              }
-              <div>
-              </div>
-              {
-                integrationState.currentIntegrationStep === 'displayingInfo' ?
-                <div className="mr-2 ml-2">
-                  <h3>Account block sent !</h3>
-                  <p className="text-xs mt-5">Transaction hash</p>
-                  <span className="text-xs text-gray word-break-all">{signedHash}</span>
-                  
-                  <div className='d-flex mt-4 w-100 justify-content-center'>
-                      <div onClick={()=>{window.close()}} className='button primary pl-5 pr-5'>Done</div>
-                    </div>
-                </div>
-                :''
-              }
-            </div>
-          :''
-        }
+          <div className="action-row sticky-actions">
+            <button
+              type="button"
+              className="button secondary w-100"
+              onClick={reject}
+            >
+              Reject
+            </button>
+            <button
+              type="button"
+              className="button warning w-100"
+              onClick={approveSignAndSend}
+              disabled={busy || Boolean(shortfall)}
+            >
+              {busy ? busyLabel : 'Sign and send'}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 };

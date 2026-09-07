@@ -1,282 +1,277 @@
-import React, { useEffect, useState, useContext, useRef} from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { KeyStoreManager, Zenon, Primitives, Enums } from 'znn-ts-sdk';
-import fallbackValues from '../../../services/utils/fallbackValues';
-import { useSelector } from 'react-redux';
-import { ModalContext } from '../../../services/hooks/modal/modalContext';
+import { Primitives } from 'znn-ts-sdk';
+import { useForm } from 'react-hook-form';
+
 import AlertModal from '../../../components/modals/alert-modal';
-import { useForm } from "react-hook-form";
-import { toast } from 'react-toastify';
 import ControlledDropdown from '../../../components/custom-dropdown/controlled-dropdown';
-import { SilentSpinnerContext } from '../../../services/hooks/silent-spinner/silentSpinnerContext';
-import { SpinnerContext } from '../../../services/hooks/spinner/spinnerContext';
-import { ethers } from 'ethers';
+import { ModalContext } from '../../../services/hooks/modal/modalContext';
+import useAccount from '../../../services/hooks/useAccount';
+import useBackgroundSender from '../../../services/hooks/useBackgroundSender';
+import {
+  formatAmount,
+  formatExact,
+  parseAmount,
+  toBigNumber,
+} from '../../../services/utils/format';
+import { notify } from '../../../services/utils/notify';
+import { znnZts } from '../../../services/wallet/account';
+
+// Sending.
+//
+// Three things were wrong here and all three could cost somebody money.
+//
+//   1. The amount was converted with `parseInt(amount * Math.pow(10, decimals))`.
+//      Binary floating point cannot hold 4.35, so `4.35 * 1e8` is
+//      434999999.99999994 and `parseInt` takes the floor: the block was built
+//      for one base unit less than was typed. It also silently truncated
+//      anything a double cannot represent, which is every amount over about
+//      90 million ZNN.
+//   2. The maximum was the literal `999`. Sending 1000 ZNN failed validation on
+//      an account holding ten thousand, and the real balance was sitting right
+//      there in a commented-out line above it.
+//   3. The recipient was checked for being non-empty and nothing else. An
+//      address with a typo in it got as far as the confirmation dialog and then
+//      came back as a node error after the user had already confirmed.
 
 const Send = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { address, balances, balanceMap } = useAccount();
+  const { openModal } = useContext(ModalContext);
+  const { sendInBackground } = useBackgroundSender();
 
-  const availableTokens = Object.keys(fallbackValues.availableTokens);
-  const [address, setAddress] = useState(""); 
-  const [recipientAddress , setRecipientAddress] = useState(""); 
-  const [sendAmount , setSendAmount] = useState(""); 
-  const [sendStatus , setSendStatus] = useState(""); 
-  const [selectedToken, setSelectedToken] = useState(availableTokens[0]); 
-  const [walletInfo, setWalletInfo] = useState({
-    balanceInfoMap: fallbackValues.availableTokens
-  }); 
-  const zenon = Zenon.getSingleton();
-  const myAddressObject = useRef({});
-  const walletCredentials = useSelector(state => state.wallet);
-  const { handleModal } = useContext(ModalContext);
-  const { field, register, control, handleSubmit, formState: { errors }, reset, setValue } = useForm({mode: "onChange"});
-  const { handleSilentSpinner } = useContext(SilentSpinnerContext);
+  const [selectedToken, setSelectedToken] = useState(
+    location.state?.currentSelectedToken || znnZts
+  );
+  const [amount, setAmount] = useState('');
+  const [recipient, setRecipient] = useState('');
+
+  const {
+    register,
+    control,
+    handleSubmit,
+    formState: { errors },
+    reset,
+    setValue,
+    trigger,
+  } = useForm({ mode: 'onChange' });
+
+  const selected = balanceMap[selectedToken];
+  const decimals = selected?.token?.decimals;
+  const symbol = selected?.token?.symbol || '';
+
+  // Through `toBigNumber`, because a balance reaches here as a BigNumber from
+  // the node, as the number 0 from the placeholder token map, or as undefined
+  // for a token this account holds none of.
+  const balance = useMemo(() => toBigNumber(selected?.balance), [selected]);
+
+  const maxAmount = useMemo(
+    () => formatAmount(balance, decimals, { maxDecimals: decimals ?? 8, group: false }),
+    [balance, decimals]
+  );
 
   useEffect(() => {
-    getWalletInfo(walletCredentials.walletPassword, walletCredentials.walletName);
-    if(location.state?.currentSelectedToken){
-      setSelectedToken(location.state?.currentSelectedToken);
-      setValue('selectedTokenField', location.state?.currentSelectedToken, {shouldValidate: true});
-    }else{
-      setSelectedToken(availableTokens[0]);
-      setValue('selectedTokenField', availableTokens[0], {shouldValidate: true});
+    setValue('selectedTokenField', selectedToken, { shouldValidate: true });
+  }, [selectedToken, setValue]);
+
+  // Comparing base units rather than parsed floats, so a balance that a double
+  // cannot represent still validates correctly.
+  const validateAmount = (input) => {
+    const parsed = parseAmount(input, decimals);
+
+    if (parsed === null) {
+      return `Enter an amount with at most ${decimals ?? 8} decimals`;
     }
-  }, []);
-
-  const getWalletInfo = async (pass, name)=>{
-    const _keyManager = new KeyStoreManager();
-    
-    try{
-      const decrypted = await _keyManager.readKeyStore(pass, name);
-      
-      if(decrypted){
-        const currentKeyPair = decrypted.getKeyPair(walletCredentials.selectedAddressIndex);
-        const addr = (await currentKeyPair.getAddress()).toString(); 
-        setAddress(addr);
-        myAddressObject.current = Primitives.Address.parse(addr);
-              
-        const getAccountInfoByAddress = await zenon.ledger.getAccountInfoByAddress(myAddressObject.current);
-        if(Object.keys(getAccountInfoByAddress.balanceInfoMap).length) {
-          setWalletInfo(getAccountInfoByAddress);
-        }
-      }
-      else{
-        console.error("Error decrypting");
-      }
+    if (parsed.isZero()) {
+      return 'Amount must be more than zero';
     }
-    catch(err){
-      console.error("Error ", err);
+    // Unconditional: an account holding none of the selected token has a
+    // balance of literal 0, which is falsy, so the old `selected?.balance && …`
+    // guard skipped the comparison for exactly the case it was there to catch.
+    if (parsed.gt(balance)) {
+      return balance.isZero()
+        ? `You have no ${symbol || 'balance'} to send`
+        : `You only have ${maxAmount} ${symbol}`;
     }
-  }
-
-  const openConfirmModal = (recipientAddress, sendAmount) => {
-    handleModal(<AlertModal
-        type="confirm"
-        title="Are you sure ?"
-        onDismiss={()=>onModalDismiss()}
-        onSuccess={()=>onModalSuccess(recipientAddress, sendAmount)}>
-        <div>
-          <div>Are you sure you want to send</div>
-          <div>
-            <b>{sendAmount} {walletInfo.balanceInfoMap[selectedToken]?.token?.symbol}</b> 
-            {" to"}
-          </div>         
-          <div className='word-break-all'>{recipientAddress} ?</div>
-        </div>
-      </AlertModal>)
-  }
-
-  const onModalDismiss = ()=>{
-  }
-
-  const onModalSuccess = (recipientAddress, sendAmount)=>{
-    onFormSubmit(recipientAddress, sendAmount);
-  }
-
-  const onFormSubmit = (recipientAddress, sendAmount) => {
-    sendTransaction(recipientAddress, sendAmount);
+    return true;
   };
 
-  const sendTransaction = async (address, amount)=>{
-    const _keyManager = new KeyStoreManager();
-    const actualAmount = parseInt(amount*Math.pow(10, walletInfo.balanceInfoMap[selectedToken]?.token?.decimals));
-    const currentKeyPair = await (await _keyManager.readKeyStore(walletCredentials.walletPassword, walletCredentials.walletName)).getKeyPair(walletCredentials.selectedAddressIndex).generateKeyPair();
-    const showSilentSpinner = handleSilentSpinner(
-      <>
-        <div className='text-bold'>
-          Sending ...
-        </div>
-      </>
-    );
-    showSilentSpinner(true);
+  // The balance changes under this form in two ways: the first response after
+  // mount, and switching token. Either can make a typed amount valid or invalid
+  // without a keystroke to re-check it.
+  useEffect(() => {
+    if (amount) {
+      trigger('sendAmountField');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [balance.toString(), selectedToken]);
 
-    try{
-      const zenon = Zenon.getSingleton();
-      setSendStatus("Sending...");
-      const AccountBlockTemplateSend = Primitives.AccountBlockTemplate.send(Primitives.Address.parse(address), Primitives.TokenStandard.parse(walletInfo.balanceInfoMap[selectedToken].token.tokenStandard), actualAmount);
-      
-      const showPoWSpinner = handleSilentSpinner(
-        <>
-          <div className='text-bold'>
-            Sending ...
-          </div>
-          <div className='text-bold'>
-            Generating Plasma ...
-          </div>
-        </>
-      );
-      const generatingPowCallback = (powStatus)=>{
-         console.log("generatingPowCallback", powStatus);
-        if(powStatus === Enums.PowStatus.generating){
-          showSilentSpinner(false);
-          showPoWSpinner(true);
-        }
-        if(powStatus === Enums.PowStatus.done){
-          showPoWSpinner(false);
-          showSilentSpinner(true);
-          toast(`Finished generating plasma`, {
-            position: "bottom-center",
-            autoClose: 2500,
-            hideProgressBar: false,
-            closeOnClick: true,
-            pauseOnHover: true,
-            draggable: true,
-            newestOnTop: true,
-            type: 'success',
-            theme: 'dark'
-          });    
-        }
-      }
+  const validateRecipient = (input) => {
+    try {
+      Primitives.Address.parse((input || '').trim());
+      return true;
+    } catch (err) {
+      return 'That is not a valid Zenon address';
+    }
+  };
 
-      await zenon.send(AccountBlockTemplateSend, currentKeyPair, generatingPowCallback);
-      setSendAmount(0);
-      setRecipientAddress("");
-      setSendStatus("Sent !");
+  // Nothing here is awaited. Building and signing the block can take seconds of
+  // proof of work on an account with no fused plasma, and the wallet used to
+  // spend them behind a modal spinner on this screen. The block goes off to the
+  // background sender, the form empties, and the dashboard reports the rest.
+  const submit = () => {
+    // Checked again here, not just in the form. The confirmation modal sits
+    // between validation and this, and a balance can move underneath it — a
+    // pending send landing is enough.
+    const problem = validateAmount(amount);
+
+    if (problem !== true) {
+      notify.error(problem);
+      return;
+    }
+
+    try {
+      const parsed = parseAmount(amount, decimals);
+      const toAddress = Primitives.Address.parse(recipient.trim());
+      const tokenStandard = Primitives.TokenStandard.parse(selectedToken);
+      const template = Primitives.AccountBlockTemplate.send(toAddress, tokenStandard, parsed);
+
+      sendInBackground(template, {
+        successMessage: `Sent ${amount} ${symbol}`,
+        // What the dashboard needs to draw the row, since the block will not be
+        // in the account's history until this finishes.
+        row: {
+          // Which account this belongs to, so switching address does not show
+          // a send made from the previous one. The type, glyph and destination
+          // come off the template.
+          owner: address,
+          label: 'Sending',
+          amount: parsed.toString(),
+          decimals,
+          tokenSymbol: symbol,
+        },
+      });
+
+      setAmount('');
+      setRecipient('');
       reset();
-      showSilentSpinner(false);
-      
-      toast(`Successfully sent ${amount} ${walletInfo.balanceInfoMap[selectedToken]?.token?.symbol}`, {
-        position: "bottom-center",
-        autoClose: 2500,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        newestOnTop: true,
-        type: 'success',
-        theme: 'dark'
-      });
-
-      setTimeout(()=>{
-        setSendStatus("");
-      }, 2500);
+      navigate('/tabs/dashboard');
+    } catch (err) {
+      // Only a block that could not even be built reaches here; anything the
+      // node rejects is reported on the row instead.
+      notify.error(err);
     }
-    catch(err){
-      showSilentSpinner(false);
-      let readableError = err;
-      if(err.message) {
-        readableError = err.message;
-      }
-      readableError = (readableError+"").split("Error: ")[(readableError+"").split("Error: ").length-1];
+  };
 
-      console.error("Error ", readableError);
-      toast(readableError + "",{
-        position: "bottom-center",
-        autoClose: 2500,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        newestOnTop: true,
-        type: 'error',
-        theme: 'dark'
-      });
-  
-      setSendStatus("Error");
-      setTimeout(()=>{
-        setSendStatus("");
-      }, 2500);
-    }
-  } 
-
-  const onSelectToken = (index, value) => {
-    setSelectedToken(value.token.tokenStandard);
-    setValue('selectedTokenField', value.token.tokenStandard, {shouldValidate: true});
-  }
+  const confirm = () => {
+    openModal(
+      <AlertModal
+        type="confirm"
+        title="Confirm send"
+        confirmLabel="Send"
+        onSuccess={submit}
+      >
+        <dl className="confirm-details">
+          <dt>Amount</dt>
+          <dd>
+            {amount} {symbol}
+          </dd>
+          <dt>To</dt>
+          <dd className="word-break-all">{recipient.trim()}</dd>
+        </dl>
+      </AlertModal>
+    );
+  };
 
   return (
-    <div className='black-bg'>
-      <h1 className='mt-1'>Send</h1>
-      <div className='mt-2 ml-2 mr-2'>
-        <form onSubmit={handleSubmit(()=>openConfirmModal(recipientAddress, sendAmount))}>
-          <div className='custom-control'>  
-            <ControlledDropdown dropdownComponent = 'TokenDropdown'
-              {...register("selectedTokenField", { required: true })} control={control} 
-              name="selectedTokenField" 
-              options={Object.keys(walletInfo.balanceInfoMap).map((value)=>{return walletInfo.balanceInfoMap[value]})}
-              onChange={onSelectToken} 
-              value={selectedToken} 
-              placeholder="Select token"
-              tokenSymbolPath={`token.symbol`} 
-              tokenStandardPath={`token.tokenStandard`} 
-              className={`${errors.selectedTokenField?'custom-label-error':''}`} />
-
-            <div className={`input-error ${errors.selectedTokenField?'':'invisible'}`}>
-              {errors.selectedTokenField?.message || 'Token is required'}
-            </div> 
-          </div>  
-
-          <div className='custom-control'> 
-            <div className={`input-with-button w-100`}>
-              <input name="sendAmountField" {...register("sendAmountField", 
-                { required: true, 
-                  min: {
-                    value: 0,
-                    message: 'Minimum of 1'
-                  },
-                  max: {
-                    value: 999,
-                    // value: parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(walletInfo.balanceInfoMap[selectedToken]?.balance?.toString() || 0), ethers.BigNumber.from(((walletInfo.balanceInfoMap[selectedToken]?.token?.decimals || fallbackValues.availableTokens[selectedToken]?.token?.decimals || fallbackValues?.decimals)?.toString() || 8)+''))),
-                    
-                    // value: parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(walletInfo.balanceInfoMap[selectedToken]?.balance?.toString() || 0), ethers.BigNumber.from(((walletInfo.balanceInfoMap[selectedToken]?.token?.decimals || fallbackValues.availableTokens[selectedToken]?.token?.decimals || fallbackValues?.decimals)?.toString() || 8)+''))),
-                    message: 'Maximum of ' + parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(walletInfo.balanceInfoMap[selectedToken]?.balance?.toString() || 0), ethers.BigNumber.from(((walletInfo.balanceInfoMap[selectedToken]?.token?.decimals || fallbackValues.availableTokens[selectedToken]?.token?.decimals || fallbackValues?.decimals)?.toString() || 8)+'')))
-                  }
-                })} 
-                control={control}
-                className={`w-100 custom-label pr-3 ${errors.sendAmountField?'custom-label-error':''}`}
-                placeholder={walletInfo.balanceInfoMap[selectedToken]?.token?.symbol + " amount"} 
-                value={sendAmount} onChange={(e) => {setSendAmount(e.target.value); setValue('sendAmountField', e.target.value, {shouldValidate: true})}} type='number'></input>
-              <div className={(walletInfo.balanceInfoMap[selectedToken]?.token?.symbol==='ZNN'?'primary':'blue') + " input-chip-button"} 
-                onClick={()=>{setSendAmount(ethers.utils.formatUnits(ethers.BigNumber.from(walletInfo.balanceInfoMap[selectedToken]?.balance?.toString() || 0), ethers.BigNumber.from(((walletInfo.balanceInfoMap[selectedToken]?.token?.decimals || fallbackValues.availableTokens[selectedToken]?.token?.decimals || fallbackValues?.decimals)?.toString() || 8)+'')), { shouldValidate: true })}}>
-                <span>{"MAX: " + parseFloat(ethers.utils.formatUnits(ethers.BigNumber.from(walletInfo.balanceInfoMap[selectedToken]?.balance?.toString() || 0), ethers.BigNumber.from(((walletInfo.balanceInfoMap[selectedToken]?.token?.decimals || fallbackValues.availableTokens[selectedToken]?.token?.decimals || fallbackValues?.decimals)?.toString() || 8)+''))).toFixed(0)}</span>
-              </div>
-            </div>
-
-            <div className={`input-error ${errors.sendAmountField?'':'invisible'}`}>
-              { errors.sendAmountField?.message || 'Amount is required'}
-            </div> 
+    <div className="page">
+      <form onSubmit={handleSubmit(confirm)}>
+        <div className="custom-control">
+          <ControlledDropdown
+            dropdownComponent="TokenDropdown"
+            {...register('selectedTokenField', { required: true })}
+            control={control}
+            name="selectedTokenField"
+            options={balances}
+            onChange={(index, value) => setSelectedToken(value.token.tokenStandard.toString())}
+            value={selectedToken}
+            placeholder="Select token"
+            tokenSymbolPath="token.symbol"
+            tokenStandardPath="token.tokenStandard"
+            className={errors.selectedTokenField ? 'custom-label-error' : ''}
+          />
+          <div className={`input-error ${errors.selectedTokenField ? '' : 'invisible'}`}>
+            Choose a token
           </div>
+        </div>
 
-          <div className='custom-control'> 
-            <input name="recipientAddressField" {...register("recipientAddressField", { required: true })} 
-              className={`w-100 custom-label ${errors.recipientAddressField?'custom-label-error':''}`} 
-              placeholder="Recipient address" value={recipientAddress} onChange={(e) => {setRecipientAddress(e.target.value); setValue('recipientAddressField', e.target.value, {shouldValidate: true})}} type='text'></input>
-
-            <div className={`input-error ${errors.recipientAddressField?'':'invisible'}`}>
-              { errors.recipientAddressField?.message || 'Address is required'}
-            </div> 
+        <div className="custom-control">
+          <div className="input-with-button w-100">
+            <input
+              {...register('sendAmountField', { required: true, validate: validateAmount })}
+              className={`w-100 custom-label pr-3 ${
+                errors.sendAmountField ? 'custom-label-error' : ''
+              }`}
+              placeholder={`${symbol || 'Token'} amount`}
+              value={amount}
+              onChange={(event) => {
+                setAmount(event.target.value);
+                setValue('sendAmountField', event.target.value, { shouldValidate: true });
+              }}
+              inputMode="decimal"
+              type="text"
+            />
+            <button
+              type="button"
+              className="input-chip-button"
+              title={`Balance ${formatExact(selected?.balance, decimals)} ${symbol}`}
+              onClick={() => {
+                setAmount(maxAmount);
+                setValue('sendAmountField', maxAmount, { shouldValidate: true });
+              }}
+            >
+              Max
+            </button>
           </div>
-
-          <div className='d-flex'>
-            <div onClick={() => navigate(-1)} className='button secondary w-100 mr-2 d-flex justify-content-center'>
-              Back
-            </div>
-            <input className={(walletInfo.balanceInfoMap[selectedToken]?.token?.symbol==='ZNN'?'primary':'blue') + " button w-100 d-flex justify-content-center text-white"} 
-              value={sendStatus || "Send"} type="submit" name="submitButton"></input>
+          <div className={`input-error ${errors.sendAmountField ? '' : 'invisible'}`}>
+            {errors.sendAmountField?.message || 'Amount is required'}
           </div>
-        </form>
-      </div>
-  </div>
+        </div>
+
+        <div className="custom-control">
+          <input
+            {...register('recipientAddressField', { required: true, validate: validateRecipient })}
+            className={`w-100 custom-label ${
+              errors.recipientAddressField ? 'custom-label-error' : ''
+            }`}
+            placeholder="Recipient address"
+            value={recipient}
+            onChange={(event) => {
+              setRecipient(event.target.value);
+              setValue('recipientAddressField', event.target.value, { shouldValidate: true });
+            }}
+            type="text"
+            spellCheck="false"
+            autoComplete="off"
+          />
+          <div className={`input-error ${errors.recipientAddressField ? '' : 'invisible'}`}>
+            {errors.recipientAddressField?.message || 'Address is required'}
+          </div>
+        </div>
+
+        <div className="action-row sticky-actions">
+          <button type="button" className="button secondary w-100" onClick={() => navigate(-1)}>
+            Back
+          </button>
+          {/* No pending state: confirming leaves this screen immediately, and
+              the send reports itself on the dashboard from there. */}
+          <button type="submit" className="button primary w-100 text-white">
+            Send
+          </button>
+        </div>
+      </form>
+    </div>
   );
 };
 

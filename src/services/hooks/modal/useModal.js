@@ -1,15 +1,14 @@
-import React from "react";
+import { useCallback, useState } from 'react';
 
-export default () => {
-  let [modal, setModal] = React.useState(false);
-  let [modalContent, setModalContent] = React.useState("I'm the Modal Content");
+// `handleModal(content)` toggled a boolean and doubled as both open and close,
+// so a component that opened a modal from inside another one closed the first.
+const useModal = () => {
+  const [modalContent, setModalContent] = useState(null);
 
-  let handleModal = (content = false) => {
-    setModal(!modal);
-    if (content) {
-      setModalContent(content);
-    }
-  };
+  const openModal = useCallback((content) => setModalContent(content), []);
+  const closeModal = useCallback(() => setModalContent(null), []);
 
-  return { modal, handleModal, modalContent };
+  return { modal: modalContent !== null, modalContent, openModal, closeModal };
 };
+
+export default useModal;
