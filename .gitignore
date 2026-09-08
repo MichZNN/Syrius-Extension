@@ -30,3 +30,8 @@ secrets.*.js
 
 # Windows Explorer folder settings
 desktop.ini
+
+.env
+AGENTS.md
+.codex
+.plans
