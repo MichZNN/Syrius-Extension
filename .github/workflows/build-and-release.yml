@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - development
+      - manifest-v3
     tags:
       - 'v*'
   workflow_dispatch:
