@@ -136,19 +136,19 @@ jobs:
           sha256sum "$archive" > "${archive}.sha256"
           printf 'archive_name=%s\n' "$archive" >> "$GITHUB_OUTPUT"
 
-      - name: Upload Chrome/Brave package
+      - name: Upload direct Chrome/Brave package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: syrius-extension-${{ steps.metadata.outputs.manifest_version }}-chrome-brave
-          path: |
-            ${{ steps.package.outputs.archive_name }}
-            ${{ steps.package.outputs.archive_name }}.sha256
+          path: ${{ steps.package.outputs.archive_name }}
           if-no-files-found: error
           retention-days: 30
+          archive: false
 
   release:
-    name: Publish tagged release
-    if: startsWith(github.ref, 'refs/tags/')
+    name: Publish GitHub release
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -160,19 +160,43 @@ jobs:
       - name: Download Chrome/Brave package
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: syrius-extension-${{ needs.build.outputs.manifest_version }}-chrome-brave
+          name: syrius-extension-${{ needs.build.outputs.manifest_version }}-chrome-brave.zip
           path: release-assets
+
+      - name: Recreate release checksum
+        env:
+          MANIFEST_VERSION: ${{ needs.build.outputs.manifest_version }}
+        shell: bash
+        run: |
+          archive="release-assets/syrius-extension-${MANIFEST_VERSION}-chrome-brave.zip"
+          test -f "$archive"
+          sha256sum "$archive" > "${archive}.sha256"
 
       - name: Publish GitHub release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
+          AUTO_RELEASE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          TAG_NAME: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', needs.build.outputs.manifest_version) }}
+          TARGET_SHA: ${{ github.sha }}
         shell: bash
         run: |
           mapfile -t assets < <(find release-assets -maxdepth 1 -type f -print | sort)
           if (( ${#assets[@]} != 2 )); then
             echo "::error::Expected exactly two release assets, found ${#assets[@]}."
             exit 1
+          fi
+
+          if [[ "$AUTO_RELEASE" == "true" ]]; then
+            if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+              echo "::error::Release $TAG_NAME already exists. Increase the project version before publishing another release."
+              exit 1
+            fi
+
+            gh release create "$TAG_NAME" "${assets[@]}" \
+              --target "$TARGET_SHA" \
+              --title "Syrius Extension ${TAG_NAME#v}" \
+              --generate-notes
+            exit 0
           fi
 
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then

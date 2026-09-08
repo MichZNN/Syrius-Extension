@@ -4,9 +4,14 @@ The executable workflow is `build-and-release.yml` in this directory.
 
 It builds the Manifest V3 extension with Node.js 24, runs the dependency audit,
 lint checks and focused regression tests, creates a Chrome/Brave-ready ZIP with
-`manifest.json` at its root, and publishes a SHA-256 checksum. The current
-release is `0.3.0`; push the matching tag `v0.3.0` to create or update the
-GitHub Release.
+`manifest.json` at its root, and publishes a SHA-256 checksum. Pushes to
+`main` automatically create the matching tag (for example `v0.3.2`) and
+publish both assets in a GitHub Release. Pushes to `development` and
+`manifest-v3` remain artifact-only validation builds.
+
+The workflow artifact is the extension ZIP itself; it is uploaded with
+`archive: false` so GitHub does not wrap it in another ZIP. The checksum is
+recreated for the GitHub Release and published alongside the package.
 
 The pinned `znn-ts-sdk` commit is consumed as an HTTPS source archive rather
 than a Git dependency. The upstream Git package runs a non-deterministic
@@ -16,7 +21,7 @@ make `npm ci` fail before the workflow reaches its checks.
 
 No custom repository variables or secrets are required for this ZIP workflow.
 The release job uses GitHub's built-in `GITHUB_TOKEN` with write permission
-only in that tag-only job. A CRX private key is intentionally not used: CRX
+only in the release job. A CRX private key is intentionally not used: CRX
 signing is not needed for loading the ZIP as an unpacked extension and a
 rotating key would change the extension ID.
 
@@ -39,4 +44,4 @@ do not replace it with an unreviewed fork or suppress the audit result.
 
 If release creation is denied by repository policy, allow workflows to request
 read/write permissions under Settings → Actions → General. The workflow still
-grants `contents: write` only to the tag-only release job.
+grants `contents: write` only to the release job.

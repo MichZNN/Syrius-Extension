@@ -7,7 +7,7 @@ through `znn-ts-sdk`) and never leave the machine. The extension talks to a
 Zenon node of your choosing over a websocket, and to web pages through an
 injected provider that cannot do anything without being asked first.
 
-Current version: **0.3.0**, Manifest V3. What changed against the published
+Current version: **0.3.2**, Manifest V3. What changed against the published
 `MichZNN/syrius-extension` build is in [CHANGELOG.md](CHANGELOG.md); the working
 notes behind it are in [REFACTOR.md](REFACTOR.md).
 
@@ -36,10 +36,11 @@ notes behind it are in [REFACTOR.md](REFACTOR.md).
 
 ### From a release
 
-Every `v*.*.*` tag is built by GitHub Actions and published as a signed `.crx`
-on the [releases page](https://github.com/MichZNN/syrius-extension/releases).
-Open `chrome://extensions/`, enable "Developer mode", and drag the `.crx` file
-onto the page.
+Every `v*.*.*` tag is built by GitHub Actions and published as a Chrome/Brave
+ZIP on the [releases page](https://github.com/MichZNN/syrius-extension/releases).
+Open `chrome://extensions/` or `brave://extensions/`, enable "Developer mode",
+and drag the ZIP onto the extensions page. Alternatively, extract it and choose
+**Load unpacked**.
 
 ### From source
 
@@ -117,18 +118,20 @@ wallet in the browser's own storage. Nothing about it is compiled into
 
 ### Releasing
 
-`.github/workflows/release.yml` builds and packs the extension on any `v*.*.*`
-tag, and fails the tag if it does not match `version` in `src/manifest.json`.
-Bump `src/manifest.json` and `package.json` together, then:
+`.github/workflows/build-and-release.yml` validates every pull request and push
+to the development branches. A successful push to `main` creates the matching
+version tag and publishes the Chrome/Brave ZIP plus its SHA-256 checksum. Bump
+`src/manifest.json`, `package.json` and `package-lock.json` together before
+merging a release. To use the tag-triggered path manually instead of the
+automatic `main` release:
 
 ```bash
-git tag v0.3.0 && git push origin v0.3.0
+git tag v0.3.2 && git push origin v0.3.2
 ```
 
-The extension ID is derived from the signing key. Set a `CRX_PRIVATE_KEY` repo
-secret (base64 of a 2048-bit RSA PEM key) to keep it stable across releases —
-without it the workflow signs with a throwaway key and every release installs as
-a different extension.
+The normal `main` workflow creates the tag itself. The workflow does not
+require a CRX private key: Chrome and Brave load the published ZIP as an
+unpacked extension.
 
 ## Integrating a site
 

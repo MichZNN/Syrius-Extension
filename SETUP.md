@@ -47,14 +47,18 @@ page URL.
 The workflow in .github/workflows/build-and-release.yml uses .nvmrc, installs
 the lockfile with npm ci --legacy-peer-deps, runs the audit, lint and
 regression checks, and creates a Chrome/Brave-ready ZIP with a SHA-256
-checksum.
+checksum. The workflow artifact is the ZIP itself, without a second artifact
+archive; the checksum is attached to the GitHub Release.
 
-The current extension version is 0.3.0. A tag named v0.3.0 starts the tag-only
-release job and publishes the ZIP assets to a GitHub Release:
+The current extension version is 0.3.2. A push to `main` automatically creates
+the matching `v0.3.2` tag and publishes the ZIP assets to a GitHub Release.
+Pushes to `development` and `manifest-v3` only create validation artifacts.
+
+For a manual tag-triggered release instead of the automatic `main` release:
 
 ~~~powershell
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.3.2
+git push origin v0.3.2
 ~~~
 
 No custom repository variables or secrets are required. The release job uses
@@ -132,4 +136,3 @@ and revoke/reconnect the origin if necessary.
 Confirm that the endpoint is reachable, uses the correct wss:// scheme, and
 has the correct Chain ID. A local endpoint only works when a compatible local
 WSS node is running and trusted by the browser.
-
