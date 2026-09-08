@@ -59,6 +59,11 @@ jobs:
             exit 1
           fi
 
+          if [[ "$manifest_version" != "$package_version" ]]; then
+            echo "::error::The Chrome manifest version ($manifest_version) must match the npm package version ($package_version)."
+            exit 1
+          fi
+
           printf 'manifest_version=%s\n' "$manifest_version" >> "$GITHUB_OUTPUT"
           printf 'package_version=%s\n' "$package_version" >> "$GITHUB_OUTPUT"
 

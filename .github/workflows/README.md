@@ -4,8 +4,9 @@ The executable workflow is `build-and-release.yml` in this directory.
 
 It builds the Manifest V3 extension with Node.js 24, runs the dependency audit,
 lint checks and focused regression tests, creates a Chrome/Brave-ready ZIP with
-`manifest.json` at its root, and publishes a SHA-256 checksum. A pushed tag
-such as `v0.2.0.0` also creates or updates the matching GitHub Release.
+`manifest.json` at its root, and publishes a SHA-256 checksum. The current
+release is `0.3.0`; push the matching tag `v0.3.0` to create or update the
+GitHub Release.
 
 The pinned `znn-ts-sdk` commit is consumed as an HTTPS source archive rather
 than a Git dependency. The upstream Git package runs a non-deterministic
