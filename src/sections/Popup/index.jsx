@@ -1,5 +1,5 @@
 import React from 'react';
-import { render } from 'react-dom';
+import { createRoot } from 'react-dom/client';
 
 import Popup from './Popup';
 import './index.scss';
@@ -20,4 +20,4 @@ if (window.location.hash.startsWith('#/site-integration')) {
   document.body.classList.add('standalone-window');
 }
 
-render(<Popup />, window.document.querySelector('#app-container'));
+createRoot(window.document.querySelector('#app-container')).render(<Popup />);

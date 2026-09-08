@@ -20,19 +20,22 @@ only in that tag-only job. A CRX private key is intentionally not used: CRX
 signing is not needed for loading the ZIP as an unpacked extension and a
 rotating key would change the extension ID.
 
-The audit is deliberately a hard gate for high and critical advisories. The
-current lockfile still reports low and moderate upstream advisories from the
-legacy ethers 5 and React Router 6 chains, but `npm audit --audit-level=high`
-passes without an ignore list or `continue-on-error`. The install tree removes
+The audit is deliberately a hard gate for moderate, high and critical
+advisories. The current lockfile reports only the unpatched low-severity
+elliptic advisory in the legacy ethers 5/SDK chain, and
+`npm audit --audit-level=moderate` passes without an ignore list or
+`continue-on-error`. The install tree removes
 the old native `bigint-buffer` and Argon2/node-pre-gyp paths, pins safe `ws` and
-`qs` versions, and uses current copy/Webpack dev-server releases. The local
+`qs` versions, uses current copy/Webpack releases, and runs React Router 7.
+The local
 `vendor/bigint-buffer` implementation validates fixed-width conversions and is
 covered by a focused round-trip/bounds test.
 
 Do not lower the audit threshold, add an ignore list, or use
 `continue-on-error` to make a real-funds release appear green. The remaining
-ethers 5 and React Router 6 advisories require separate breaking migrations
-and should be resolved before treating the dependency graph as fully clean.
+The remaining elliptic advisory has no upstream patched release. It requires a
+separate migration of the SDK's legacy ethers/crypto-browserify signing chain;
+do not replace it with an unreviewed fork or suppress the audit result.
 
 If release creation is denied by repository policy, allow workflows to request
 read/write permissions under Settings → Actions → General. The workflow still

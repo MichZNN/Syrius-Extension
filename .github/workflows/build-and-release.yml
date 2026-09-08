@@ -85,13 +85,16 @@ jobs:
         run: npm ci --legacy-peer-deps
 
       - name: Audit dependencies
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=moderate
 
       - name: Lint source
         run: npm run lint
 
       - name: Run focused regression tests
         run: npm test
+
+      - name: Run dependency security regression tests
+        run: npm run test:security
 
       - name: Build production extension
         run: npm run build
