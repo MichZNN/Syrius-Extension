@@ -21,7 +21,7 @@ Object.keys(config.entry).forEach((entryName) => {
   if (!excludedEntries.has(entryName)) {
     config.entry[entryName] = [
       'webpack/hot/dev-server',
-      `webpack-dev-server/client?hot=true&hostname=localhost&port=${env.PORT}`,
+      `webpack-dev-server/client/index.js?hot=true&hostname=localhost&port=${env.PORT}`,
     ].concat(config.entry[entryName]);
   }
 });
