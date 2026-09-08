@@ -45,6 +45,8 @@ const Plasma = () => {
   const [addressObject, setAddressObject] = useState(null);
   const [amount, setAmount] = useState('');
   const [momentumHeight, setMomentumHeight] = useState(0);
+  const [plasmaInfo, setPlasmaInfo] = useState(null);
+  const [isPlasmaLoading, setIsPlasmaLoading] = useState(false);
 
   const qsr = balanceMap[qsrZts];
   const decimals = toDecimals(qsr?.token?.decimals);
@@ -76,6 +78,41 @@ const Plasma = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (!addressObject) {
+      setPlasmaInfo(null);
+      setIsPlasmaLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setPlasmaInfo(null);
+    setIsPlasmaLoading(true);
+
+    Zenon.getSingleton()
+      .embedded.plasma.get(addressObject)
+      .then((info) => {
+        if (!cancelled) {
+          setPlasmaInfo(info);
+        }
+      })
+      .catch(() => {
+        // The paged entries response remains a useful fallback on older nodes.
+        if (!cancelled) {
+          setPlasmaInfo(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsPlasmaLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [addressObject]);
+
   const fetchPage = useCallback(
     (page, pageSize) =>
       Zenon.getSingleton().embedded.plasma.getEntriesByAddress(addressObject, page, pageSize),
@@ -84,7 +121,11 @@ const Plasma = () => {
 
   const entries = usePagedList(fetchPage, { pageSize: 10, enabled: Boolean(addressObject) });
 
-  const fusedQsr = entries.meta?.qsrAmount;
+  // `get` reports the effective plasma for this address, including plasma
+  // fused by another wallet for it. The entries endpoint is still used for
+  // the detail list and remains the fallback for older nodes.
+  const fusedQsr = plasmaInfo?.qsrAmount ?? entries.meta?.qsrAmount;
+  const hasEffectivePlasma = toBigNumber(fusedQsr).gt(0);
   const fusedDisplay = formatAmount(fusedQsr, decimals);
   const tier = useMemo(() => {
     const whole = Number(formatAmount(fusedQsr, decimals, { group: false })) || 0;
@@ -270,11 +311,18 @@ const Plasma = () => {
             beneficiary={entry.beneficiary.toString()}
             expirationHeight={entry.expirationHeight}
             momentumHeight={momentumHeight}
+            isRevocable={entry.isRevocable}
             cancelFuse={confirmCancel}
           />
         ))}
 
-        {entries.isEmpty && <p className="empty-note">Nothing fused yet</p>}
+        {entries.isEmpty && !isPlasmaLoading && (
+          <p className="empty-note">
+            {hasEffectivePlasma
+              ? 'Plasma is active, but no revocable fusion entry is available here'
+              : 'Nothing fused yet'}
+          </p>
+        )}
 
         <div ref={entries.sentinelRef} className="load-more-sentinel">
           {entries.isLoading && <span className="text-gray">Loading…</span>}

@@ -8,7 +8,16 @@ import { formatAmount, momentumsToDuration, truncateAddress } from '../../servic
 // `(expirationHeight - momentumHeight) * 10 / 3600` and rendered as
 // "3.47 h" — hours to two decimal places, which nobody reads. It also divided
 // by a hard-coded 1e8 rather than the token's decimals.
-const FuseItem = ({ id, amount, decimals, beneficiary, expirationHeight, momentumHeight, cancelFuse }) => {
+const FuseItem = ({
+  id,
+  amount,
+  decimals,
+  beneficiary,
+  expirationHeight,
+  momentumHeight,
+  isRevocable = true,
+  cancelFuse,
+}) => {
   const remaining = Number(expirationHeight) - Number(momentumHeight);
   const isUnlocked = !momentumHeight || remaining <= 0;
 
@@ -21,10 +30,15 @@ const FuseItem = ({ id, amount, decimals, beneficiary, expirationHeight, momentu
         </div>
       </div>
 
-      {isUnlocked ? (
+      {isUnlocked && isRevocable ? (
         <button type="button" className="thin-button secondary" onClick={() => cancelFuse(id)}>
           Cancel
         </button>
+      ) : isUnlocked ? (
+        <div className="list-row-side">
+          <div className="list-row-note">Active</div>
+          <div className="list-row-value">Provided externally</div>
+        </div>
       ) : (
         <div className="list-row-side">
           <div className="list-row-note">Unlocks in</div>
