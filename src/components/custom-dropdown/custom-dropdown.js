@@ -31,7 +31,7 @@ const CustomDropdown = React.forwardRef(
       const onPointerDown = (event) => {
         if (!rootRef.current?.contains(event.target)) {
           setIsOpen(false);
-          onBlur?.();
+          onBlur?.(event);
         }
       };
       const onKeyDown = (event) => {
