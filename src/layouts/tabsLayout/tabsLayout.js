@@ -45,7 +45,7 @@ const TabsLayout = () => {
 
       <main className="menu-layout">
         <Routes location={location}>
-          <Route path="" element={<Navigate to="dashboard" replace />} />
+          <Route index element={<Navigate to="/tabs/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="dashboard/send" element={<Send />} />
           <Route path="dashboard/receive" element={<Receive />} />

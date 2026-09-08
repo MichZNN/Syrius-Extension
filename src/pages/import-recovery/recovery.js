@@ -89,7 +89,7 @@ const Recovery = () => {
 
       await completeUnlock({ walletName, password, dispatch });
       notify.success('Wallet imported');
-      navigate('/tabs', { replace: true });
+      navigate('/tabs/dashboard', { replace: true });
     } catch (err) {
       notify.error(err);
     } finally {

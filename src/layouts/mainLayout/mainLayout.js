@@ -61,17 +61,30 @@ const MainLayout = () => {
       }
 
       const wallets = loadStorageWalletNames();
-      const deepLink = deepLinkRoutes.includes(requestedRoute.current)
-        ? requestedRoute.current
+      const initialPathname = requestedRoute.current;
+      const isWithin = (route) =>
+        initialPathname === route || initialPathname.startsWith(`${route}/`);
+      const deepLink = deepLinkRoutes.includes(initialPathname)
+        ? initialPathname
         : null;
+      const navigateIfNeeded = (to, options = {}) => {
+        if (!cancelled && initialPathname !== to) {
+          navigate(to, { replace: true, ...options });
+        }
+      };
 
       if (!wallets.length) {
-        navigate('/auth', { replace: true });
+        // Keep an already-open auth screen where it is. A fresh popup goes
+        // straight to the canonical onboarding route instead of replacing
+        // `/auth` and then replacing it again from the nested router.
+        if (!isWithin('/auth')) {
+          navigateIfNeeded('/auth/onboarding');
+        }
         return;
       }
 
       if (!getCurrentNodeUrl()) {
-        navigate('/initial-node-selection', { replace: true });
+        navigateIfNeeded('/initial-node-selection');
         return;
       }
 
@@ -88,7 +101,10 @@ const MainLayout = () => {
             dispatch,
           });
           if (!cancelled) {
-            navigate(deepLink || '/tabs', { replace: true });
+            const destination = deepLink || (
+              isWithin('/tabs') ? initialPathname : '/tabs/dashboard'
+            );
+            navigateIfNeeded(destination);
           }
           return;
         } catch (err) {
@@ -98,7 +114,7 @@ const MainLayout = () => {
         }
       }
 
-      navigate('/password', { replace: true, state: { returnTo: deepLink } });
+      navigateIfNeeded('/password', { state: { returnTo: deepLink } });
     };
 
     boot().finally(() => {

@@ -94,7 +94,7 @@ const GetStarted = () => {
       // they have already passed.
       await completeUnlock({ walletName, password, dispatch });
       notify.success('Wallet created');
-      navigate('/tabs', { replace: true });
+      navigate('/tabs/dashboard', { replace: true });
     } catch (err) {
       notify.error(err);
     } finally {

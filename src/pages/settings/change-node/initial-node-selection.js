@@ -17,7 +17,10 @@ const InitialNodeSelection = () => {
     // the boot check sends the person straight back here, forever, whenever
     // their node happens to be down.
     setCurrentNodeUrl(nodeList.currentNode);
-    navigate(loadStorageWalletNames().length ? '/password' : '/auth', { replace: true });
+    navigate(
+      loadStorageWalletNames().length ? '/password' : '/auth/onboarding',
+      { replace: true }
+    );
   };
 
   return (
