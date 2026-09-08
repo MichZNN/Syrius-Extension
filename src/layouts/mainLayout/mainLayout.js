@@ -136,6 +136,8 @@ const MainLayout = () => {
   return (
     <div className="main-layout">
       <Routes>
+        {/* The async startup redirect briefly leaves a normal popup at /. */}
+        <Route index element={<Splash />} />
         <Route path="auth/*" element={<AuthLayout />} />
         <Route path="password" element={<DashboardPassword />} />
         <Route path="initial-node-selection" element={<InitialNodeSelection />} />

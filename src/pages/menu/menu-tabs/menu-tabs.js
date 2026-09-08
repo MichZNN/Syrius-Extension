@@ -22,6 +22,9 @@ const tabs = [
   { to: 'stake', label: 'Stake', icon: 'stake' },
 ];
 
+// These destinations are siblings below /tabs. A relative "to=tokens" is
+// resolved from the current leaf (/tabs/dashboard) and becomes
+// /tabs/dashboard/tokens, which is not one of the wallet routes.
 const MenuTabs = () => {
   const location = useLocation();
 
@@ -42,7 +45,7 @@ const MenuTabs = () => {
         {tabs.map((tab) => (
           <NavLink
             key={tab.to}
-            to={tab.to}
+            to={'/tabs/' + tab.to}
             className={({ isActive }) => `tab-item ${isActive ? 'active' : ''}`}
           >
             <Icon name={tab.icon} className="tab-item-icon" />
