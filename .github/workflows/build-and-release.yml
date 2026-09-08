@@ -162,6 +162,7 @@ jobs:
         with:
           name: syrius-extension-${{ needs.build.outputs.manifest_version }}-chrome-brave.zip
           path: release-assets
+          skip-decompress: true
 
       - name: Recreate release checksum
         env:
