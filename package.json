@@ -49,7 +49,7 @@
     "stream-browserify": "^3.0.0",
     "three": "^0.139.2",
     "url-loader": "^4.1.1",
-    "znn-ts-sdk": "github:DexterLabZ/znn.ts#63c4cad42fd08604f9a2e74f68418dccc1cb4f86"
+    "znn-ts-sdk": "https://codeload.github.com/DexterLabZ/znn.ts/tar.gz/63c4cad42fd08604f9a2e74f68418dccc1cb4f86"
   },
   "devDependencies": {
     "@babel/core": "^7.17.0",

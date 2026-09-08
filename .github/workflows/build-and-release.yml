@@ -37,12 +37,6 @@ jobs:
           node-version-file: .nvmrc
           package-manager-cache: false
 
-      - name: Use HTTPS for the public Git dependency
-        shell: bash
-        run: |
-          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-          git config --global url."https://github.com/".insteadOf "git@github.com:"
-
       - name: Check toolchain
         run: |
           node --version

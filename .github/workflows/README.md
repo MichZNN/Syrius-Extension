@@ -7,6 +7,12 @@ lint checks and focused regression tests, creates a Chrome/Brave-ready ZIP with
 `manifest.json` at its root, and publishes a SHA-256 checksum. A pushed tag
 such as `v0.2.0.0` also creates or updates the matching GitHub Release.
 
+The pinned `znn-ts-sdk` commit is consumed as an HTTPS source archive rather
+than a Git dependency. The upstream Git package runs a non-deterministic
+`prepare` command that installs an unversioned `cipher-base` while applying a
+patch for `cipher-base@1.0.4`; a fresh npm registry resolution can otherwise
+make `npm ci` fail before the workflow reaches its checks.
+
 No custom repository variables or secrets are required for this ZIP workflow.
 The release job uses GitHub's built-in `GITHUB_TOKEN` with write permission
 only in that tag-only job. A CRX private key is intentionally not used: CRX
