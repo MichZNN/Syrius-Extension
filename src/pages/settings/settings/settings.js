@@ -112,6 +112,12 @@ const Settings = () => {
           description="Sites that can see this address"
           url="connected-sites"
         />
+        <SettingsItem
+          icon="sign-message"
+          title="Sign message"
+          description="Prove this address is yours, without sending anything"
+          url="sign-message"
+        />
       </div>
 
       <button

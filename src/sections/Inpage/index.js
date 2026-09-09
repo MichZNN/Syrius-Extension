@@ -168,6 +168,15 @@
       return request({ method: 'znn_signAndSendBlock', params: block });
     },
 
+    // Signs a plain message with the account's key and resolves to
+    // `{message, address, publicKey, signature}` — the last two hex, the same
+    // pair desktop Syrius answers `znn_sign` with over WalletConnect. Nothing
+    // is broadcast and nothing is spent; it proves the address is this
+    // person's, which is what a login challenge or an ownership proof needs.
+    signMessage(message) {
+      return request({ method: 'znn_sign', params: { message } });
+    },
+
     on(event, handler) {
       if (typeof handler !== 'function') {
         return provider;

@@ -8,6 +8,40 @@
 - Fixed delegated plasma balance reporting and the send-form dropdown blur
   handling.
 
+## 0.3.1
+
+### Message signing
+
+Desktop Syrius signs messages for a paired dApp over WalletConnect
+(`znn_sign` in `lib/blocs/wallet_connect/chains/nom_service.dart`). The
+extension has neither WalletConnect nor a way to sign anything that is not an
+account block, so the same capability arrives here over the transport it
+already has.
+
+- **`zenon.signMessage(message)`** on the injected provider, and `znn_sign` for
+  anything speaking the desktop method name — the bare-string `params` desktop
+  sends is accepted alongside this extension's `{message}`. It resolves to
+  `{message, address, publicKey, signature}`, the last two hex, which is the
+  pair desktop answers with. Restricted to connected origins and prompted every
+  time, like every other signature.
+- **An approval screen** that shows the message verbatim, wrapped and
+  unescaped, with the address that will sign it. Nothing is broadcast and no
+  plasma is generated, so it settles as fast as an Ed25519 signature.
+- **Settings → Sign message**, for proving an address to something that cannot
+  ask the wallet itself — a forum post, a support ticket, an exchange's
+  ownership form. Type the message, copy back the public key and the signature.
+- Two deliberate differences from desktop, both in
+  `services/wallet/signMessage.js`: the message is encoded as **UTF-8** rather
+  than desktop's UTF-16 code units narrowed to bytes (identical for ASCII), and
+  a message whose encoding is **exactly 32 bytes** is refused. 32 bytes is the
+  size of an account block hash, and `BlockUtils._getTransactionSignature`
+  signs exactly those bytes — so raw signing at that one length would let a
+  site have a transfer signed by calling it a message. Prefixing the message
+  would close it too, at the cost of every signature being unverifiable by
+  anything written for desktop.
+- `utils/dapp-test.js` drives the new method end to end and checks the shape of
+  what comes back.
+
 ## 0.3.0
 
 Everything below is the difference between this tree and
@@ -179,3 +213,5 @@ explorer settings.
 
 Sentinels (excluded by request), Accelerator-Z, P2P/HTLC swaps and
 WalletConnect — desktop-shaped features that do not fit a 360px popup.
+(WalletConnect's `znn_sign` is covered since, over this extension's own
+transport; see Unreleased.)

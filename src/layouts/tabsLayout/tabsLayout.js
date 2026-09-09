@@ -18,6 +18,7 @@ import ExportMnemonic from '../../pages/settings/export-mnemonic/export-mnemonic
 import ChangeAddress from '../../pages/settings/change-address/change-address';
 import ChangePassword from '../../pages/settings/change-password/change-password';
 import ConnectedSites from '../../pages/settings/connected-sites/connected-sites';
+import SignMessage from '../../pages/settings/sign-message/sign-message';
 import ResetWallet from '../../pages/settings/reset-wallet/reset-wallet';
 
 // Which screens are somewhere you go into, rather than somewhere you are. Those
@@ -32,6 +33,7 @@ const subScreens = {
   '/tabs/settings/export-mnemonic': 'Backup phrase',
   '/tabs/settings/change-password': 'Password',
   '/tabs/settings/connected-sites': 'Connected sites',
+  '/tabs/settings/sign-message': 'Sign message',
   '/tabs/settings/reset-wallet': 'Remove wallet',
 };
 
@@ -61,6 +63,7 @@ const TabsLayout = () => {
           <Route path="settings/export-mnemonic" element={<ExportMnemonic />} />
           <Route path="settings/change-password" element={<ChangePassword />} />
           <Route path="settings/connected-sites" element={<ConnectedSites />} />
+          <Route path="settings/sign-message" element={<SignMessage />} />
           <Route path="settings/reset-wallet" element={<ResetWallet />} />
         </Routes>
       </main>

@@ -6,6 +6,7 @@ import { Primitives, Zenon, utils as sdkUtils } from 'znn-ts-sdk';
 import useAccount from '../../services/hooks/useAccount';
 import useBlockSender from '../../services/hooks/useBlockSender';
 import vault from '../../services/wallet/vault';
+import { signMessage } from '../../services/wallet/signMessage';
 import { sendInternal } from '../../services/utils/messaging';
 import {
   formatAmount,
@@ -70,6 +71,7 @@ const SiteIntegrationLayout = () => {
   const [request, setRequest] = useState(undefined);
   const [preview, setPreview] = useState(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [isWaitingForMore, setIsWaitingForMore] = useState(false);
 
   // A locked wallet cannot answer anything. The password screen is told where
   // to come back to so the request is not lost.
@@ -82,18 +84,48 @@ const SiteIntegrationLayout = () => {
     }
   }, [isUnlocked, navigate]);
 
+  // How long to hold the window open on an empty queue before closing it.
+  //
+  // A site almost never asks for one thing. Connecting is the prelude to
+  // whatever it actually wanted — a signature, a block — and it sends that the
+  // instant the connect is answered, because being answered is what it was
+  // waiting for. Closing on the spot meant the second request always arrived to
+  // a window that had already gone: a visible flash as another one opened, and,
+  // until the close handler learned which requests were its own, an outright
+  // rejection of a prompt nobody had seen.
+  //
+  // So the window waits a beat and looks again. Long enough to cover the round
+  // trip out to the page and back, short enough that a genuinely finished queue
+  // does not leave an empty window sitting there.
+  const CLOSE_GRACE_MS = 1200;
+
   const loadNext = useCallback(async () => {
     try {
       const next = await sendInternal('approvals.next');
-      setRequest(next || null);
 
+      if (next) {
+        setRequest(next);
+        return next;
+      }
+      setRequest(null);
+      setIsWaitingForMore(true);
+      await new Promise((resolve) => {
+        setTimeout(resolve, CLOSE_GRACE_MS);
+      });
+
+      const late = await sendInternal('approvals.next');
+      setIsWaitingForMore(false);
+
+      if (late) {
+        setRequest(late);
+        return late;
+      }
       // Nothing left to answer means this window was only ever open for the
       // queue, and the queue is empty.
-      if (!next) {
-        window.close();
-      }
-      return next;
+      window.close();
+      return null;
     } catch (err) {
+      setIsWaitingForMore(false);
       setRequest(null);
       return null;
     }
@@ -206,6 +238,33 @@ const SiteIntegrationLayout = () => {
   };
 
   //
+  // Sign a message
+  //
+  // The only approval here that does not touch the network: no plasma, no
+  // block, nothing to broadcast. It is over as fast as an Ed25519 signature,
+  // and the site gets the answer the moment the button is pressed.
+  //
+  const approveSignMessage = async () => {
+    setIsBusy(true);
+
+    try {
+      const signed = await signMessage(request.params.message);
+
+      await finish(request.id, signed);
+      notify.success('Message signed');
+    } catch (err) {
+      notify.error(err);
+      await sendInternal('approvals.reject', {
+        id: request.id,
+        error: { code: -32603, message: readableError(err) },
+      });
+      await loadNext();
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  //
   // Sign and send an arbitrary block
   //
   const approveSignAndSend = async () => {
@@ -243,7 +302,12 @@ const SiteIntegrationLayout = () => {
   if (!request) {
     return (
       <div className="page approval-screen">
-        <p className="empty-note">Nothing to approve.</p>
+        {/* The queue is empty, but a site that has just been answered usually
+            has one more thing to ask. Saying so beats flashing "Nothing to
+            approve" at somebody for a second on the way to the next prompt. */}
+        <p className="empty-note">
+          {isWaitingForMore ? 'Waiting for the site…' : 'Nothing to approve.'}
+        </p>
       </div>
     );
   }
@@ -394,6 +458,46 @@ const SiteIntegrationLayout = () => {
               disabled={busy || Boolean(shortfall)}
             >
               {busy ? busyLabel : 'Confirm'}
+            </button>
+          </div>
+        </>
+      )}
+
+      {request.type === 'signMessage' && (
+        <>
+          <div className="approval-body">
+            <h2 className="approval-title">Sign this message?</h2>
+            <p className="approval-note">
+              A signature proves this address is yours. It moves nothing, costs
+              no plasma and is never published — but only sign what you can
+              read, and only for a site you meant to sign in to.
+            </p>
+
+            {/* Verbatim, wrapped, and never interpreted: the point of this
+                panel is that what gets signed is what is on screen. */}
+            <pre className="message-preview">{request.params.message}</pre>
+
+            <dl className="confirm-details">
+              <dt>Signing as</dt>
+              <dd title={address}>{truncateAddress(address, 10, 6)}</dd>
+            </dl>
+          </div>
+
+          <div className="action-row sticky-actions">
+            <button
+              type="button"
+              className="button secondary w-100"
+              onClick={reject}
+            >
+              Reject
+            </button>
+            <button
+              type="button"
+              className="button primary w-100 text-white"
+              onClick={approveSignMessage}
+              disabled={busy}
+            >
+              {isBusy ? 'Signing…' : 'Sign'}
             </button>
           </div>
         </>

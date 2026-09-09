@@ -157,6 +157,44 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const after = (await listTargets()).filter((t) => t.url.includes('site-integration')).length;
   console.log('9. reconnect without a prompt:', JSON.stringify(second.value || second.error), '| extra windows:', after - before);
 
+  // Signing a message. Prompted every time even for a connected origin, so a
+  // second approval window has to open and be answered before the page's
+  // promise settles.
+  await site.evaluate(
+    "window.__signResult = 'pending'; window.zenon.signMessage('Sign in to the dapp test at ' + new Date().toISOString()).then(r => window.__signResult = {ok:r}).catch(e => window.__signResult = {err:e}); 1",
+    false
+  );
+  await sleep(2500);
+
+  const signPrompt = (await listTargets()).find(
+    (t) => t.type === 'page' && t.url.includes('popup.html') && t.url.includes('site-integration')
+  );
+  console.log('10. sign approval window opened:', Boolean(signPrompt));
+
+  if (signPrompt) {
+    const signPopup = await Session.open(signPrompt.webSocketDebuggerUrl);
+    await signPopup.send('Runtime.enable');
+    await sleep(1200);
+
+    console.log('11. sign screen text:', JSON.stringify(
+      (await signPopup.evaluate("(document.body.innerText||'').replace(/\\n+/g,' | ').slice(0,220)")).value
+    ));
+
+    const signPressed = await signPopup.evaluate(
+      "(() => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === 'Sign'); if (!b) return 'no button: ' + [...document.querySelectorAll('button')].map(x=>x.textContent.trim()).join(','); b.click(); return 'clicked'; })()"
+    );
+    console.log('12. pressed:', JSON.stringify(signPressed.value || signPressed.error));
+    await sleep(2000);
+
+    // Verified here rather than merely printed: a 64-byte signature and a
+    // 32-byte public key, both hex, is the whole contract with the site.
+    console.log('13. signMessage() resolved with:', JSON.stringify(
+      (await site.evaluate(
+        "(() => { const r = window.__signResult; if (!r || !r.ok) return r; return { address: r.ok.address, signatureLength: r.ok.signature.length, publicKeyLength: r.ok.publicKey.length, hex: /^[0-9a-f]+$/.test(r.ok.signature + r.ok.publicKey) }; })()"
+      )).value
+    ));
+  }
+
   await browser.send('Target.closeTarget', { targetId });
   process.exit(0);
 })();

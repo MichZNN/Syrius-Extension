@@ -648,6 +648,10 @@ const commands = {
   // leaving it there is a change React never hears about. Going through the
   // prototype setter and firing the event it listens for is what makes the
   // typing real.
+  //
+  // Which prototype's setter, though, is decided by the element: calling
+  // `HTMLInputElement`'s on a <textarea> throws "Illegal invocation", which is
+  // what this did to the sign-message screen, the first textarea in the wallet.
   async fill(flags, positional) {
     const { popup } = await attach();
     const [selector, value] = positional;
@@ -655,7 +659,10 @@ const commands = {
     const filled = await popup.evaluate(`(() => {
       const element = ${elementFor(selector)};
       if (!element) return false;
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      const prototype = element instanceof window.HTMLTextAreaElement
+        ? window.HTMLTextAreaElement.prototype
+        : window.HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(prototype, 'value').set;
       setter.call(element, ${JSON.stringify(value ?? '')});
       element.dispatchEvent(new Event('input', { bubbles: true }));
       element.dispatchEvent(new Event('change', { bubbles: true }));
