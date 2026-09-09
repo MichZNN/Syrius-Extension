@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2
+
+- GitHub Actions now creates the matching version tag and publishes the
+  Chrome/Brave ZIP and SHA-256 checksum automatically after a successful push
+  to `main`.
+- Fixed delegated plasma balance reporting and the send-form dropdown blur
+  handling.
+
 ## 0.3.1
 
 ### Message signing

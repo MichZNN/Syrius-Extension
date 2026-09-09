@@ -100,7 +100,7 @@ const BurgerPopover = ({ onNavigate = () => {} }) => {
           invalidateAccountCache();
           dispatch(resetWalletState());
           dispatch(resetPendingTransactions());
-          navigate('/auth');
+          navigate('/auth/onboarding');
         }}
         icon={
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">

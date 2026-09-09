@@ -1,8 +1,12 @@
 {
   "name": "syrius-extension",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Syrius extension provides a non-custodial wallet solution for Zenon - Network of Momentum that can run in the browser.",
   "license": "MIT",
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=10.0.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/MichZNN/syrius-extension"
@@ -16,12 +20,14 @@
     "dev:stop": "node utils/dev-harness.js stop",
     "prettier": "prettier --write '**/*.{js,jsx,ts,tsx,json,css,scss,md}'",
     "lint": "eslint src/**/*.js src/**/*.jsx",
-    "test": "node utils/contract-calls-test.js"
+    "test": "node utils/contract-calls-test.js",
+    "test:security": "node utils/bigint-buffer-test.js"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^1.8.1",
     "babel-preset-react": "^6.24.1",
     "base64-loader": "^1.0.0",
+    "bigint-buffer": "file:vendor/bigint-buffer",
     "buffer": "^6.0.3",
     "cipher-base": "^1.0.4",
     "crypto-browserify": "^3.12.0",
@@ -31,18 +37,18 @@
     "path": "^0.12.7",
     "path-browserify": "^1.0.1",
     "raw-loader": "^4.0.2",
-    "react": "^17.0.2",
-    "react-dom": "^17.0.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "react-hook-form": "^7.31.2",
     "react-qr-code": "^2.0.7",
     "react-redux": "^8.0.1",
-    "react-router-dom": "^6.3.0",
+    "react-router-dom": "^7.18.3",
     "react-toastify": "^9.0.1",
     "readable-stream": "^3.6.0",
     "sass": "^1.50.1",
     "stream-browserify": "^3.0.0",
     "url-loader": "^4.1.1",
-    "znn-ts-sdk": "0.1.3"
+    "znn-ts-sdk": "https://codeload.github.com/DexterLabZ/znn.ts/tar.gz/63c4cad42fd08604f9a2e74f68418dccc1cb4f86"
   },
   "devDependencies": {
     "@babel/core": "^7.17.0",
@@ -52,12 +58,12 @@
     "@babel/preset-react": "^7.16.7",
     "@babel/preset-stage-2": "^7.8.3",
     "@types/chrome": "^0.0.177",
-    "@types/react": "^17.0.39",
-    "@types/react-dom": "^17.0.11",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
     "babel-loader": "^8.2.3",
     "babel-preset-react-app": "^10.0.1",
     "clean-webpack-plugin": "^4.0.0",
-    "copy-webpack-plugin": "^7.0.0",
+    "copy-webpack-plugin": "^14.0.0",
     "css-loader": "^6.6.0",
     "eslint": "^8.8.0",
     "eslint-config-react-app": "^7.0.0",
@@ -100,6 +106,11 @@
     "rimraf": "^5.0.0",
     "glob": "^9.3.5",
     "@humanwhocodes/config-array": "npm:@eslint/config-array@^0.18.0",
-    "@humanwhocodes/object-schema": "npm:@eslint/object-schema@^2.1.4"
+    "@humanwhocodes/object-schema": "npm:@eslint/object-schema@^2.1.4",
+    "argon2": "^0.45.1",
+    "qs": "^6.16.0",
+    "@ethersproject/providers": {
+      "ws": "^8.21.3"
+    }
   }
 }

@@ -42,7 +42,7 @@ const DashboardPassword = () => {
 
   // Where to go once the wallet opens. A dApp approval sets this so the request
   // that opened the popup is not lost behind the password prompt.
-  const returnTo = location.state?.returnTo || '/tabs';
+  const returnTo = location.state?.returnTo || '/tabs/dashboard';
 
   const passwordField = register('passwordField', { required: true });
 
@@ -173,7 +173,10 @@ const DashboardPassword = () => {
         </form>
 
         <div className="unlock-alternative text-gray">
-          <span className="text-primary cursor-pointer" onClick={() => navigate('/auth')}>
+          <span
+            className="text-primary cursor-pointer"
+            onClick={() => navigate('/auth/onboarding')}
+          >
             Create or import a wallet
           </span>
         </div>

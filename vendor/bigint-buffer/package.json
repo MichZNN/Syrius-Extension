@@ -1,0 +1,14 @@
+{
+  "name": "bigint-buffer",
+  "version": "1.1.6",
+  "description": "Pure JavaScript BigInt and Buffer conversions used by the Syrius extension",
+  "license": "MIT",
+  "main": "dist/node.js",
+  "browser": {
+    "./dist/node.js": "./dist/browser.js"
+  },
+  "types": "dist/index.d.ts",
+  "engines": {
+    "node": ">=18"
+  }
+}

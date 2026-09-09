@@ -1,0 +1,212 @@
+name: Build and package extension
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+      - development
+      - manifest-v3
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extension-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Chrome/Brave package
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      manifest_version: ${{ steps.metadata.outputs.manifest_version }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Check toolchain
+        run: |
+          node --version
+          npm --version
+
+      - name: Validate project versions
+        id: metadata
+        shell: bash
+        run: |
+          manifest_version="$(node -p "require('./src/manifest.json').version")"
+          package_version="$(node -p "require('./package.json').version")"
+
+          if [[ ! "$manifest_version" =~ ^[0-9]+(\.[0-9]+){0,3}$ ]]; then
+            echo "::error::Invalid Chrome manifest version: $manifest_version"
+            exit 1
+          fi
+
+          if [[ ! "$package_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid npm package version: $package_version"
+            exit 1
+          fi
+
+          if [[ "$manifest_version" != "$package_version" ]]; then
+            echo "::error::The Chrome manifest version ($manifest_version) must match the npm package version ($package_version)."
+            exit 1
+          fi
+
+          printf 'manifest_version=%s\n' "$manifest_version" >> "$GITHUB_OUTPUT"
+          printf 'package_version=%s\n' "$package_version" >> "$GITHUB_OUTPUT"
+
+      - name: Verify release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          MANIFEST_VERSION: ${{ steps.metadata.outputs.manifest_version }}
+        shell: bash
+        run: |
+          expected_tag="v${MANIFEST_VERSION}"
+          if [[ "$TAG_NAME" != "$expected_tag" ]]; then
+            echo "::error::Tag $TAG_NAME does not match manifest version $MANIFEST_VERSION"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=moderate
+
+      - name: Lint source
+        run: npm run lint
+
+      - name: Run focused regression tests
+        run: npm test
+
+      - name: Run dependency security regression tests
+        run: npm run test:security
+
+      - name: Build production extension
+        run: npm run build
+
+      - name: Validate and package production build
+        id: package
+        env:
+          MANIFEST_VERSION: ${{ steps.metadata.outputs.manifest_version }}
+        shell: bash
+        run: |
+          test -f build/manifest.json
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const manifest = JSON.parse(fs.readFileSync('build/manifest.json', 'utf8'));
+
+          if (manifest.manifest_version !== 3) {
+            throw new Error('The production manifest is not Manifest V3.');
+          }
+
+          if (manifest.version !== process.env.MANIFEST_VERSION) {
+            throw new Error('The production manifest version does not match the source manifest.');
+          }
+          NODE
+
+          if find build -type f \( -name '*.map' -o -iname 'desktop.ini' -o -iname 'dekstop.ini' -o -iname 'thumbs.db' -o -iname 'ehthumbs.db' \) -print -quit | grep -q .; then
+            echo "::error::The production package contains source maps or OS metadata."
+            exit 1
+          fi
+
+          archive="syrius-extension-${MANIFEST_VERSION}-chrome-brave.zip"
+          (cd build && zip -qr "../${archive}" .)
+
+          if ! unzip -Z1 "$archive" | grep -qx 'manifest.json'; then
+            echo "::error::The ZIP does not contain manifest.json at its root."
+            exit 1
+          fi
+
+          sha256sum "$archive" > "${archive}.sha256"
+          printf 'archive_name=%s\n' "$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Upload direct Chrome/Brave package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.package.outputs.archive_name }}
+          if-no-files-found: error
+          retention-days: 30
+          archive: false
+
+  release:
+    name: Publish GitHub release
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+
+    steps:
+      - name: Download Chrome/Brave package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: syrius-extension-${{ needs.build.outputs.manifest_version }}-chrome-brave.zip
+          path: release-assets
+          skip-decompress: true
+
+      - name: Recreate release checksum
+        env:
+          MANIFEST_VERSION: ${{ needs.build.outputs.manifest_version }}
+        shell: bash
+        run: |
+          archive="release-assets/syrius-extension-${MANIFEST_VERSION}-chrome-brave.zip"
+          test -f "$archive"
+          sha256sum "$archive" > "${archive}.sha256"
+
+      - name: Publish GitHub release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          AUTO_RELEASE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          TAG_NAME: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', needs.build.outputs.manifest_version) }}
+          TARGET_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          mapfile -t assets < <(find release-assets -maxdepth 1 -type f -print | sort)
+          if (( ${#assets[@]} != 2 )); then
+            echo "::error::Expected exactly two release assets, found ${#assets[@]}."
+            exit 1
+          fi
+
+          if [[ "$AUTO_RELEASE" == "true" ]]; then
+            if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+              echo "::error::Release $TAG_NAME already exists. Increase the project version before publishing another release."
+              exit 1
+            fi
+
+            gh release create "$TAG_NAME" "${assets[@]}" \
+              --target "$TARGET_SHA" \
+              --title "Syrius Extension ${TAG_NAME#v}" \
+              --generate-notes
+            exit 0
+          fi
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" "${assets[@]}" --clobber
+          else
+            gh release create "$TAG_NAME" "${assets[@]}" \
+              --title "Syrius Extension ${TAG_NAME#v}" \
+              --generate-notes \
+              --verify-tag
+          fi

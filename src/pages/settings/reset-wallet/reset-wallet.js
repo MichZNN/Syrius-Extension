@@ -57,7 +57,10 @@ const ResetWallet = () => {
       dispatch(resetPendingTransactions());
 
       notify.success(`Removed ${walletName}`);
-      navigate(loadStorageWalletNames().length ? '/password' : '/auth', { replace: true });
+      navigate(
+        loadStorageWalletNames().length ? '/password' : '/auth/onboarding',
+        { replace: true }
+      );
     } catch (err) {
       notify.error(err);
     } finally {

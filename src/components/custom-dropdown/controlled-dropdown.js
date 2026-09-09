@@ -7,6 +7,18 @@ const ControlledDropdown = React.forwardRef((props, ref) => {
   const { field } = useController(props);
   const [value, setValue] = useState(field.value);
 
+  // React Hook Form expects blur callbacks to receive an event. The dropdown
+  // closes from a document-level pointer event, so preserve that event instead
+  // of forwarding an undefined argument into its registered handler.
+  const handleChange = (...args) => {
+    props.onChange?.(...args);
+    field.onChange(...args);
+  };
+  const handleBlur = (...args) => {
+    props.onBlur?.(...args);
+    field.onBlur(...args);
+  };
+
   useEffect(() => {
     setValue(props.value);
   }, [props.value]);
@@ -19,8 +31,8 @@ const ControlledDropdown = React.forwardRef((props, ref) => {
           name={props.name}
           className={props.className}
           options={props.options} 
-          onChange={(...args)=>{props.onChange(...args); field.onChange(...args)}} 
-          onBlur={(...args)=>{props.onBlur(...args); field.onBlur(...args)}} 
+          onChange={handleChange}
+          onBlur={handleBlur}
           value={value} 
           placeholder={props.placeholder || ""}
           label={props.label || ""}
@@ -35,8 +47,8 @@ const ControlledDropdown = React.forwardRef((props, ref) => {
           name={props.name}
           className={props.className}
           options={props.options} 
-          onChange={(...args)=>{props.onChange(...args); field.onChange(...args)}} 
-          onBlur={(...args)=>{props.onBlur(...args); field.onBlur(...args)}} 
+          onChange={handleChange}
+          onBlur={handleBlur}
           value={value} 
           placeholder={props.placeholder || ""}
           label={props.label || ""}

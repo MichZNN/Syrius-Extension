@@ -31,7 +31,7 @@ const TokenDropdown = React.forwardRef(
       const onPointerDown = (event) => {
         if (!rootRef.current?.contains(event.target)) {
           setIsOpen(false);
-          onBlur?.();
+          onBlur?.(event);
         }
       };
       document.addEventListener('mousedown', onPointerDown);
