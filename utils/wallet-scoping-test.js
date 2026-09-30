@@ -14,6 +14,7 @@ const babel = require('@babel/core');
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const root = path.join(__dirname, '..'), compiled = new Map();
+const liveDocument = require('./fixtures/document-binding-stub');
 const clone = value => value === undefined ? value : structuredClone(value);
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const flush = async () => { for (let i = 0; i < 20; i++) await tick(); };
@@ -65,12 +66,16 @@ const fixture = () => {
   const chrome = {
     runtime: { id: 'fixture', getURL: name => 'chrome-extension://fixture/' + name,
       onMessage: event('message'), onInstalled: event('installed'), onStartup: event('startup') },
-    storage: { session: storage('session', session), local: storage('local', local), onChanged: { addListener: listener => changeListeners.push(listener) } },
+    storage: { session: storage('session', session), local: storage('local', local), onChanged: { addListener: listener => changeListeners.push(listener),
+      removeListener: listener => { const at = changeListeners.indexOf(listener); if (at >= 0) changeListeners.splice(at, 1); } } },
     windows: { getCurrent: async () => ({ id: 10 }), getLastFocused: async () => ({}), update: async id => ({ id }), get: async id => ({ id }),
       create: async () => ({ id: 10 + ++calls.windows }), remove: async () => {}, onRemoved: event('windowRemoved') },
     // Responses are acknowledged as the content relay does.
-    tabs: { sendMessage: async (tabId, message, options) => { messages.push({ tabId, message: clone(message), options });
-      return message?.kind === 'response' ? { accepted: !message.error, acceptedAt: now } : undefined; }, onRemoved: event('tabRemoved') },
+    // A live relay: probes answered (not deliveries), responses acknowledged.
+    tabs: { sendMessage: async (tabId, message, options) => {
+      if (message?.kind !== 'probe') messages.push({ tabId, message: clone(message), options });
+      return liveDocument.relayReply(message, () => now); }, onRemoved: event('tabRemoved') },
+    webNavigation: { onBeforeNavigate: event('navigate') },
     alarms: { create() {}, onAlarm: event('alarm') },
   };
   const localStorage = { getItem: key => disk.get(key) ?? null, setItem: (key, value) => { if (faults.disk) throw Error('disk write failed'); disk.set(key, value); }, removeItem: key => disk.delete(key) };
@@ -113,7 +118,7 @@ const fixture = () => {
   const timer = (fn, ms) => { const handle = setTimeout(fn, Math.min(ms, 2147483647)); handle.unref?.(); return handle; };
   const env = { chrome, navigator: { locks: locksApi }, crypto: crypto.webcrypto, Date: Clock, localStorage,
     setTimeout: timer, clearTimeout, TextEncoder, Uint8Array };
-  const load = loader(env, id => id === 'znn-ts-sdk' ? sdk : undefined);
+  const load = loader(env, id => (liveDocument.isNavigation(id) ? liveDocument.navigationStub : id === 'znn-ts-sdk' ? sdk : undefined));
   const selection = load('src/services/wallet/selection.js').default;
   const permissions = load('src/sections/Background/permissions.js').default;
   const requests = load('src/sections/Background/requests.js').default;
@@ -133,7 +138,7 @@ const fixture = () => {
   let responseId = 0;
   const provider = async (method, params, origin) => {
     const id = ++responseId;
-    listeners.message({ channel: 'znn', kind: 'request', method, params, id }, sender(origin), () => {});
+    listeners.message({ channel: 'znn', kind: 'request', method, params, id, ...liveDocument.documentFields() }, sender(origin), () => {});
     await flush(); return messages.find(item => item.message.kind === 'response' && item.message.id === id)?.message;
   };
   const scope = (seed = 'A', index = 0, walletName = seed) => ({ walletName, walletId: addressFor(seed, 0), address: addressFor(seed, index), index });
@@ -151,7 +156,7 @@ const fixture = () => {
   const grant = (origin, value) => permissions.grant(origin, value, {}, {
     expiresAt: now + 60000, confirm: async () => ({ accepted: true, acceptedAt: now }) });
   const lock = () => lease.clear();
-  const register = async origin => { listeners.message({ channel: 'znn', kind: 'hello' }, sender(origin), () => {}); await flush(); };
+  const register = async origin => { listeners.message({ channel: 'znn', kind: 'hello', activation: liveDocument.activation }, sender(origin), () => {}); await flush(); };
   const ui = () => {
     const states = [], refs = [], effects = [], callbacks = [], notices = [], navigations = [];
     const navigate = (...args) => navigations.push(args);
@@ -165,6 +170,7 @@ const fixture = () => {
       useEffect: (fn, deps) => { const i = ei++; if (!same(effects[i]?.deps, deps)) effects[i] = { fn, deps, cleanup: effects[i]?.cleanup, pending: true }; },
     };
     const uiLoad = loader({ ...env, window: { close() {} }, setTimeout: (fn, ms) => setTimeout(fn, ms === 1200 ? 0 : ms) }, id => {
+      if (liveDocument.isNavigation(id)) return liveDocument.navigationStub;
       if (id === 'react') return hooks;
       if (id === 'react-router-dom') return { useNavigate: () => navigate };
       if (id === 'react-redux') return { useSelector: select => select(state) };

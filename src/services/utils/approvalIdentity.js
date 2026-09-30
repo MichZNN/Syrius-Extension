@@ -1,9 +1,14 @@
+import { validRequest } from './documentBinding';
+
 // Page response correlation is not approval authority. This snapshot describes
 // exactly what one extension-generated queue identity asks the user to approve.
 const approvalTypes = ['connect', 'sendTransaction', 'signAndSendBlock', 'signMessage'];
-// Version 4: an absolute deadline (queue limits) and the selection the request
-// was admitted under and is bound to (wallet scoping), all in the snapshot.
+// Version 4: an absolute deadline (queue limits), the selection the request was
+// admitted under and is bound to (wallet scoping), and the live document that
+// asked -- native document, relay activation, private request token and
+// navigation generation (document binding) -- all in the snapshot.
 const validApproval = request => Boolean(request && request.version === 4 && Number.isFinite(request.expiresAt) && Number.isFinite(request.createdAt) &&
+  validRequest(request) &&
   typeof request.id === 'string' && request.id.length > 0 && approvalTypes.includes(request.type) &&
   typeof request.origin === 'string' && request.origin.length > 0 &&
   Number.isInteger(request.tabId) && Number.isInteger(request.frameId) &&
@@ -14,6 +19,7 @@ const snapshotOf = request => validApproval(request) ? JSON.stringify([
   request.tabId, request.frameId, request.documentId, request.responseId,
   request.title, request.favicon, request.createdAt, request.expiresAt,
   request.admitted, request.waitForUnlock, request.binding,
+  request.activation, request.requestToken, request.navigationTab, request.navigationFrame,
 ]) : null;
 const identityOf = request => ({ id: request?.id, snapshot: snapshotOf(request) });
 const matchesApproval = (request, identity) => Boolean(validApproval(request) &&

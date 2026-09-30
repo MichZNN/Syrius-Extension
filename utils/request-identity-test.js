@@ -13,6 +13,9 @@ global.localStorage = { getItem: key => sdkStorage.get(key) ?? null, setItem: (k
 const sdk = require('znn-ts-sdk');
 const { BigNumber } = require('ethers');
 const root = path.join(__dirname, '..'), compiled = new Map();
+const liveDocument = require('./fixtures/document-binding-stub');
+// Every module realm here sees the requesting document as live (see the stub).
+const withBinding = (override = () => undefined) => id => (liveDocument.isNavigation(id) ? liveDocument.navigationStub : override(id));
 const clone = value => value === undefined ? value : structuredClone(value);
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const flush = async () => { for (let i = 0; i < 12; i++) await tick(); };
@@ -49,7 +52,7 @@ const scope = { walletName: 'fixture', walletId: address.toString(), address: ad
 const selectionId = 'fixture-selection';
 const binding = Object.freeze({ id: selectionId, ownerId: 'owner', scope: Object.freeze({ ...scope }) });
 const entry = (responseId = 'same', documentId = 'doc-a', type = 'signMessage') => ({ responseId, documentId, origin: 'https://fixture.invalid', tabId: 1, frameId: 0, type, params: paramsFor(type), title: '', favicon: '',
-  admitted: { id: selectionId, scope }, waitForUnlock: false, binding: null });
+  admitted: { id: selectionId, scope }, waitForUnlock: false, binding: null, ...liveDocument.documentFields() });
 // The queue's admission limits (#10) are exercised by approval-queue-test.
 // These scenarios test identity and claims, some with many requests from one
 // origin at once, so they run with the numeric limits lifted. The one-pending-
@@ -73,19 +76,24 @@ const fixture = () => {
     const before = locks.get(name) || Promise.resolve(); let release; const after = new Promise(resolve => { release = resolve; }); locks.set(name, after);
     await before; try { return await fn(); } finally { release(); if (locks.get(name) === after) locks.delete(name); }
   } };
+  const changeListeners = new Set();
   const storage = (area, data) => ({
     get: async key => { if (faults[area + 'Read']) throw Error(area + ' read unavailable'); return Object.fromEntries((Array.isArray(key) ? key : [key]).map(k => [k, clone(data[k])])); },
     set: async values => {
       if (storageGate?.area === area) { const held = storageGate; storageGate = null; held.started.resolve(); await held.release.promise; }
       if (faults[area + 'Write']) throw Error(area + ' write unavailable');
       Object.assign(data, clone(values));
+      // Chrome reports every write; the approval screen watches its queue.
+      const changes = Object.fromEntries(Object.entries(values).map(([key, value]) => [key, { newValue: clone(value) }]));
+      for (const listener of [...changeListeners]) listener(changes, area);
     },
     remove: async keys => { if (faults[area + 'Write']) throw Error(area + ' write unavailable'); for (const key of Array.isArray(keys) ? keys : [keys]) delete data[key]; },
   });
   const event = name => ({ addListener: fn => { listeners[name] = fn; } });
   const chrome = {
     runtime: { id: 'fixture', getURL: value => 'chrome-extension://fixture/' + value, onMessage: event('message'), onInstalled: event('installed'), onStartup: event('startup') },
-    storage: { session: storage('session', session), local: storage('local', local) },
+    storage: { session: storage('session', session), local: storage('local', local),
+      onChanged: { addListener: fn => changeListeners.add(fn), removeListener: fn => changeListeners.delete(fn) } },
     windows: { onRemoved: event('closedWindow'), getCurrent: async () => ({ id: 10 }),
       getLastFocused: async () => ({ top: 0, left: 0, width: 1200 }),
       update: async id => { if (!windows.has(id)) throw Error('window gone'); return { id }; },
@@ -97,13 +105,15 @@ const fixture = () => {
     // A response is acknowledged the way the content relay does (#10): a
     // connection grant activates only once the page's relay has accepted it.
     tabs: { onRemoved: event('closedTab'), sendMessage: async (tabId, value, options) => {
-      delivered.push({ tabId, value: clone(value), options: clone(options) });
-      return value?.kind === 'response' ? { accepted: !value.error, acceptedAt: Date.now() } : undefined;
+      // A liveness probe is not a delivery.
+      if (value?.kind !== 'probe') delivered.push({ tabId, value: clone(value), options: clone(options) });
+      return liveDocument.relayReply(value);
     } },
+    webNavigation: { onBeforeNavigate: event('navigate') },
     alarms: { onAlarm: event('alarm'), create() {} },
   };
   const environment = { chrome, navigator: { locks: locksApi }, crypto: crypto.webcrypto };
-  const plain = loader(environment), load = loader(environment, relaxedLimits(plain)), queue = load('src/sections/Background/requests.js').default;
+  const plain = loader(environment), load = loader(environment, withBinding(relaxedLimits(plain))), queue = load('src/sections/Background/requests.js').default;
   const identity = load('src/services/utils/approvalIdentity.js');
   load('src/sections/Background/index.js');
   const extensionSender = { id: 'fixture', url: 'chrome-extension://fixture/popup.html' };
@@ -117,9 +127,11 @@ const fixture = () => {
   };
   chrome.runtime.sendMessage = (request, callback) => internal(request.method, request.params).then(result => callback({ result }), error => callback({ error: error.message }));
   const sender = (documentId = 'doc-a', tabId = 1, frameId = 0) => ({ id: 'fixture', origin: 'https://fixture.invalid', url: 'https://fixture.invalid/app', tab: { id: tabId }, frameId, documentId });
-  const provider = async (method, params, id = 'same', from = sender()) => {
-    let ack; listeners.message({ channel: 'znn', kind: 'request', method, params, id }, from, value => { ack = value; });
-    assert.equal(ack?.accepted, true); await flush();
+  // The worker acknowledges once it has bound the request to its document.
+  const provider = async (method, params, id = 'same', from = sender(), expectAccepted = true) => {
+    let ack; listeners.message({ channel: 'znn', kind: 'request', method, params, id, ...liveDocument.documentFields() }, from, value => { ack = value; });
+    await flush(); if (expectAccepted) assert.equal(ack?.accepted, true); await flush();
+    return ack;
   };
   const key = { getAddress: async () => address, getPublicKey: async () => Buffer.alloc(32, 7), sign: async () => { counts.signs++; await pause('sign'); return Buffer.alloc(64, 9); } };
   const vault = { getKeyPair: () => key, getSigningKeyPair: async () => { await pause('key'); return key; },
@@ -149,6 +161,7 @@ const fixture = () => {
     };
     const uiChrome = { ...chrome, windows: { ...chrome.windows, getCurrent: async () => ({ id: windowId }) } };
     const uiLoad = loader({ ...environment, chrome: uiChrome, window: { close() { closes++; } }, setTimeout: (fn, ms) => setTimeout(fn, ms === 1200 ? 0 : ms) }, id => {
+      if (liveDocument.isNavigation(id)) return liveDocument.navigationStub;
       if (id === 'react') return hooks;
       // Stable within a route, as React Router's is: the screen's loaders depend on it.
       if (id === 'react-router-dom') return { useNavigate: () => navigateStub };
@@ -167,7 +180,7 @@ const fixture = () => {
   const add = async value => { const request = await queue.add(value); await queue.attachWindow(identity.identityOf(request), 10); return queue.get(request.id); };
   // The popup's binding step.
   const bindNext = () => internal('approvals.next', { binding });
-  return { connect, bindNext, queue, identity, add, freshQueue: () => loader(environment, relaxedLimits(plain))('src/sections/Background/requests.js').default, session, local, faults, counts, events, windows, delivered, listeners, chrome, internal, sender, provider, hold, ui,
+  return { connect, bindNext, queue, identity, add, freshQueue: () => loader(environment, withBinding(relaxedLimits(plain)))('src/sections/Background/requests.js').default, session, local, faults, counts, events, windows, delivered, listeners, chrome, internal, sender, provider, hold, ui,
     holdStorage: area => (storageGate = { area, started: deferred(), release: deferred() }),
     holdInternal: method => (internalGate = { method, started: deferred(), release: deferred() }) };
 };
@@ -262,7 +275,8 @@ const watchdog = setTimeout(() => { console.error('Request identity checks timed
     let callback = false;
     assert.equal(f.listeners.message({ channel: 'internal', method: 'approvals.list' }, f.sender(), () => { callback = true; }), false);
     assert.equal(callback, false);
-    await f.provider('znn_connect', {}, 'unbound', { ...f.sender(), documentId: undefined });
+    // A request with no native document is refused at transport.
+    assert.equal((await f.provider('znn_connect', {}, 'unbound', { ...f.sender(), documentId: undefined }, false))?.accepted, false);
     assert.equal((await f.queue.list()).length, 1);
   }
   {

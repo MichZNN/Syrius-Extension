@@ -18,6 +18,16 @@ const clone = value => value === undefined ? value : structuredClone(value);
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const flush = async () => { for (let i = 0; i < 12; i++) await tick(); };
 const navigateStub = () => {};
+const liveDocument = require('./fixtures/document-binding-stub');
+// What the relay and page provider need of a page: a document, and a mutation
+// observer for their document-lifetime check (a steady page here).
+const pageDocument = { documentElement: {} };
+class QuietObserver { observe() {} takeRecords() { return []; } }
+// The relay answers only to its own activation and request token (#6).
+const replyFrom = (pending, body) => ({ channel: 'znn', kind: 'response', id: pending.value.id,
+  activation: pending.value.activation, requestToken: pending.value.requestToken, ...body });
+// Every module realm here sees the requesting document as live (see the stub).
+const withBinding = (override = () => undefined) => id => (liveDocument.isNavigation(id) ? liveDocument.navigationStub : override(id));
 const deferred = () => { let resolve; const promise = new Promise(yes => { resolve = yes; }); return { promise, resolve }; };
 const loader = (environment, overrides = () => undefined) => {
   const cache = new Map();
@@ -50,7 +60,7 @@ const scope = { walletName: 'fixture', walletId: address.toString(), address: ad
 const selectionId = 'fixture-selection';
 const binding = Object.freeze({ id: selectionId, ownerId: 'owner', scope: Object.freeze({ ...scope }) });
 const entry = (responseId = 'same', documentId = 'doc-a', type = 'signMessage') => ({ responseId, documentId, origin: 'https://fixture.invalid', tabId: 1, frameId: 0, type, params: paramsFor(type), title: '', favicon: '',
-  admitted: { id: selectionId, scope: { ...scope } }, waitForUnlock: false, binding: { id: selectionId, scope: { ...scope } } });
+  admitted: { id: selectionId, scope: { ...scope } }, waitForUnlock: false, binding: { id: selectionId, scope: { ...scope } }, ...liveDocument.documentFields() });
 const fixture = (requiredDifficulty = 0) => {
   let now = 1000000;
   const deadlineTimers = new Map();
@@ -78,19 +88,26 @@ const fixture = (requiredDifficulty = 0) => {
     const before = locks.get(name) || Promise.resolve(); let release; const after = new Promise(resolve => { release = resolve; }); locks.set(name, after);
     await before; try { return await fn(); } finally { release(); if (locks.get(name) === after) locks.delete(name); }
   } };
+  const changeListeners = new Set();
   const storage = (area, data) => ({
     get: async key => { await pause(area + 'Read'); if (faults[area + 'Read']) throw Error(area + ' read unavailable'); return Object.fromEntries((Array.isArray(key) ? key : [key]).map(k => [k, clone(data[k])])); },
     set: async values => {
       if (storageGate?.area === area && (!storageGate.key || Object.hasOwn(values, storageGate.key)) && --storageGate.remaining === 0) { const held = storageGate; storageGate = null; held.started.resolve(); await held.release.promise; }
       if (faults[area + 'Write']) throw Error(area + ' write unavailable');
-      Object.assign(data, clone(values)); await pause(area + 'Written');
+      Object.assign(data, clone(values));
+      // Chrome reports every write; the approval screen watches its queue.
+      const changes = Object.fromEntries(Object.entries(values).map(([name, value]) => [name, { newValue: clone(value) }]));
+      for (const listener of [...changeListeners]) listener(changes, area);
+      await pause(area + 'Written');
     },
     remove: async keys => { if (faults[area + 'Write']) throw Error(area + ' write unavailable'); for (const key of Array.isArray(keys) ? keys : [keys]) delete data[key]; },
   });
   const event = name => ({ addListener: fn => { listeners[name] = fn; } });
   const chrome = {
     runtime: { id: 'fixture', getURL: value => 'chrome-extension://fixture/' + value, onMessage: event('message'), onInstalled: event('installed'), onStartup: event('startup') },
-    storage: { session: storage('session', session), local: storage('local', local) },
+    storage: { session: storage('session', session), local: storage('local', local),
+      onChanged: { addListener: fn => changeListeners.add(fn), removeListener: fn => changeListeners.delete(fn) } },
+    webNavigation: { onBeforeNavigate: event('navigate') },
     windows: { onRemoved: event('closedWindow'), getCurrent: async () => ({ id: 10 }),
       getLastFocused: async () => ({ top: 0, left: 0, width: 1200 }),
       get: async id => { if (!windows.has(id)) throw Error('window gone'); return { id }; },
@@ -99,6 +116,8 @@ const fixture = (requiredDifficulty = 0) => {
       remove: async id => { windows.delete(id); },
     },
     tabs: { onRemoved: event('closedTab'), sendMessage: async (tabId, value, options) => {
+      // A liveness probe is not a delivery: a live relay answers it at once.
+      if (value?.kind === 'probe') return { accepted: true };
       await pause('delivery');
       const accepted = !value.error && (!Number.isFinite(value.expiresAt) || now < value.expiresAt);
       const received = !accepted && !value.error ? { ...value, result: undefined, error: { code: -32603, message: 'Approval expired.' } } : value;
@@ -113,7 +132,7 @@ const fixture = (requiredDifficulty = 0) => {
     terminate() { counts.terminated++; }
   }
   const environment = { Worker: PowWorker, Date: Clock, setTimeout: schedule, clearTimeout: cancel, chrome, navigator: { locks: locksApi }, crypto: crypto.webcrypto };
-  const load = loader(environment), queue = load('src/sections/Background/requests.js').default;
+  const load = loader(environment, withBinding()), queue = load('src/sections/Background/requests.js').default;
   const identity = load('src/services/utils/approvalIdentity.js');
   load('src/sections/Background/index.js');
   const extensionSender = { id: 'fixture', url: 'chrome-extension://fixture/popup.html' };
@@ -128,7 +147,7 @@ const fixture = (requiredDifficulty = 0) => {
   chrome.runtime.sendMessage = (request, callback) => internal(request.method, request.params).then(result => callback({ result }), error => callback({ error: error.message }));
   const sender = (documentId = 'doc-a', tabId = 1, frameId = 0) => ({ id: 'fixture', origin: 'https://fixture.invalid', url: 'https://fixture.invalid/app', tab: { id: tabId }, frameId, documentId });
   const provider = async (method, params, id = 'same', from = sender()) => {
-    let ack; listeners.message({ channel: 'znn', kind: 'request', method, params, id }, from, value => { ack = value; });
+    let ack; listeners.message({ channel: 'znn', kind: 'request', method, params, id, ...liveDocument.documentFields() }, from, value => { ack = value; });
     await flush(); return ack;
   };
   const key = { getAddress: async () => address, getPublicKey: async () => Buffer.alloc(32, 7), sign: async () => { counts.signs++; await pause('sign'); return Buffer.alloc(64, 9); } };
@@ -159,6 +178,7 @@ const fixture = (requiredDifficulty = 0) => {
     };
     const uiChrome = { ...chrome, windows: { ...chrome.windows, getCurrent: async () => ({ id: windowId }) } };
     const uiLoad = loader({ ...environment, chrome: uiChrome, window: { close() { closes++; } }, setTimeout: (fn, ms) => ms === 1200 ? setTimeout(fn, 0) : schedule(fn, ms) }, id => {
+      if (liveDocument.isNavigation(id)) return liveDocument.navigationStub;
       if (id === 'react') return hooks;
       // Stable within a route, as React Router's is: the screen's loaders depend on it.
       if (id === 'react-router-dom') return { useNavigate: () => navigateStub };
@@ -177,7 +197,7 @@ const fixture = (requiredDifficulty = 0) => {
   const add = async value => { const request = await queue.add(value); await queue.attachWindow(identity.identityOf(request), 10); return queue.get(request.id); };
   // The popup's binding step, for a request a page created.
   const bindNext = () => internal('approvals.next', { binding });
-  return { connect, bindNext, queue, identity, add, load, fireDeadlines, now: () => now, advance: milliseconds => { now += milliseconds; }, freshQueue: () => loader(environment)('src/sections/Background/requests.js').default, session, local, faults, counts, events, windows, delivered, listeners, chrome, internal, sender, provider, hold, ui,
+  return { connect, bindNext, queue, identity, add, load, fireDeadlines, now: () => now, advance: milliseconds => { now += milliseconds; }, freshQueue: () => loader(environment, withBinding())('src/sections/Background/requests.js').default, session, local, faults, counts, events, windows, delivered, listeners, chrome, internal, sender, provider, hold, ui,
     holdStorage: (area, key, remaining = 1) => (storageGate = { area, key, remaining, started: deferred(), release: deferred() }),
     holdInternal: method => (internalGate = { method, started: deferred(), release: deferred() }) };
 };
@@ -380,9 +400,13 @@ const watchdog = setTimeout(() => { console.error('Approval queue checks timed o
     const f = fixture(), gate = deferred(), realGet = f.chrome.storage.session.get;
     f.chrome.storage.session.get = async key => { await gate.promise; return realGet(key); };
     const acknowledgements = [];
-    for (let i = 0; i <= limits.activeHandlers; i++) f.listeners.message({ channel: 'znn', kind: 'request', id: 'held-' + i, method: 'znn_connect', params: {} }, f.sender(), ack => acknowledgements.push(ack));
+    for (let i = 0; i <= limits.activeHandlers; i++) f.listeners.message({ channel: 'znn', kind: 'request', id: 'held-' + i, method: 'znn_connect', params: {}, ...liveDocument.documentFields() }, f.sender(), ack => acknowledgements.push(ack));
+    // The bound is taken synchronously; admitted requests are acknowledged once
+    // bound to their document.
+    assert.equal(acknowledgements.length, 1); assert.equal(acknowledgements[0].error.code, -32005);
+    await flush();
     assert.equal(acknowledgements.filter(x => x.accepted).length, limits.activeHandlers);
-    assert.equal(acknowledgements.at(-1).error.code, -32005); assert.equal(f.delivered.length, 0);
+    assert.equal(f.delivered.length, 0);
     gate.resolve(); await flush(); assert((await f.queue.list()).length <= 1);
     const invalid = await f.provider('znn_connect', {}, 'x'.repeat(129)); assert.equal(invalid.error.code, -32602);
   }
@@ -446,26 +470,27 @@ const watchdog = setTimeout(() => { console.error('Approval queue checks timed o
   {
     const callbacks = [], posted = [], timers = new Map(), handlers = {}; let timerId = 0;
     const window = { location: { origin: 'https://fixture.invalid' }, postMessage: value => posted.push(clone(value)), addEventListener: (name, fn) => { handlers[name] = fn; } };
-    const chrome = { runtime: { sendMessage: (value, callback) => { if (value.kind === 'request') callbacks.push({ value, callback }); else callback({}); }, onMessage: { addListener: fn => { handlers.background = fn; } } } };
-    loader({ window, chrome, setTimeout: (fn, ms) => { timers.set(++timerId, { fn, ms }); return timerId; }, clearTimeout: id => timers.delete(id) })('src/sections/Content/index.js');
+    const chrome = { runtime: { id: 'fixture', sendMessage: (value, callback) => { if (value.kind === 'request') callbacks.push({ value, callback }); else callback({}); }, onMessage: { addListener: fn => { handlers.background = fn; } } } };
+    loader({ window, chrome, document: pageDocument, MutationObserver: QuietObserver, setTimeout: (fn, ms) => { timers.set(++timerId, { fn, ms }); return timerId; }, clearTimeout: id => timers.delete(id) })('src/sections/Content/index.js');
+    const background = (message, reply = () => {}) => handlers.background(message, { id: 'fixture' }, reply);
     const page = data => handlers.message({ source: window, data });
     for (let i = 0; i <= limits.activeHandlers; i++) page({ target: 'znn-contentscript', kind: 'request', id: 'relay-' + i, method: 'znn_connect', params: {} });
     assert.equal(callbacks.length, limits.activeHandlers); assert.equal(posted.at(-1).error.code, -32005);
     for (const pending of callbacks.splice(0)) pending.callback({ error: { code: -32005, message: 'Wait and retry.' } });
     assert.equal(posted.length, limits.activeHandlers + 1);
     page({ method: 'znn.requestWalletAccess' }); const legacy = callbacks.shift(); legacy.callback({ accepted: true });
-    handlers.background({ channel: 'znn', kind: 'response', id: legacy.value.id, error: { code: -32006, message: 'The approval expired.' } });
+    background(replyFrom(legacy, { error: { code: -32006, message: 'The approval expired.' } }));
     await flush(); assert.equal(posted.at(-1).method, 'znn.deniedWalletRead'); assert.equal(timers.size, 0);
     page({ method: 'znn.sendTransactionToSigning', params: paramsFor('sendTransaction') });
     const transaction = callbacks.shift(); transaction.callback({ accepted: true });
-    handlers.background({ channel: 'znn', kind: 'response', id: transaction.value.id, result: { hash: 'fixture' } });
+    background(replyFrom(transaction, { result: { hash: 'fixture' } }));
     await flush(); assert.deepEqual(posted.at(-1), { method: 'znn.signedTransaction', data: { hash: 'fixture' } });
     page({ target: 'znn-contentscript', kind: 'request', id: 'late-relay', method: 'znn_connect', params: {} });
-    callbacks.shift().callback({ accepted: true });
-    handlers.background({ channel: 'znn', kind: 'response', id: 'late-relay', result: [address.toString()], expiresAt: Date.now() - 1 });
+    const late = callbacks.shift(); late.callback({ accepted: true });
+    background(replyFrom(late, { result: [address.toString()], expiresAt: Date.now() - 1 }));
     assert.equal(posted.at(-1).result, undefined); assert.equal(posted.at(-1).error.code, -32603);
     page({ method: 'znn.requestWalletAccess' }); const expiredLegacy = callbacks.shift(); expiredLegacy.callback({ accepted: true });
-    handlers.background({ channel: 'znn', kind: 'response', id: expiredLegacy.value.id, result: [address.toString()], expiresAt: Date.now() - 1 });
+    background(replyFrom(expiredLegacy, { result: [address.toString()], expiresAt: Date.now() - 1 }));
     await flush(); assert.equal(posted.at(-1).method, 'znn.deniedWalletRead');
     page({ method: 'znn.requestWalletAccess' }); const timeout = callbacks.shift(); timeout.callback({ accepted: true });
     const timer = [...timers.values()].find(x => x.ms === limits.ttl + 60000); timer.fn();
@@ -483,17 +508,17 @@ const watchdog = setTimeout(() => { console.error('Approval queue checks timed o
     const callbacks = [], posted = [], handlers = {};
     const window = { location: { origin: 'https://fixture.invalid' }, postMessage: value => posted.push(value),
       addEventListener: (name, fn) => { handlers[name] = fn; } };
-    const chrome = { runtime: { sendMessage: (value, callback) => { if (value.kind === 'request') callbacks.push({ value, callback }); else callback({}); },
+    const chrome = { runtime: { id: 'fixture', sendMessage: (value, callback) => { if (value.kind === 'request') callbacks.push({ value, callback }); else callback({}); },
       onMessage: { addListener: fn => { handlers.background = fn; } } } };
-    loader({ window, chrome, Date: Clock })('src/sections/Content/index.js');
+    loader({ window, chrome, Date: Clock, document: pageDocument, MutationObserver: QuietObserver })('src/sections/Content/index.js');
     handlers.message({ source: window, data: { method: 'znn.requestWalletAccess' } });
     const connection = callbacks.shift(); connection.callback({ accepted: true });
-    handlers.background({ channel: 'znn', kind: 'response', id: connection.value.id, result: [address.toString()], expiresAt: 1001 }, {}, value => { receipt = value; });
+    handlers.background(replyFrom(connection, { result: [address.toString()], expiresAt: 1001 }), { id: 'fixture' }, value => { receipt = value; });
     assert.deepEqual(receipt, { accepted: true, acceptedAt: 1000 }); assert.equal(posted.length, 0);
     now = 1002;
     for (const metadata of callbacks.splice(0)) {
       metadata.callback({ accepted: true });
-      handlers.background({ channel: 'znn', kind: 'response', id: metadata.value.id, result: metadata.value.method === 'znn_chainId' ? 1 : 'wss://fixture.invalid' });
+      handlers.background(replyFrom(metadata, { result: metadata.value.method === 'znn_chainId' ? 1 : 'wss://fixture.invalid' }), { id: 'fixture' }, () => {});
     }
     await flush(); assert.equal(posted.at(-1).method, 'znn.grantedWalletRead');
     assert.equal(posted.at(-1).data.chainId, 1);
@@ -503,7 +528,7 @@ const watchdog = setTimeout(() => { console.error('Approval queue checks timed o
     const handlers = {}, posted = [];
     const window = { location: { origin: 'https://fixture.invalid' }, dispatchEvent() {},
       addEventListener: (name, fn) => { handlers[name] = fn; }, postMessage: value => posted.push(value) };
-    loader({ window })('src/sections/Inpage/index.js');
+    loader({ window, document: pageDocument, MutationObserver: QuietObserver })('src/sections/Inpage/index.js');
     const response = window.zenon.connect().then(value => ({ value }), error => ({ error }));
     handlers.message({ source: window, data: { target: 'znn-inpage', kind: 'response', id: posted[0].id, result: [address.toString()], expiresAt: Date.now() - 1 } });
     assert.equal((await response).error.code, -32603); assert.deepEqual(window.zenon.accounts, []);
@@ -514,7 +539,7 @@ const watchdog = setTimeout(() => { console.error('Approval queue checks timed o
     const handlers = {}, posted = [];
     const window = { location: { origin: 'https://fixture.invalid' }, dispatchEvent() {},
       addEventListener: (name, fn) => { handlers[name] = fn; }, postMessage: value => posted.push(value) };
-    loader({ window })('src/sections/Inpage/index.js');
+    loader({ window, document: pageDocument, MutationObserver: QuietObserver })('src/sections/Inpage/index.js');
     const response = window.zenon.connect();
     handlers.message({ source: window, data: { target: 'znn-inpage', kind: 'response', id: posted[0].id,
       result: [address.toString()], acceptedAt: Date.now() - 20, expiresAt: Date.now() - 10 } });

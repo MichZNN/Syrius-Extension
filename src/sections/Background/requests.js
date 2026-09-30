@@ -1,4 +1,5 @@
 import selection from '../../services/wallet/selection';
+import { isLive, sameDocument } from '../../services/utils/documentBinding';
 import { validApproval, identityOf, matchesApproval, copy } from '../../services/utils/approvalIdentity';
 import { limits, boundedJson, validResponseId, invalid, busy } from '../../services/utils/approvalLimits';
 
@@ -111,6 +112,21 @@ const nextFor = record => serialized(async pending => {
   if (removed.length || next) await writePending(pending);
   return { next, removed };
 });
+// The request as stored, if it is still the one expected and its document is
+// still live: the exact relay still holds its private request token, and the
+// tab or frame has not navigated. A request whose document has gone is removed.
+const current = async expected => {
+  const request = await get(expected?.id);
+  if (!matchesApproval(request, identityOf(expected))) return null;
+  if (!(await isLive(request, true))) {
+    await cancelWhere(item => item.id === request.id && sameDocument(item, request));
+    return null;
+  }
+  // Navigation, a bye or a replacement can commit while the probe is pending.
+  const after = await get(expected.id);
+  return matchesApproval(after, identityOf(expected)) ? after : null;
+};
+const cancelDocument = target => cancelWhere(request => sameDocument(request, target));
 const cancelWhere = predicate => serialized(async pending => {
   const removed = Object.values(pending).filter(predicate);
   for (const request of removed) delete pending[request.id];
@@ -184,5 +200,5 @@ const closeWindow = windowId => withWindow(async () => {
   });
 });
 const requests = { pendingKey, windowKey, attentionKey, list, oldest, get, add, claim, checkClaim, resolve, reject,
-  attachWindow, present, closeWindow, forgetTab, prune, onExpired, allowFollowup, nextFor, cancelWhere };
+  attachWindow, present, closeWindow, forgetTab, prune, onExpired, allowFollowup, nextFor, cancelWhere, current, cancelDocument };
 export default requests;

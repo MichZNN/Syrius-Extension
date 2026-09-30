@@ -13,7 +13,7 @@ import ContractCallArguments from '../../components/contract-call-arguments/cont
 import { signMessage } from '../../services/wallet/signMessage';
 import { sendInternal } from '../../services/utils/messaging';
 import publicNodeUrl from '../../services/utils/publicNodeUrl';
-import { identityOf, freezeApproval, approvalEnded } from '../../services/utils/approvalIdentity';
+import { identityOf, freezeApproval, approvalEnded, matchesApproval } from '../../services/utils/approvalIdentity';
 import withApprovalDeadline from '../../services/utils/approvalDeadline';
 import { runApprovalOperation } from '../../services/wallet/approvalOperation';
 import { prepareBlockApproval, isCurrentBlockApproval } from '../../services/wallet/blockApproval';
@@ -186,6 +186,25 @@ const SiteIntegrationLayout = () => {
       loadNext();
     }
   }, [isUnlocked, selectedAddress, loadNext]);
+
+  // The worker removes a request whose page navigated away, was closed or
+  // left. Drop it from view at once rather than offer an approval for a page
+  // that is gone; an approval already under way settles on its own.
+  useEffect(() => {
+    if (!isUnlocked) return undefined;
+    const changed = (changes, area) => {
+      if (area !== 'session' || !changes['znn.pendingRequests']) return;
+      const shown = rendered.current.request;
+      if (!shown || operation.current) return;
+      const stored = changes['znn.pendingRequests'].newValue?.[shown.id];
+      if (!matchesApproval(stored, identityOf(shown))) {
+        discarded.current = shown;
+        loadNext();
+      }
+    };
+    chrome.storage.onChanged.addListener(changed);
+    return () => chrome.storage.onChanged.removeListener(changed);
+  }, [isUnlocked, loadNext]);
 
   useEffect(() => {
     if (!request) return undefined;

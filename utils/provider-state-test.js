@@ -13,6 +13,11 @@ const babel = require('@babel/core');
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const root = path.join(__dirname, '..'), compiled = new Map();
+const liveDocument = require('./fixtures/document-binding-stub');
+// A page for the real relay and provider: a document and a mutation observer
+// for their document-lifetime check (a steady page here).
+const pageDocument = { documentElement: {} };
+class QuietObserver { observe() {} takeRecords() { return []; } }
 const clone = value => value === undefined ? value : structuredClone(value);
 const deferred = () => { let resolve; const promise = new Promise(yes => { resolve = yes; }); return { promise, resolve }; };
 const flush = async () => { for (let i = 0; i < 15; i++) await new Promise(resolve => setImmediate(resolve)); };
@@ -85,21 +90,24 @@ const fixture = () => {
     tabs: { onRemoved: event('tabRemoved'), sendMessage: async (tabId, message, options) => {
       const route = routes.get(tabId);
       if (options?.documentId && route && route.documentId !== options.documentId) throw Error('Target document is gone');
-      delivered.push({ tabId, message: clone(message), options: clone(options) });
+      // A liveness probe is not a delivery; a page's own relay answers it, and a
+      // frame registered without a page is taken to be live.
+      if (message.kind !== 'probe') delivered.push({ tabId, message: clone(message), options: clone(options) });
       if (message.kind === 'response' && waiting.has(message.id)) { waiting.get(message.id)(message); waiting.delete(message.id); }
       // The content relay acknowledges a response; a connection grant waits on it.
-      let ack; route?.relay(message, {}, value => { ack = value; });
-      return ack ?? (message.kind === 'response' ? { accepted: !message.error, acceptedAt: Date.now() } : undefined);
+      let ack; route?.relay(message, { id: 'fixture' }, value => { ack = value; });
+      return ack ?? (route ? { accepted: false } : liveDocument.relayReply(message));
     } },
     alarms: { onAlarm: event('alarm'), create() {} },
+    webNavigation: { onBeforeNavigate: event('navigate') },
   };
   const environment = { chrome, localStorage, navigator };
-  const load = loader(environment); load('src/sections/Background/index.js');
+  const load = loader(environment, id => (liveDocument.isNavigation(id) ? liveDocument.navigationStub : undefined)); load('src/sections/Background/index.js');
   const internal = (method, params = {}) => new Promise((resolve, reject) => listeners.message({ channel: 'internal', method, params }, extension, response => response.error ? reject(Error(response.error)) : resolve(response.result)));
   chrome.runtime.sendMessage = (message, callback) => { listeners.message(message, extension, callback); };
   const request = (method, site = origin) => new Promise(resolve => {
     const id = ++serial; waiting.set(id, resolve);
-    listeners.message({ channel: 'znn', kind: 'request', id, method, params: {} }, sender(site), () => {});
+    listeners.message({ channel: 'znn', kind: 'request', id, method, params: {}, ...liveDocument.documentFields() }, sender(site), () => {});
   });
   const scoped = realm => ({
     ...realm,
@@ -121,13 +129,23 @@ const fixture = () => {
       addEventListener: (type, handler) => { if (type === 'message') pageListeners.push(handler); }, dispatchEvent() {},
       postMessage: message => { posted.push(clone(message)); queueMicrotask(() => pageListeners.forEach(fn => fn({ source: window, data: message }))); },
     };
-    const contentChrome = { runtime: { ...chrome.runtime, onMessage: { addListener: fn => { relay = fn; } }, sendMessage: (message, callback) => listeners.message(message, sender(site, tabId, documentId), callback) } };
-    const contentLoad = loader({ window, chrome: contentChrome }); contentLoad('src/sections/Content/index.js');
-    routes.set(tabId, { documentId, relay: message => relay(message) }); contentLoad('src/sections/Inpage/index.js');
+    // The relay's own hello is kept so a test can replay it: only the relay's
+    // private activation can register its frame.
+    let hello;
+    const contentChrome = { runtime: { ...chrome.runtime, onMessage: { addListener: fn => { relay = fn; } }, sendMessage: (message, callback) => {
+      if (message.kind === 'hello') hello = message;
+      return listeners.message(message, sender(site, tabId, documentId), callback ?? (() => {}));
+    } } };
+    routes.set(tabId, { documentId, relay: (message, from, reply) => relay(message, from, reply) });
+    const contentLoad = loader({ window, chrome: contentChrome, document: pageDocument, MutationObserver: QuietObserver }); contentLoad('src/sections/Content/index.js');
+    contentLoad('src/sections/Inpage/index.js');
     window.zenon.on('nodeChanged', value => events.push(value));
-    return { window, posted, events };
+    return { window, posted, events, hello: () => new Promise(resolve => listeners.message(hello, sender(site, tabId, documentId), resolve)) };
   };
-  return { chrome, localStorage, session, local, faults, load, internal, request, permissions, frames, sender, delivered, unlock, page,
+  // A frame bound to its document, as the worker registers one from a hello.
+  const frameOf = (site = origin, tabId = 1, documentId = 'doc-' + tabId) => ({ tabId, frameId: 0, documentId,
+    activation: liveDocument.activation, navigationTab: 'initial', navigationFrame: 'initial' });
+  return { chrome, localStorage, session, local, faults, load, internal, request, permissions, frames, sender, frameOf, delivered, unlock, page,
     prompts: () => prompts, holdRead: key => (readGate = { key, started: deferred(), release: deferred() }),
     holdWrite: key => (writeGate = { key, started: deferred(), release: deferred() }),
     permissionsRealm: () => scoped(loader(environment)('src/sections/Background/permissions.js').default) };
@@ -278,7 +296,7 @@ const fixture = () => {
   }
   {
     const f = fixture(); f.unlock(); await f.permissions.grant(origin);
-    await f.frames.register(f.sender(), origin); await f.frames.register(f.sender(other, 2), other);
+    await f.frames.register(f.frameOf(), origin); await f.frames.register(f.frameOf(other, 2), other);
     await f.internal('events.nodeChanged', { selectionId });
     assert.equal(f.delivered.length, 1); assert.equal(f.delivered[0].tabId, 1); assert.equal(f.delivered[0].message.data, descriptor); assert.equal(f.delivered[0].options.documentId, 'doc-1');
     f.session['znn.publicState'].nodeUrl = 'https://unsupported.invalid';
@@ -301,8 +319,8 @@ const fixture = () => {
     await emit(); assert.equal(f.delivered.length, 0); assert.equal(replacement.posted.filter(x => x.kind === 'event').length, 0);
     f.session['znn.frames'] = { '1:0': { origin, tabId: 1, frameId: 0 } };
     await emit(); assert.equal(f.delivered.length, 0, 'unbound legacy registry has no frame-only fallback');
-    assert.equal(await f.frames.register({ ...f.sender(), documentId: undefined }, origin), false);
-    await f.permissions.grant(other); await f.frames.register(f.sender(other, 1, 'new-document'), other);
+    assert.equal(await f.frames.register({ ...f.frameOf(), documentId: undefined }, origin), false);
+    await f.permissions.grant(other); assert.equal((await replacement.hello())?.accepted, true);
     await emit(); assert.equal(f.delivered.length, 3); assert(f.delivered.every(x => x.options.documentId === 'new-document'));
     assert.deepEqual(replacement.events, [descriptor]);
     assert(replacement.posted.some(x => x.method === 'znn.addressChanged'));

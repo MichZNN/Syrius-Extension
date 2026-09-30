@@ -90,7 +90,8 @@ const view = ({ file, states, account }) => {
       // A well-formed next request: an invalid one is now a reported error (#11).
       if (type === 'approvals.next') return { version: 4, id: 'next', type: 'connect', params: {}, origin: 'https://example.invalid',
         tabId: 1, frameId: 0, documentId: 'doc', responseId: 1, title: '', favicon: '', createdAt: Date.now(),
-        expiresAt: Date.now() + 600000, admitted: null, waitForUnlock: false, binding: fixtureBinding };
+        expiresAt: Date.now() + 600000, admitted: null, waitForUnlock: false, binding: fixtureBinding,
+        ...require('./fixtures/document-binding-stub').documentFields() };
       if (type === 'approvals.claim') return { ...params.identity, claimId: 'fixture-claim' };
       if (type === 'approvals.checkClaim' || type === 'approvals.resolve') return true;
       return null;

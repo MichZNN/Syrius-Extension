@@ -16,6 +16,7 @@ const crypto = require('node:crypto');
 const babel = require('@babel/core');
 const React = require('react');
 const root = path.join(__dirname, '..'), compiled = new Map();
+const binding = require('./fixtures/document-binding-stub');
 const clone = value => value === undefined ? value : structuredClone(value);
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const flush = async () => { for (let i = 0; i < 20; i++) await tick(); };
@@ -69,8 +70,12 @@ const fixture = () => {
   const chrome = {
     runtime: { id: 'fixture', getURL: value => 'chrome-extension://fixture/' + value, onMessage: event('message'), onInstalled: event('installed'), onStartup: event('startup') },
     storage: { session: storage('session', session), local: storage('local', local), onChanged: { addListener(fn) { changes.push(fn); } } },
-    tabs: { sendMessage: async (tabId, message, options) => { messages.push({ tabId, message: clone(message), options }); }, onRemoved: event('tabRemoved') },
+    tabs: { sendMessage: async (tabId, message, options) => {
+      if (message.kind !== 'probe') messages.push({ tabId, message: clone(message), options });
+      return binding.relayReply(message, () => now);
+    }, onRemoved: event('tabRemoved') },
     windows: { onRemoved: event('windowRemoved') }, alarms: { create() {}, onAlarm: event('alarm') },
+    webNavigation: { onBeforeNavigate: event('navigate') },
   };
   const localStorage = { getItem: key => disk.get(key) ?? null, setItem: (key, value) => {
     if (faults.disk === true || faults.disk === key) throw Error('disk write failed'); disk.set(key, value);
@@ -93,6 +98,7 @@ const fixture = () => {
   const env = { chrome, navigator: { locks }, crypto: crypto.webcrypto, Date: Clock, localStorage, setTimeout: timer, clearTimeout };
   const realm = () => {
     const load = loader(env, id => {
+      if (binding.isNavigation(id)) return binding.navigationStub;
       if (id === 'znn-ts-sdk') return sdk;
       if (id.endsWith('/utils/notify')) return { notify: { dismissAll: () => events.push('notifications cleared') } };
     });
@@ -131,10 +137,10 @@ const fixture = () => {
     scope: scopeFor('A', index), title: '', favicon: '', connectedAt: 1, lastUsedAt: 1 })) };
   let responseId = 0;
   const provider = async method => {
-    const id = ++responseId; handlers.message({ channel: 'znn', kind: 'request', method, id }, sender, () => {});
+    const id = ++responseId; handlers.message({ channel: 'znn', kind: 'request', method, id, ...binding.documentFields() }, sender, () => {});
     await flush(); return messages.find(item => item.message.kind === 'response' && item.message.id === id)?.message;
   };
-  const register = async () => { handlers.message({ channel: 'znn', kind: 'hello' }, sender, () => {}); await flush(); };
+  const register = async () => { handlers.message({ channel: 'znn', kind: 'hello', activation: binding.activation }, sender, () => {}); await flush(); };
   const ui = (file, context = first, extra = () => undefined) => {
     const states = [], notices = [], navigations = [], refs = [], effects = []; let cursor, refCursor, effectCursor, tree;
     const hooks = { ...React,
@@ -144,6 +150,7 @@ const fixture = () => {
       useState: initial => { const i = cursor++; if (!(i in states)) states[i] = typeof initial === 'function' ? initial() : initial; return [states[i], value => { states[i] = typeof value === 'function' ? value(states[i]) : value; }]; } };
     const load = loader(env, (id, file) => {
       const replaced = extra(id); if (replaced !== undefined) return replaced;
+      if (binding.isNavigation(id)) return binding.navigationStub;
       if (id === 'react') return hooks;
       if (id === 'react-router-dom') return { Routes: 'div', Route: 'div', useLocation: () => ({ pathname: '/' }), useNavigate: () => (...args) => navigations.push(args) };
       if (id === 'react-redux') return { useDispatch: () => action => events.push(action), useSelector: select => select({ wallet: { walletName: 'A' } }),

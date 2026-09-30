@@ -6,6 +6,8 @@ import sessionLease from '../../services/wallet/sessionLease';
 import { identityOf } from '../../services/utils/approvalIdentity';
 import { limits, validateEnvelope, busy } from '../../services/utils/approvalLimits';
 import publicNodeUrl from '../../services/utils/publicNodeUrl';
+import nativeNavigation from '../../services/utils/nativeNavigation';
+import { targetFrom, validRequest, isLive, deliver, requestEnded } from '../../services/utils/documentBinding';
 
 // The service worker.
 //
@@ -72,32 +74,13 @@ const isFromContentScript = (sender) =>
 //
 // Talking back to pages
 //
-const sendToTab = async (tabId, message, frameId, documentId) => {
-  // Bounded: a frame that never acknowledges must not hold up a broadcast, or
-  // the lease transaction a caller is waiting in, indefinitely. The relay's
-  // reply is returned: a connection grant waits on the relay accepting it.
-  try {
-    // Every delivery names the exact document; without one there is nobody
-    // to deliver to.
-    if (!documentId) return undefined;
-    let timer;
-    try {
-      return await Promise.race([
-        chrome.tabs.sendMessage(tabId, message, { ...(frameId === undefined ? {} : { frameId }), documentId }),
-        new Promise(resolve => { timer = setTimeout(resolve, 5000); }),
-      ]);
-    } finally { clearTimeout(timer); }
-  } catch (err) {
-    // The tab navigated away or closed. Nothing to deliver to and nothing to
-    // do about it.
-  }
-  return undefined;
-};
-
-const respond = (target, id, result, error) => {
-  if (typeof target.documentId !== 'string' || !target.documentId) return false;
-  return sendToTab(target.tabId, { channel: 'znn', kind: 'response', id, result, error, expiresAt: target.expiresAt }, target.frameId, target.documentId);
-};
+// Every reply goes to exactly the document that asked and the relay instance in
+// it (documentBinding.deliver): the native document, the relay's private
+// activation and request token, and a navigation generation that has not
+// moved. It resolves to the relay's receipt, which a connection grant waits on
+// (`accepted` before the deadline), or null when there is no such document.
+const respond = (target, id, result, error) =>
+  deliver(target, { channel: 'znn', kind: 'response', id, result, error, expiresAt: target.expiresAt });
 
 requests.onExpired(removed => Promise.all(removed.map(request =>
   respond(request, request.responseId, undefined, request.claimId ? errors.expiredClaim : errors.expired))));
@@ -117,7 +100,9 @@ const announceToSites = async (stored, event, expectedId, clearOrigins = []) => 
     const allowed = value && await permissions.isConnected(frame.origin, value.scope) && selection.publicValue(stored);
     const data = event === 'accountsChanged' ? (allowed ? [value.address] : []) :
       allowed ? (event === 'chainChanged' ? value.chainId : publicNodeUrl(value.nodeUrl)) : undefined;
-    if (data !== undefined) await sendToTab(frame.tabId, { channel: 'znn', kind: 'event', event, data }, frame.frameId, frame.documentId);
+    if (data === undefined) return;
+    // A frame whose relay does not take the event has gone; forget it.
+    if (!(await deliver(frame, { channel: 'znn', kind: 'event', event, data }))?.accepted) await frames.forgetTarget(frame);
   }));
   return true;
 };
@@ -152,9 +137,15 @@ const queueApproval = async (type, { id, target, origin, sender, params, stored 
     type,
     params: params || {},
     origin,
+    // The live document that asked (documentBinding): part of the request's
+    // immutable identity, so no claim or answer outlives that document.
     tabId: target.tabId,
     frameId: target.frameId,
     documentId: target.documentId,
+    activation: target.activation,
+    requestToken: target.requestToken,
+    navigationTab: target.navigationTab,
+    navigationFrame: target.navigationFrame,
     title: sender.tab?.title || '',
     favicon: sender.tab?.favIconUrl || '',
     createdAt: Date.now(),
@@ -189,12 +180,13 @@ const providerMethods = {
   },
 };
 
-const handleProviderRequest = async (request, sender) => {
+// `target` is the requesting document, bound when the request arrived
+// (documentBinding.targetFrom and nativeNavigation.capture).
+const handleProviderRequest = async (request, sender, target) => {
   const origin = permissions.originOf(sender);
-  const target = { tabId: sender.tab.id, frameId: sender.frameId ?? 0, documentId: sender.documentId };
   const { id, method, params } = request;
 
-  if (!origin || typeof target.documentId !== 'string' || !target.documentId) {
+  if (!origin || !validRequest(target)) {
     await respond(target, id, undefined, errors.internal);
     return;
   }
@@ -219,8 +211,14 @@ const handleProviderRequest = async (request, sender) => {
     // Window operations take window -> pending; never hold selection while
     // awaiting popup startup, which will itself need the selection lock.
     if (pending) {
-      try { if (!(await requests.present(pending))) throw selection.ended(); }
-      catch (error) { await requests.reject(pending); throw error; }
+      try {
+        // Shown only while the page that asked is still there, and dropped if
+        // it leaves while its window was opening.
+        const queued = await requests.get(pending.id);
+        if (!queued || !(await isLive(queued, true))) throw requestEnded();
+        if (!(await requests.present(pending))) throw selection.ended();
+        if (!(await requests.current(queued))) throw requestEnded();
+      } catch (error) { await requests.reject(pending); throw error; }
     }
   } catch (err) {
     const error = { code: Number.isFinite(err?.code) ? err.code : errors.internal.code,
@@ -247,19 +245,27 @@ const internalMethods = {
     }
     return next;
   }),
-  'approvals.claim': ({ identity, windowId }) => selection.transaction(async stored => {
-    const request = await requests.get(identity?.id);
-    if (!(await requestAllowed(selection.current(stored), request))) return null;
-    return requests.claim(identity, windowId);
-  }),
+  // A claim, and every check of it during signing, also requires the requesting
+  // document to be live (requests.current probes its relay). That probe runs
+  // outside the session lock: it is a round trip to a page.
+  'approvals.claim': async ({ identity, windowId }) => {
+    if (!(await requests.current(await requests.get(identity?.id)))) return null;
+    return selection.transaction(async stored => {
+      const request = await requests.get(identity?.id);
+      if (!(await requestAllowed(selection.current(stored), request))) return null;
+      return requests.claim(identity, windowId);
+    });
+  },
   // Read-only check may run inside a popup's selection-locked key operation.
   'approvals.checkClaim': async ({ identity }) => {
     const request = await requests.get(identity?.id);
-    return await requestAllowed(selection.current(await selection.read()), request) && await requests.checkClaim(identity);
+    return await requestAllowed(selection.current(await selection.read()), request) && await requests.checkClaim(identity) &&
+      Boolean(await requests.current(request));
   },
   // Resolution is bound to the selection the request was shown under, then to
   // the approval deadline and the relay's acceptance.
-  'approvals.resolve': ({ identity, result }) => selection.transaction(async stored => {
+  'approvals.resolve': async ({ identity, result }) => !(await requests.current(await requests.get(identity?.id))) ? false :
+    selection.transaction(async stored => {
     const candidate = await requests.get(identity?.id);
     if (!(await requestAllowed(selection.current(stored), candidate))) return false;
     const request = await requests.resolve(identity);
@@ -351,14 +357,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  // A content script announcing itself, so events can be delivered to it later
-  // without the `tabs` permission. Nothing is trusted from the message body —
-  // the origin is the one Chrome attributes to the sender.
-  if (message.channel === 'znn' && message.kind === 'hello') {
-    if (isFromContentScript(sender)) {
-      frames.register(sender, permissions.originOf(sender));
+  // A content script announcing itself (hello), or leaving (bye), so events
+  // can be delivered to it later without the `tabs` permission. Nothing is
+  // trusted from the message body but the relay's own activation token; the
+  // document, frame and origin are the ones Chrome attributes to the sender.
+  if (message.channel === 'znn' && ['hello', 'bye'].includes(message.kind)) {
+    if (!isFromContentScript(sender)) return false;
+    const target = targetFrom(sender, message);
+    if (!target) { sendResponse({ accepted: false, error: errors.disconnected }); return false; }
+    if (message.kind === 'bye') {
+      Promise.all([frames.forgetTarget(target), requests.cancelDocument(target)]).catch(() => {});
+      sendResponse({ accepted: true }); return false;
     }
-    return false;
+    nativeNavigation.capture(target).then(bound => frames.register(bound, permissions.originOf(sender)))
+      .then(accepted => sendResponse({ accepted }), () => sendResponse({ accepted: false }));
+    return true;
   }
 
   if (message.channel === 'znn' && message.kind === 'request') {
@@ -372,17 +385,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } catch (error) {
       // Reply through this bounded transport callback; do not enqueue another
       // asynchronous tabs message for rejected admission. The relay translates it.
-      sendResponse({ error: { code: error.code || -32602, message: error.message } });
+      sendResponse({ accepted: false, error: { code: error.code || -32602, message: error.message } });
+      return false;
+    }
+    const target = targetFrom(sender, message);
+    if (!target || typeof target.requestToken !== 'string') {
+      sendResponse({ accepted: false, error: { code: 4900, message: 'The requesting document could not be identified. Reload the page.' } });
       return false;
     }
     activeProviderHandlers++;
-    handleProviderRequest(message, sender)
-      .catch(error => console.error('Unable to handle wallet request', error))
+    // The callback acknowledges transport only. The answer comes later, to this
+    // exact native document and private relay request token: an approval
+    // outlives the message channel and, often, the worker itself.
+    nativeNavigation.capture(target).then(bound => {
+      if (!validRequest(bound)) throw requestEnded();
+      sendResponse({ accepted: true });
+      return handleProviderRequest(message, sender, bound)
+        .catch(error => console.error('Unable to handle wallet request', error));
+    }, () => sendResponse({ accepted: false, error: { code: 4900, message: 'The requesting document has left. Make a new request.' } }))
       .finally(() => { activeProviderHandlers--; });
-    // Answered later over `chrome.tabs.sendMessage`, not through this callback:
-    // an approval outlives the message channel and, often, the worker itself.
-    sendResponse({ accepted: true });
-    return false;
+    return true;
   }
 
   if (message.channel === 'internal') {
@@ -433,10 +455,25 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
   }
 });
 
+// A cross-document navigation ends the frame's (or, at the top, the tab's)
+// outstanding approvals, even if it is later aborted; a fresh request can then
+// be made. Same-document history and fragment changes do not. Chrome reports
+// this even when the page has removed its own listeners.
+chrome.webNavigation.onBeforeNavigate.addListener((details) => {
+  if (details.tabId < 0 || details.frameId < 0) return;
+  nativeNavigation.invalidate(details).then(stale =>
+    Promise.all([requests.cancelWhere(stale), frames.forget(stale)])).catch(() => {
+    // If the generation cannot be saved, discard affected approvals as a second
+    // independent fence; the navigation helper also refuses use in this worker.
+    const affected = request => request.tabId === details.tabId && (details.frameId === 0 || request.frameId === details.frameId);
+    Promise.all([requests.cancelWhere(affected), frames.forget(affected)]).catch(() => {});
+  });
+});
+
 // A closed tab has no frames left to deliver to.
 chrome.tabs.onRemoved.addListener((tabId) => {
-  frames.forgetTab(tabId);
-  requests.forgetTab(tabId).catch(error => console.error('Unable to clear closed-tab approvals', error));
+  Promise.all([frames.forgetTab(tabId), requests.forgetTab(tabId), nativeNavigation.forgetTab(tabId)])
+    .catch(error => console.error('Unable to clear closed-tab state', error));
 });
 
 // The popup enforces the auto-lock whenever it opens, but the popup is usually

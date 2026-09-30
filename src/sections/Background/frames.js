@@ -1,3 +1,5 @@
+import { isLive, sameDocument, validTarget } from '../../services/utils/documentBinding';
+
 // Which frames currently have this wallet injected, and what origin each one
 // is.
 //
@@ -33,25 +35,28 @@ const writeAll = async (frames) => {
   }
 };
 
-const register = async (sender, origin) => {
-  if (typeof sender.documentId !== 'string' || !sender.documentId) return false;
-  const frames = await readAll();
-  frames[keyOf(sender.tab.id, sender.frameId ?? 0)] = {
-    tabId: sender.tab.id,
-    frameId: sender.frameId ?? 0,
-    origin,
-    documentId: sender.documentId,
-  };
-  await writeAll(frames);
-};
+const serialized = (operation) => navigator.locks.request(storageKey, operation);
 
+// `target` is the frame's bound document (documentBinding.targetFrom, then the
+// navigation generation it was captured in). The relay is probed inside the
+// registration ordering: a delayed hello cannot replace a newer activation, and
+// the map still holds one entry per tab and frame.
+const register = (target, origin) => serialized(async () => {
+  if (!validTarget(target) || !(await isLive(target))) return false;
+  const frames = await readAll();
+  frames[keyOf(target.tabId, target.frameId)] = { ...target, origin };
+  await writeAll(frames);
+  return true;
+});
+
+// Only frames bound to a live document relay; a legacy frame-only record has
+// no fallback, since a new document can reuse the same frame.
 const forTabs = async (origins) => {
   const frames = await readAll();
-  return Object.values(frames).filter((frame) => origins.has(frame.origin) &&
-    typeof frame.documentId === 'string' && frame.documentId.length > 0);
+  return Object.values(frames).filter((frame) => origins.has(frame.origin) && validTarget(frame));
 };
 
-const forget = async (predicate) => {
+const forget = (predicate) => serialized(async () => {
   const frames = await readAll();
   let changed = false;
 
@@ -64,10 +69,12 @@ const forget = async (predicate) => {
   if (changed) {
     await writeAll(frames);
   }
-};
+});
+
+const forgetTarget = (target) => forget((frame) => sameDocument(frame, target));
 
 const forgetTab = (tabId) => forget((frame) => frame.tabId === tabId);
 
-const frames = { storageKey, register, forTabs, forget, forgetTab };
+const frames = { storageKey, register, forTabs, forget, forgetTab, forgetTarget };
 
 export default frames;
