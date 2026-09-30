@@ -22,6 +22,7 @@ const loader = (environment, overrides = () => undefined) => {
   const cache = new Map();
   const load = file => {
     const filename = path.resolve(root, file);
+    if (filename.endsWith('.json')) return require(filename); // e.g. contract-call schemas
     if (cache.has(filename)) return cache.get(filename).exports;
     const module = { exports: {} }; cache.set(filename, module);
     if (!compiled.has(filename)) compiled.set(filename, babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'], configFile: false, babelrc: false }).code);
@@ -368,6 +369,21 @@ const watchdog = setTimeout(() => { console.error('Request identity checks timed
     assert.equal(view.button('Sign and send').props.disabled, true);
     await view.button('Sign and send').props.onClick(); assert.equal(f.counts.signs, 0);
     view.dispose();
+  }
+  // Contract calls (#7) on the actual screen, from the prepared block: the
+  // method and every decoded argument are shown; a call that cannot be decoded
+  // strictly is a warning with its raw data.
+  {
+    const f = fixture(); const embedded = sdk.Zenon.getSingleton().embedded;
+    await f.add({ ...entry('contract-call', 'doc-a', 'signAndSendBlock'), params: (await embedded.plasma.fuse(address, BigNumber.from('1000000000'))).toJson() });
+    const view = f.ui(); await view.settle(); const html = view.markup();
+    assert.match(html, /Plasma beneficiary/); assert(html.includes(address.toString())); assert.match(html, /Fuse/);
+    view.dispose();
+    const g = fixture();
+    await g.add({ ...entry('noncanonical-call', 'doc-a', 'signAndSendBlock'), params: embedded.pillar.delegate('x'.repeat(17)).toJson() });
+    const unknownView = g.ui(); await unknownView.settle();
+    assert.match(unknownView.markup(), /cannot fully interpret/); assert.match(unknownView.markup(), /Raw transaction data/);
+    unknownView.dispose();
   }
   // Real pinned-SDK key and UTF-8 signature compatibility with public fixture
   // entropy; no account block is submitted and no live service is contacted.

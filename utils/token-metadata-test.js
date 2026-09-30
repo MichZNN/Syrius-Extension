@@ -17,6 +17,7 @@ const loader = (override = () => undefined) => {
   const cache = new Map();
   const load = (file) => {
     const filename = path.resolve(root, file);
+    if (filename.endsWith('.json')) return require(filename); // e.g. contract-call schemas
     if (cache.has(filename)) return cache.get(filename);
     const mod = { exports: {} };
     cache.set(filename, mod.exports);
@@ -29,7 +30,7 @@ const loader = (override = () => undefined) => {
       if (replacement !== undefined) return replacement;
       if (name.startsWith('.')) {
         const target = path.resolve(path.dirname(filename), name);
-        return load(target.endsWith('.js') ? target : `${target}.js`);
+        return load(path.extname(target) ? target : `${target}.js`);
       }
       return require(name);
     };

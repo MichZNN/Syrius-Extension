@@ -80,7 +80,9 @@ const fixture = () => {
     const cache = new Map();
     const storage = { getSettings: () => settings, getAddressInfo: () => ({ selectedAddressIndex: 1, maxAddressIndex: 3 }), setAddressInfo: () => true, setLastWalletName() {}, getCurrentNodeUrl: () => 'wss://example.invalid', setCurrentNodeUrl() {}, defaultNodeUrl: 'wss://example.invalid' };
     const load = file => {
-      const filename = path.resolve(root, file); if (cache.has(filename)) return cache.get(filename).exports;
+      const filename = path.resolve(root, file);
+      if (filename.endsWith('.json')) return require(filename); // e.g. contract-call schemas
+      if (cache.has(filename)) return cache.get(filename).exports;
       const module = { exports: {} }; cache.set(filename, module);
       const { code } = babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'], babelrc: false, configFile: false });
       const resolve = id => {

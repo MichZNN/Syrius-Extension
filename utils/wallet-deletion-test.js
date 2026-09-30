@@ -52,7 +52,9 @@ const fixture = async () => {
   }; } };
   const modules = new Map();
   const load = file => {
-    const filename = path.resolve(root, file); if (modules.has(filename)) return modules.get(filename).exports;
+    const filename = path.resolve(root, file);
+    if (filename.endsWith('.json')) return require(filename); // e.g. contract-call schemas
+    if (modules.has(filename)) return modules.get(filename).exports;
     const module = { exports: {} }; modules.set(filename, module);
     if (!compiled.has(filename)) compiled.set(filename, babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'], configFile: false, babelrc: false }).code);
     const req = id => {

@@ -9,6 +9,7 @@ import useAccount from '../../services/hooks/useAccount';
 import useBlockSender from '../../services/hooks/useBlockSender';
 import vault from '../../services/wallet/vault';
 import selection from '../../services/wallet/selection';
+import ContractCallArguments from '../../components/contract-call-arguments/contract-call-arguments';
 import { signMessage } from '../../services/wallet/signMessage';
 import { sendInternal } from '../../services/utils/messaging';
 import { identityOf, freezeApproval, approvalEnded } from '../../services/utils/approvalIdentity';
@@ -22,8 +23,7 @@ import {
 } from '../../services/utils/format';
 import { readableError } from '../../services/utils/errors';
 import { notify } from '../../services/utils/notify';
-import { embeddedContractName } from '../../services/utils/contracts';
-import { decodeCall, describeCall, contractDisplayName } from '../../services/utils/contractCalls';
+import { decodeApprovalCall } from '../../services/utils/approvalContractCalls';
 
 // What a site is asking for, and the choice about it.
 //
@@ -52,33 +52,16 @@ const hostOf = (origin) => {
 // build cannot decode has to look like a warning rather than like an ordinary
 // approval, because "unknown" is exactly the case where reading the raw data
 // below is not optional.
-const describeBlock = (json) => {
-  const contract = embeddedContractName(json?.toAddress);
-  const amount = json?.amount;
-  const hasAmount = Boolean(amount) && amount !== '0';
-
-  if (!contract) {
-    return {
-      kind: 'transfer',
-      to: json?.toAddress,
-      amount,
-      hasAmount,
-      tokenStandard: json?.tokenStandard,
-    };
-  }
-
-  const method = decodeCall(contract, json?.data);
-  const contractName = contractDisplayName(contract);
-
-  return {
-    kind: method ? 'knownCall' : 'unknownCall',
-    contract: contractName,
-    label: method ? describeCall(contract, method) : null,
-    amount,
-    hasAmount,
-    tokenStandard: json?.tokenStandard,
-  };
-};
+//
+// Every argument of a known call is decoded exactly (approvalContractCalls.js);
+// anything it cannot decode strictly is an unknown call. Token details come
+// from the canonical metadata (TokenAmount), never from the node.
+const describeBlock = (json) => ({
+  ...decodeApprovalCall(json),
+  amount: json?.amount,
+  hasAmount: Boolean(json?.amount) && json.amount !== '0',
+  tokenStandard: json?.tokenStandard,
+});
 
 const SiteHeader = ({ request }) => (
   <div className="site-header">
@@ -570,13 +553,14 @@ const SiteIntegrationLayout = () => {
                 return (
                   <>
                     <p className="approval-warning" role="alert">
-                      This calls the {info.contract} contract with a method
-                      this wallet does not recognize. Read the raw data below
-                      before approving.
+                      This wallet cannot fully interpret this call or its data.
+                      Verify the complete raw data before approving.
                     </p>
                     <dl className="confirm-details">
                       <dt>Contract</dt>
                       <dd>{info.contract}</dd>
+                      <dt>Destination</dt>
+                      <dd className="word-break-all">{info.to}</dd>
                       {amountRow}
                     </dl>
                   </>
@@ -592,10 +576,15 @@ const SiteIntegrationLayout = () => {
                     <dl className="confirm-details">
                       <dt>Action</dt>
                       <dd>{info.label}</dd>
+                      <dt>Method</dt>
+                      <dd>{info.method}</dd>
                       <dt>Contract</dt>
                       <dd>{info.contract}</dd>
+                      <dt>Destination</dt>
+                      <dd className="word-break-all">{info.to}</dd>
                       {amountRow}
                     </dl>
+                    <ContractCallArguments args={info.args} />
                   </>
                 );
               }
