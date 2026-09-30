@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector, useStore } from 'react-redux';
 
 import { loadStorageWalletNames } from '../../../services/utils/utils';
+import { sendInternal } from '../../../services/utils/messaging';
 import {
   assertWalletRemovalCurrent,
   captureWalletRemoval,
@@ -55,6 +56,8 @@ const ResetWallet = () => {
     try {
       const live = store.getState().wallet;
       if (live.walletName !== walletName) throw new Error('The selected wallet changed. Try again.');
+      const binding = vault.getBinding();
+      if (!binding || binding.scope.walletName !== walletName) throw new Error('The selected wallet changed. Try again.');
       const current = { walletName: live.walletName, maxAddressIndex: live.maxAddressIndex,
         selectedAddressIndex: live.selectedAddressIndex };
       const isCurrent = () => {
@@ -70,6 +73,13 @@ const ResetWallet = () => {
         return;
       }
       const prepared = await prepareWalletRemoval(captured);
+      // Every site's consent to any account of this wallet goes first, with
+      // what those sites have queued. If this fails nothing else happens; if a
+      // later step fails the consent stays withdrawn, which is the safe side.
+      if (!(await sendInternal('permissions.revokeWallet', { scope: binding.scope }))) {
+        throw new Error('Could not disconnect the sites using this wallet. Try again.');
+      }
+      if (!isCurrent()) throw new Error('The wallet removal was canceled or the selected wallet changed.');
       // Nothing is deleted until every window has lost this wallet: the last
       // check against the unlocked vault runs here, synchronously, and the
       // deletion itself runs inside the revocation of the lease just checked

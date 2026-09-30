@@ -1,3 +1,4 @@
+import selection from '../../services/wallet/selection';
 import { validApproval, identityOf, matchesApproval, copy } from '../../services/utils/approvalIdentity';
 import { limits, boundedJson, validResponseId, invalid, busy } from '../../services/utils/approvalLimits';
 
@@ -39,7 +40,7 @@ const add = request => {
       typeof request.title !== 'string' || request.title.length > 1024 ||
       typeof request.favicon !== 'string' || request.favicon.length > 4096) throw invalid();
   const createdAt = Date.now();
-  const entry = { ...request, version: 2, id: crypto.randomUUID(), createdAt, expiresAt: createdAt + limits.ttl };
+  const entry = { ...request, version: 4, id: crypto.randomUUID(), createdAt, expiresAt: createdAt + limits.ttl };
   boundedJson(entry);
   if (!validApproval(entry)) throw invalid();
   const saved = copy(entry);
@@ -85,6 +86,36 @@ const forgetTab = tabId => serialized(async pending => {
   for (const request of removed) delete pending[request.id];
   if (removed.length) await writePending(pending);
   return removed.length;
+});
+
+// Binding happens once before the request is shown. Only an unshown request
+// that explicitly waited for unlock may follow the immediate predecessor.
+// `record` is the session record; its `selectionId` is the generation that
+// admission and binding refer to.
+const nextFor = record => serialized(async pending => {
+  const removed = [];
+  let next = null;
+  for (const request of Object.values(pending).sort((a, b) => a.createdAt - b.createdAt)) {
+    if (request.claimId || !Number.isInteger(request.windowId)) continue;
+    const admitted = request.admitted;
+    const allowed = request.binding ? selection.matches(record, request.binding) :
+      (!admitted && request.type === 'connect') ||
+      (selection.sameScope(record.scope, admitted?.scope) && (record.selectionId === admitted.id ||
+        (request.waitForUnlock && record.resumeFrom === admitted.id)));
+    if (!allowed) { removed.push(request); delete pending[request.id]; continue; }
+    if (!next) {
+      request.binding = request.binding || { id: record.selectionId, scope: { ...record.scope } };
+      next = copy(request);
+    }
+  }
+  if (removed.length || next) await writePending(pending);
+  return { next, removed };
+});
+const cancelWhere = predicate => serialized(async pending => {
+  const removed = Object.values(pending).filter(predicate);
+  for (const request of removed) delete pending[request.id];
+  if (removed.length) await writePending(pending);
+  return removed;
 });
 
 const popupSize = { width: 376, height: 628 };
@@ -153,5 +184,5 @@ const closeWindow = windowId => withWindow(async () => {
   });
 });
 const requests = { pendingKey, windowKey, attentionKey, list, oldest, get, add, claim, checkClaim, resolve, reject,
-  attachWindow, present, closeWindow, forgetTab, prune, onExpired, allowFollowup };
+  attachWindow, present, closeWindow, forgetTab, prune, onExpired, allowFollowup, nextFor, cancelWhere };
 export default requests;

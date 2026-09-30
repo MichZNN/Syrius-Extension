@@ -32,10 +32,29 @@ const useBlockSender = () => {
   const generation = useRef(0);
   const [isGeneratingPlasma, setIsGeneratingPlasma] = useState(false);
 
-  const send = useCallback(async (template, { addressIndex, assertRequest, expiresAt } = {}) => {
+  // `binding` (an approval's wallet account) is checked under the session lock
+  // at every key use and again at the instant publication starts; after that
+  // point a failure means the outcome is unknown, and `onSubmitted` says so.
+  const send = useCallback(async (template, { addressIndex, assertRequest, expiresAt, binding, onSubmitted } = {}) => {
     const current = ++generation.current;
     const zenon = Zenon.getSingleton();
     setIsSending(true);
+    let submitted = false;
+    const startPublication = binding ? async (block, publish) => {
+      const started = await vault.whileBound(binding, () => {
+        if (block.address?.toString() !== binding.scope.address) throw new Error('The signing account changed.');
+        // Begin the RPC while the selection is locked; never hold the lock
+        // waiting on a remote node. A submitted block cannot be undone.
+        submitted = true;
+        onSubmitted?.();
+        const promise = Promise.resolve(publish());
+        // A later check can stop awaiting the reply; keep its rejection handled
+        // while preserving it for the waiter below.
+        promise.catch(() => {});
+        return { promise };
+      });
+      return started.promise;
+    } : undefined;
     const progress = status => {
       if (generation.current !== current || (Number.isFinite(expiresAt) && expiresAt <= Date.now())) return;
       if (status === Enums.PowStatus.generating) setIsGeneratingPlasma(true);
@@ -44,9 +63,9 @@ const useBlockSender = () => {
     try {
       const execute = async operation => {
         await operation.assertActive();
-        const keyPair = requestSigningKey(await vault.getSigningKeyPair(addressIndex), operation.assertActive);
+        const keyPair = requestSigningKey(await vault.getSigningKeyPair(addressIndex, binding), operation.assertActive);
         await operation.assertActive();
-        return sendApprovalBlock(zenon, template, keyPair, operation, progress);
+        return sendApprovalBlock(zenon, template, keyPair, operation, progress, startPublication);
       };
       const signed = assertRequest
         ? await runApprovalOperation(expiresAt, execute, { assertRequest })
@@ -56,6 +75,9 @@ const useBlockSender = () => {
       invalidateAccountCache();
       await assertRequest?.();
       return signed;
+    } catch (error) {
+      if (submitted) throw new Error('The transaction may have been submitted. Its outcome is unknown. Check the original account before retrying.');
+      throw error;
     } finally {
       // In `finally`, so an error cannot leave the screen saying it is working.
       if (generation.current === current) {

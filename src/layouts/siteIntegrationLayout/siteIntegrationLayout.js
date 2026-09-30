@@ -8,6 +8,7 @@ import { authorizationMetadata, normalizeBaseUnits } from '../../services/wallet
 import useAccount from '../../services/hooks/useAccount';
 import useBlockSender from '../../services/hooks/useBlockSender';
 import vault from '../../services/wallet/vault';
+import selection from '../../services/wallet/selection';
 import { signMessage } from '../../services/wallet/signMessage';
 import { sendInternal } from '../../services/utils/messaging';
 import { identityOf, freezeApproval, approvalEnded } from '../../services/utils/approvalIdentity';
@@ -104,7 +105,7 @@ const SiteHeader = ({ request }) => (
 
 const SiteIntegrationLayout = () => {
   const navigate = useNavigate();
-  const { address, isUnlocked } = useSelector((state) => state.wallet);
+  const { address: selectedAddress, isUnlocked } = useSelector((state) => state.wallet);
   const { chainIdentifier, nodeUrl } = useSelector(
     (state) => state.connectionParameters
   );
@@ -112,13 +113,18 @@ const SiteIntegrationLayout = () => {
   const { send, isSending, isGeneratingPlasma } = useBlockSender();
 
   const [request, setRequest] = useState(undefined);
+  const address = request?.binding?.scope.address || selectedAddress;
   const [preview, setPreview] = useState(null);
   const [isBusy, setIsBusy] = useState(false);
   const [isWaitingForMore, setIsWaitingForMore] = useState(false);
   const rendered = useRef(null), operation = useRef(null), discarded = useRef(null), mounted = useRef(true), previewOwner = useRef(null);
   rendered.current = { request, address, isUnlocked, chainIdentifier, nodeUrl };
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const currentView = selected => mounted.current && selected?.request && discarded.current !== selected.request &&
+  // The view is current only while the wallet account the request is bound to
+  // is still this window's view of the shared selection, and before its deadline.
+  const currentView = selected => selected?.binding && vault.getBinding() === selected.binding &&
+    selected.binding.id === selected.request?.binding?.id && selection.sameScope(selected.binding.scope, selected.request.binding.scope) &&
+    mounted.current && selected?.request && discarded.current !== selected.request &&
     selected.request.expiresAt > Date.now() &&
     rendered.current.request === selected.request && rendered.current.isUnlocked &&
     rendered.current.address === selected.address && rendered.current.chainIdentifier === selected.chainIdentifier &&
@@ -153,7 +159,7 @@ const SiteIntegrationLayout = () => {
 
   const loadNext = useCallback(async () => {
     try {
-      const value = await sendInternal('approvals.next');
+      const value = await sendInternal('approvals.next', { binding: vault.getBinding() });
       if (!mounted.current) return null;
       const next = value ? freezeApproval(value) : null;
 
@@ -167,7 +173,7 @@ const SiteIntegrationLayout = () => {
         setTimeout(resolve, CLOSE_GRACE_MS);
       });
 
-      const lateValue = await sendInternal('approvals.next');
+      const lateValue = await sendInternal('approvals.next', { binding: vault.getBinding() });
       if (!mounted.current) return null;
       const late = lateValue ? freezeApproval(lateValue) : null;
       setIsWaitingForMore(false);
@@ -184,15 +190,17 @@ const SiteIntegrationLayout = () => {
       if (!mounted.current) return null;
       setIsWaitingForMore(false);
       setRequest(null);
+      notify.error(err);
+      navigate('/password', { replace: true, state: { returnTo: '/site-integration' } });
       return null;
     }
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     if (isUnlocked) {
       loadNext();
     }
-  }, [isUnlocked, loadNext]);
+  }, [isUnlocked, selectedAddress, loadNext]);
 
   useEffect(() => {
     if (!request) return undefined;
@@ -225,7 +233,8 @@ const SiteIntegrationLayout = () => {
         const template = Primitives.AccountBlockTemplate.fromJson(
           request.params
         );
-        const keyPair = vault.getKeyPair();
+        // Previewed with the bound account's key, which is the one that signs.
+        const keyPair = vault.getKeyPair(request.binding.scope.index);
         const filled = await runApprovalOperation(request.expiresAt,
           active => sdkUtils.BlockUtils._checkAndSetFields(active.context(zenon), template, keyPair),
           { signal: controller.signal });
@@ -251,10 +260,10 @@ const SiteIntegrationLayout = () => {
   }, [request]);
 
   const approve = async (execute, success) => {
-    const selected = { request, address, chainIdentifier, nodeUrl };
+    const selected = { request, address, chainIdentifier, nodeUrl, binding: vault.getBinding() };
     if (operation.current || !currentView(selected)) return;
     previewOwner.current?.abort();
-    const active = { kind: 'approval', selected, identity: identityOf(request), claimed: false };
+    const active = { kind: 'approval', selected, identity: identityOf(request), claimed: false, submitted: false };
     operation.current = active;
     setIsBusy(true);
     const localCurrent = () => operation.current === active && currentView(selected);
@@ -270,19 +279,24 @@ const SiteIntegrationLayout = () => {
       active.identity = claim;
       active.claimed = true;
       await assertRequest();
-      const result = await withApprovalDeadline(execute(selected.request, assertRequest), selected.request.expiresAt);
+      const result = await withApprovalDeadline(
+        execute(selected.request, assertRequest, selected.binding, () => { active.submitted = true; }),
+        selected.request.expiresAt);
       await assertRequest();
       if (!(await sendInternal('approvals.resolve', { identity: active.identity, result }))) throw approvalEnded();
       if (success) notify.success(success);
     } catch (error) {
-      notify.error(error);
-      // A competing popup's failed claim never consumes the winner's request.
-      if (active.claimed) {
-        try {
-          await sendInternal('approvals.reject', { identity: active.identity,
-            error: { code: -32603, message: readableError(error) } });
-        } catch (cleanupError) { notify.error(cleanupError); }
-      }
+      // Selection/permission may change after publication starts, including
+      // between the SDK returning and the worker settling this request.
+      const reported = active.submitted
+        ? new Error('The transaction may have been submitted. Its outcome is unknown. Check the original account before retrying.') : error;
+      notify.error(reported);
+      // Unclaimed stale requests can be retired too. The queue refuses an
+      // unclaimed identity if another popup owns it, preserving the winner.
+      try {
+        await sendInternal('approvals.reject', { identity: active.identity,
+          error: { code: -32603, message: readableError(reported) } });
+      } catch (cleanupError) { notify.error(cleanupError); }
     } finally {
       if (operation.current === active) {
         discarded.current = selected.request;
@@ -293,7 +307,7 @@ const SiteIntegrationLayout = () => {
     }
   };
   const reject = async () => {
-    const selected = { request, address, chainIdentifier, nodeUrl };
+    const selected = { request, address, chainIdentifier, nodeUrl, binding: vault.getBinding() };
     if (operation.current || !currentView(selected)) return;
     const active = { kind: 'rejection', selected };
     operation.current = active;
@@ -314,26 +328,30 @@ const SiteIntegrationLayout = () => {
   const tokenFor = tokenStandard => balanceMap[tokenStandard];
   const approveConnect = () => approve(async () => [address]);
   const blockResult = signed => ({ hash: signed.hash?.toString(), block: signed.toJson?.() ?? null });
-  // Token identity and amount go through the canonical metadata path (#3): the
-  // amount is exact base units, never reinterpreted by RPC token metadata.
-  const approveSendTransaction = () => approve(async (selected, assertRequest) => {
+  // Token identity and amount go through the canonical metadata path: the
+  // amount is exact base units, never reinterpreted by RPC token metadata. Keys
+  // are the bound account's, checked against the selection at every use.
+  const approveSendTransaction = () => approve(async (selected, assertRequest, binding, onSubmitted) => {
     const { to, tokenStandard, amount } = selected.params;
     authorizationMetadata(tokenStandard);
     const template = Primitives.AccountBlockTemplate.send(Primitives.Address.parse(to),
       Primitives.TokenStandard.parse(tokenStandard), toBigNumber(normalizeBaseUnits(amount)));
-    return blockResult(await send(template, { assertRequest, expiresAt: selected.expiresAt }));
+    return blockResult(await send(template, { assertRequest, expiresAt: selected.expiresAt,
+      binding, onSubmitted, addressIndex: binding.scope.index }));
   }, 'Transaction sent');
   // The only approval here that does not touch the network: no plasma, no
   // block, nothing to broadcast.
-  const approveSignMessage = () => approve((selected, assertRequest) =>
-    runApprovalOperation(selected.expiresAt, active => signMessage(selected.params.message, { assertRequest: active.assertActive }),
-      { assertRequest }), 'Message signed');
-  const approveSignAndSend = () => approve(async (selected, assertRequest) => {
+  const approveSignMessage = () => approve((selected, assertRequest, binding) =>
+    runApprovalOperation(selected.expiresAt, active => signMessage(selected.params.message,
+      { assertRequest: active.assertActive, binding, addressIndex: binding.scope.index }),
+    { assertRequest }), 'Message signed');
+  const approveSignAndSend = () => approve(async (selected, assertRequest, binding, onSubmitted) => {
     authorizationMetadata(selected.params.tokenStandard);
     const template = Primitives.AccountBlockTemplate.fromJson({
       ...selected.params, amount: normalizeBaseUnits(selected.params.amount),
     });
-    return blockResult(await send(template, { assertRequest, expiresAt: selected.expiresAt }));
+    return blockResult(await send(template, { assertRequest, expiresAt: selected.expiresAt,
+      binding, onSubmitted, addressIndex: binding.scope.index }));
   }, 'Block sent');
 
   if (request === undefined) {
@@ -401,6 +419,10 @@ const SiteIntegrationLayout = () => {
   return (
     <div className="page approval-screen">
       <SiteHeader request={request} />
+      <div className="approval-body">
+        <strong>{request.binding.scope.walletName} · Account {request.binding.scope.index + 1}</strong>
+        <p className="word-break-all">{request.binding.scope.address}</p>
+      </div>
       <p className="approval-note">This request expires at {new Date(request.expiresAt).toLocaleTimeString()}.</p>
       {busy && operation.current?.kind === 'approval' && <p className="approval-note" role="status">Your approval is being processed and can no longer be rejected.</p>}
 

@@ -17,6 +17,7 @@ const root = path.join(__dirname, '..'), compiled = new Map();
 const clone = value => value === undefined ? value : structuredClone(value);
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const flush = async () => { for (let i = 0; i < 12; i++) await tick(); };
+const navigateStub = () => {};
 const deferred = () => { let resolve; const promise = new Promise(yes => { resolve = yes; }); return { promise, resolve }; };
 const loader = (environment, overrides = () => undefined) => {
   const cache = new Map();
@@ -41,7 +42,14 @@ const emptyHash = sdk.Primitives.Hash.parse('00'.repeat(32));
 const message = 'Approval identity: defensive signing fixture.';
 const block = () => sdk.Primitives.AccountBlockTemplate.send(address, token, BigNumber.from(1)).toJson();
 const paramsFor = type => ({ connect: {}, sendTransaction: { to: address.toString(), tokenStandard: token.toString(), amount: '1' }, signAndSendBlock: block(), signMessage: { message } })[type];
-const entry = (responseId = 'same', documentId = 'doc-a', type = 'signMessage') => ({ responseId, documentId, origin: 'https://fixture.invalid', tabId: 1, frameId: 0, type, params: paramsFor(type), title: '', favicon: '' });
+// Wallet scoping (#11): consent, admission and approval are bound to one
+// wallet account and selection generation. The fixture wallet stays unlocked
+// on it; rows built here are admitted and already bound to it, as if shown.
+const scope = { walletName: 'fixture', walletId: address.toString(), address: address.toString(), index: 0 };
+const selectionId = 'fixture-selection';
+const binding = Object.freeze({ id: selectionId, ownerId: 'owner', scope: Object.freeze({ ...scope }) });
+const entry = (responseId = 'same', documentId = 'doc-a', type = 'signMessage') => ({ responseId, documentId, origin: 'https://fixture.invalid', tabId: 1, frameId: 0, type, params: paramsFor(type), title: '', favicon: '',
+  admitted: { id: selectionId, scope: { ...scope } }, waitForUnlock: false, binding: { id: selectionId, scope: { ...scope } } });
 const fixture = (requiredDifficulty = 0) => {
   let now = 1000000;
   const deadlineTimers = new Map();
@@ -55,7 +63,12 @@ const fixture = (requiredDifficulty = 0) => {
     await flush();
   };
   class Clock extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } }
-  const session = {}, local = {}, locks = new Map(), listeners = {}, delivered = [], windows = new Map([[10, {}], [11, {}]]);
+  // A lease long enough to outlast every approval deadline these scenarios advance through.
+  const session = {
+    'znn.unlock': { version: 2, id: 'lease', revision: 'r', walletName: 'fixture', minutes: 15, mode: 'timed', entropy: 'fixture',
+      ownerId: 'owner', selectedAddressIndex: 0, selectionId, scope, resumeFrom: null, lastActiveAt: now, expiresAt: now + 1000 * 60 * 60 * 1000 },
+    'znn.publicState': { address: address.toString(), scope, selectionId, leaseId: 'lease', chainId: 1, nodeUrl: 'wss://fixture.invalid' },
+  }, local = {}, locks = new Map(), listeners = {}, delivered = [], windows = new Map([[10, {}], [11, {}]]);
   const faults = {}, counts = { created: 0, focused: 0, signs: 0, publishes: 0, workers: 0, terminated: 0 }, events = [];
   let storageGate, phaseGate, internalGate;
   const hold = phase => (phaseGate = { phase, started: deferred(), release: deferred() });
@@ -118,7 +131,11 @@ const fixture = (requiredDifficulty = 0) => {
     await flush(); return ack;
   };
   const key = { getAddress: async () => address, getPublicKey: async () => Buffer.alloc(32, 7), sign: async () => { counts.signs++; await pause('sign'); return Buffer.alloc(64, 9); } };
-  const vault = { getKeyPair: () => key, getSigningKeyPair: async () => { await pause('key'); return key; } };
+  const vault = { getKeyPair: () => key, getSigningKeyPair: async () => { await pause('key'); return key; },
+    getBinding: () => binding, whileBound: async (_, operation) => operation() };
+  // Scoped consent for the fixture origin; the approval screen shows only a
+  // connected account's requests (#11).
+  const connect = () => { local['syrius.permissions'] = { version: 2, entries: [{ active: true, origin: 'https://fixture.invalid', scope, title: '', favicon: '', connectedAt: 1, lastUsedAt: 1 }] }; };
   const zenon = sdk.Zenon.getSingleton();
   zenon.ledger.getFrontierBlock = async () => { await pause('rpc'); return null; };
   zenon.ledger.getFrontierMomentum = async () => ({ hash: emptyHash, height: 1 });
@@ -126,6 +143,7 @@ const fixture = (requiredDifficulty = 0) => {
   sdk.utils.BlockUtils._setHashAndSignature = async (...args) => { const result = await sdkSetHashAndSignature(...args); await pause('readyToPublish'); return result; };
   zenon.ledger.publishRawTransaction = async template => { await pause('publish'); counts.publishes++; assert.equal(template.signature.length, 64); };
   const ui = (windowId = 10) => {
+    connect();
     const states = [], refs = [], effects = [], callbacks = [], notices = [];
     let si, ri, ei, ci, tree, closes = 0;
     const state = { wallet: { address: address.toString(), isUnlocked: true }, connectionParameters: { chainIdentifier: 1, nodeUrl: 'wss://fixture.invalid' } };
@@ -139,7 +157,8 @@ const fixture = (requiredDifficulty = 0) => {
     const uiChrome = { ...chrome, windows: { ...chrome.windows, getCurrent: async () => ({ id: windowId }) } };
     const uiLoad = loader({ ...environment, chrome: uiChrome, window: { close() { closes++; } }, setTimeout: (fn, ms) => ms === 1200 ? setTimeout(fn, 0) : schedule(fn, ms) }, id => {
       if (id === 'react') return hooks;
-      if (id === 'react-router-dom') return { useNavigate: () => () => {} };
+      // Stable within a route, as React Router's is: the screen's loaders depend on it.
+      if (id === 'react-router-dom') return { useNavigate: () => navigateStub };
       if (id === 'react-redux') return { useSelector: select => select(state) };
       if (id === './vault' || id.endsWith('/wallet/vault')) return { __esModule: true, default: vault };
       if (id === './useAccount' || id.endsWith('/hooks/useAccount')) return { __esModule: true, default: () => ({ balanceMap: { [token.toString()]: { balance: BigNumber.from('1000000000'), token: { decimals: 8, symbol: 'ZNN' } } } }), invalidateAccountCache() {} };
@@ -153,7 +172,9 @@ const fixture = (requiredDifficulty = 0) => {
     return { settle, render, state, notices, closes: () => closes, button: text => flatten(tree).find(node => node.type === 'button' && node.props.children === text), markup: () => renderToStaticMarkup(tree), dispose: () => effects.forEach(effect => effect.cleanup?.()) };
   };
   const add = async value => { const request = await queue.add(value); await queue.attachWindow(identity.identityOf(request), 10); return queue.get(request.id); };
-  return { queue, identity, add, load, fireDeadlines, now: () => now, advance: milliseconds => { now += milliseconds; }, freshQueue: () => loader(environment)('src/sections/Background/requests.js').default, session, local, faults, counts, events, windows, delivered, listeners, chrome, internal, sender, provider, hold, ui,
+  // The popup's binding step, for a request a page created.
+  const bindNext = () => internal('approvals.next', { binding });
+  return { connect, bindNext, queue, identity, add, load, fireDeadlines, now: () => now, advance: milliseconds => { now += milliseconds; }, freshQueue: () => loader(environment)('src/sections/Background/requests.js').default, session, local, faults, counts, events, windows, delivered, listeners, chrome, internal, sender, provider, hold, ui,
     holdStorage: (area, key, remaining = 1) => (storageGate = { area, key, remaining, started: deferred(), release: deferred() }),
     holdInternal: method => (internalGate = { method, started: deferred(), release: deferred() }) };
 };
@@ -230,7 +251,7 @@ const watchdog = setTimeout(() => { console.error('Approval queue checks timed o
   // realms, and one successful approval authorizes the ordinary follow-up.
   {
     const f = fixture(); await f.provider('znn_connect', {}, 'first');
-    const row = await f.queue.oldest(), id = row.windowId;
+    const row = await f.bindNext(), id = row.windowId; // shown by the popup, as #11 requires before a claim
     await f.queue.add({ ...entry('second'), origin: 'https://other.invalid' }).then(r => f.queue.present(f.identity.identityOf(r)));
     assert.equal(f.counts.created, 1); assert.equal(f.counts.focused, 0);
     const claim = await f.queue.claim(f.identity.identityOf(row), id);
@@ -287,12 +308,13 @@ const watchdog = setTimeout(() => { console.error('Approval queue checks timed o
     f.listeners.closedTab(row.tabId); await flush(); assert.equal((await f.queue.list()).length, 0);
     assert.equal(await f.queue.claim(f.identity.identityOf(row), 10), null);
   }
+  // Consent here is the scoped form (#11): one wallet account per grant.
   // Finalization checks cover the actual awaited attention, permission read,
   // durable grant and activation writes. A late attempt restores prior consent.
   for (const phase of ['attention', 'read', 'grant', 'delivery']) {
-    for (const previous of [null, { origin: 'https://fixture.invalid', title: 'Earlier consent', connectedAt: 1, lastUsedAt: 2 }]) {
+    for (const previous of [null, { active: true, origin: 'https://fixture.invalid', scope, title: 'Earlier consent', connectedAt: 1, lastUsedAt: 2 }]) {
       const f = fixture(), permission = f.load('src/sections/Background/permissions.js').default;
-      if (previous) f.local[permission.storageKey] = { [previous.origin]: previous };
+      if (previous) f.local[permission.storageKey] = { version: 2, entries: [previous] };
       const row = await f.add(entry('late-finalization-' + phase, 'doc-a', 'connect'));
       const owner = await f.queue.claim(f.identity.identityOf(row), 10);
       const held = phase === 'attention' ? f.holdStorage('session', f.queue.attentionKey)
@@ -303,24 +325,24 @@ const watchdog = setTimeout(() => { console.error('Approval queue checks timed o
       assert.equal(await result, false); assert(f.delivered.length >= 1);
       assert(f.delivered.every(delivery => delivery.value.result === undefined));
       assert.equal(f.delivered[0].value.result, undefined); assert.equal(f.delivered[0].value.error.code, -32603);
-      assert.deepEqual(await permission.get(row.origin), previous);
-      assert.deepEqual(f.local[permission.storageKey]?.[row.origin] || null, previous);
+      assert.deepEqual(await permission.get(row.origin, scope), previous);
+      assert.deepEqual(f.local[permission.storageKey]?.entries?.find(entry => entry.active === true && entry.origin === row.origin) || null, previous);
     }
   }
   // A failed local rollback retains a durably inactive row even after the
   // entire browser session disappears, with prior consent preserved.
-  for (const previous of [null, { origin: 'https://fixture.invalid', title: 'Retained consent', connectedAt: 1 }]) {
+  for (const previous of [null, { active: true, origin: 'https://fixture.invalid', scope, title: 'Retained consent', connectedAt: 1 }]) {
     const f = fixture(), permission = f.load('src/sections/Background/permissions.js').default;
-    if (previous) f.local[permission.storageKey] = { [previous.origin]: previous };
+    if (previous) f.local[permission.storageKey] = { version: 2, entries: [previous] };
     const row = await f.add(entry('rollback-unavailable', 'doc-a', 'connect'));
     const owner = await f.queue.claim(f.identity.identityOf(row), 10), held = f.hold('localWritten');
     const result = f.internal('approvals.resolve', { identity: owner, result: [address.toString()] });
     await held.started.promise; f.advance(limits.ttl); f.faults.localWrite = true; held.release.resolve();
-    assert.equal(await result, false); assert.deepEqual(await permission.get(row.origin), previous);
+    assert.equal(await result, false); assert.deepEqual(await permission.get(row.origin, scope), previous);
     for (const key of Object.keys(f.session)) delete f.session[key];
     const fresh = loader({ chrome: f.chrome, navigator: { locks: { request: async (name, fn) => fn() } } })('src/sections/Background/permissions.js').default;
-    assert.deepEqual(await fresh.get(row.origin), previous);
-    f.faults.localWrite = false; await permission.revoke(row.origin); assert.equal(await fresh.isConnected(row.origin), false);
+    assert.deepEqual(await fresh.get(row.origin, scope), previous);
+    f.faults.localWrite = false; await permission.revoke(row.origin); assert.equal(await fresh.isConnected(row.origin, scope), false);
   }
   // Native acknowledgement and durable promotion can finish later than relay
   // acceptance. The fixed deadline applies to that exact acceptance point.
@@ -332,11 +354,11 @@ const watchdog = setTimeout(() => { console.error('Approval queue checks timed o
     const result = f.internal('approvals.resolve', { identity: owner, result: [address.toString()] });
     await held.started.promise; assert.equal(f.delivered.length, 1); assert.equal(f.delivered[0].value.error, undefined);
     f.advance(limits.ttl); held.release.resolve(); assert.equal(await result, true);
-    assert.equal(await permission.isConnected(row.origin), true);
-    assert((await permission.get(row.origin)).approvalAcceptedAt < row.expiresAt);
+    assert.equal(await permission.isConnected(row.origin, scope), true);
+    assert((await permission.get(row.origin, scope)).approvalAcceptedAt < row.expiresAt);
     for (const key of Object.keys(f.session)) delete f.session[key];
     const fresh = loader({ chrome: f.chrome, navigator: { locks: { request: async (name, fn) => fn() } } })('src/sections/Background/permissions.js').default;
-    assert.equal(await fresh.isConnected(row.origin), true);
+    assert.equal(await fresh.isConnected(row.origin, scope), true);
   }
   // A failed promotion and failed rollback cannot turn a prepared record into
   // authority when the browser loses all session-only state.
@@ -348,7 +370,7 @@ const watchdog = setTimeout(() => { console.error('Approval queue checks timed o
     await held.started.promise; f.faults.localWrite = true; held.release.resolve(); assert.equal(await result, false);
     for (const key of Object.keys(f.session)) delete f.session[key];
     const fresh = loader({ chrome: f.chrome, navigator: { locks: { request: async (name, fn) => fn() } } })('src/sections/Background/permissions.js').default;
-    assert.equal(await fresh.isConnected(row.origin), false);
+    assert.equal(await fresh.isConnected(row.origin, scope), false);
   }
   // Work is bounded synchronously even while the first storage read is held.
   {

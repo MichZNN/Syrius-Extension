@@ -1,4 +1,5 @@
 import frames from './frames';
+import selection from '../../services/wallet/selection';
 import permissions from './permissions';
 import requests from './requests';
 import sessionLease from '../../services/wallet/sessionLease';
@@ -28,7 +29,7 @@ const maxSignMessageLength = 8192;
 //
 const errors = {
   userRejected: { code: 4001, message: 'User rejected the request' },
-  approvalInterrupted: { code: -32603, message: 'Approval window closed after approval began. The outcome is unknown; verify the result before retrying.' },
+  approvalInterrupted: { code: -32603, message: 'Approval was interrupted after it began. The outcome is unknown; check the original account before retrying.' },
   unauthorized: { code: 4100, message: 'The site is not connected to this wallet' },
   unsupportedMethod: { code: 4200, message: 'Unsupported method' },
   disconnected: { code: 4900, message: 'The wallet is locked' },
@@ -67,10 +68,6 @@ const isFromContentScript = (sender) =>
   typeof sender.url === 'string' &&
   !sender.url.startsWith(extensionOrigin);
 
-// The same lease authority used by live vaults; public data is bound to that
-// identity so a delayed old popup cannot advertise an unlocked replacement.
-const getPublicState = () => sessionLease.getPublicState();
-
 //
 // Talking back to pages
 //
@@ -79,10 +76,13 @@ const sendToTab = async (tabId, message, frameId, documentId) => {
   // the lease transaction a caller is waiting in, indefinitely. The relay's
   // reply is returned: a connection grant waits on the relay accepting it.
   try {
+    // Every delivery names the exact document; without one there is nobody
+    // to deliver to.
+    if (!documentId) return undefined;
     let timer;
     try {
       return await Promise.race([
-        chrome.tabs.sendMessage(tabId, message, { ...(frameId === undefined ? {} : { frameId }), ...(documentId ? { documentId } : {}) }),
+        chrome.tabs.sendMessage(tabId, message, { ...(frameId === undefined ? {} : { frameId }), documentId }),
         new Promise(resolve => { timer = setTimeout(resolve, 5000); }),
       ]);
     } finally { clearTimeout(timer); }
@@ -101,30 +101,53 @@ const respond = (target, id, result, error) => {
 requests.onExpired(removed => Promise.all(removed.map(request =>
   respond(request, request.responseId, undefined, request.claimId ? errors.expiredClaim : errors.expired))));
 
-// Fans an event out to every frame whose origin is connected, so a site sees
-// an address or chain change without polling.
-const broadcast = async (event, data) => {
-  const connected = await permissions.list();
-
-  if (!connected.length) {
-    return;
-  }
-  const origins = new Set(connected.map((entry) => entry.origin));
+// Tells connected frames what they may now see. The caller holds the session
+// lock, so the payload and the recipients belong to one selection generation;
+// `expectedId` is that generation, and a stale event is dropped. Frames of
+// `clearOrigins` (just disconnected) are told there is no account.
+const announceToSites = async (stored, event, expectedId, clearOrigins = []) => {
+  const record = selection.current(stored);
+  if (expectedId !== undefined && record?.selectionId !== expectedId) return false;
+  const value = selection.publicValue(stored);
+  const sites = await permissions.list();
+  const origins = new Set([...sites.map(site => site.origin), ...clearOrigins]);
   const targets = await frames.forTabs(origins);
-
-  await Promise.all(
-    targets.map((frame) =>
-      sendToTab(frame.tabId, { channel: 'znn', kind: 'event', event, data }, frame.frameId)
-    )
-  );
+  await Promise.all(targets.map(async frame => {
+    const allowed = value && await permissions.isConnected(frame.origin, value.scope) && selection.publicValue(stored);
+    const data = event === 'accountsChanged' ? (allowed ? [value.address] : []) :
+      allowed ? (event === 'chainChanged' ? value.chainId : value.nodeUrl) : undefined;
+    if (data !== undefined) await sendToTab(frame.tabId, { channel: 'znn', kind: 'event', event, data }, frame.frameId, frame.documentId);
+  }));
+  return true;
+};
+const rejectRemoved = removed => Promise.all(removed.map(request => respond(request, request.responseId, undefined,
+  request.claimId ? errors.approvalInterrupted : errors.userRejected)));
+const revokeOrigin = async (stored, origin, scope) => {
+  await permissions.revoke(origin, scope);
+  await rejectRemoved(await requests.cancelWhere(request => request.origin === origin &&
+    (!scope || !request.admitted || selection.sameScope(request.admitted.scope, scope))));
+  await announceToSites(stored, 'accountsChanged', undefined, [origin]);
+  return true;
 };
 
 //
 // Queuing something for a person to approve
 //
-const queueApproval = async (type, { id, target, origin, sender, params }) => {
+const queueApproval = async (type, { id, target, origin, sender, params, stored }) => {
+  const record = selection.current(stored);
+  // Anything but a connect needs consent for the account the wallet is on (or,
+  // while it is locked, was last on). The request is admitted under that
+  // selection generation; if the wallet is locked or On close it waits for the
+  // next unlock of the same account (requests.nextFor).
+  if (type !== 'connect') {
+    if (!selection.validScope(record?.scope)) throw errors.disconnected;
+    if (!(await permissions.isConnected(origin, record.scope))) throw errors.unauthorized;
+  }
   const queued = await requests.add({
     responseId: id,
+    admitted: selection.validScope(record?.scope) && (type !== 'connect' || selection.live(record)) ? { id: record.selectionId, scope: record.scope } : null,
+    waitForUnlock: !selection.live(record) || record.mode === 'local',
+    binding: null,
     type,
     params: params || {},
     origin,
@@ -135,96 +158,32 @@ const queueApproval = async (type, { id, target, origin, sender, params }) => {
     favicon: sender.tab?.favIconUrl || '',
     createdAt: Date.now(),
   });
-  const identity = identityOf(queued);
-  try {
-    if (!(await requests.present(identity))) throw new Error('The approval window is no longer available.');
-  } catch (error) {
-    await requests.reject(identity);
-    throw error;
-  }
+  return { settled: false, present: identityOf(queued) };
 };
 
 //
 // Page-facing methods
 //
+const readFor = async (stored, origin) => {
+  const value = selection.publicValue(stored);
+  return value && await permissions.isConnected(origin, value.scope) ? selection.publicValue(stored) : null;
+};
 const providerMethods = {
-  // Cheap, unprompted truth about the current state. A site uses this to decide
-  // whether to show a "connect" button, so it must never open a window.
-  znn_accounts: async ({ origin }) => {
-    if (!(await permissions.isConnected(origin))) {
-      return [];
-    }
-    const state = await getPublicState();
-    return state?.address ? [state.address] : [];
+  znn_accounts: async ({ origin, stored }) => { const value = await readFor(stored, origin); return value ? [value.address] : []; },
+  znn_chainId: async ({ origin, stored }) => (await readFor(stored, origin))?.chainId ?? null,
+  znn_nodeUrl: async ({ origin, stored }) => (await readFor(stored, origin))?.nodeUrl ?? null,
+  znn_connect: async args => {
+    const value = await readFor(args.stored, args.origin);
+    if (value && await permissions.touch(args.origin, value.scope) && selection.publicValue(args.stored)) return { settled: true, result: [value.address] };
+    return queueApproval('connect', args);
   },
-
-  znn_chainId: async () => (await getPublicState())?.chainId ?? null,
-
-  znn_nodeUrl: async () => (await getPublicState())?.nodeUrl ?? null,
-
-  // Connecting. An origin that has been connected before and is still unlocked
-  // is answered straight away — re-asking a question already answered is the
-  // single most irritating thing a wallet does.
-  znn_connect: async ({ id, origin, target, sender }) => {
-    const state = await getPublicState();
-
-    if ((await permissions.isConnected(origin)) && state?.address) {
-      await permissions.touch(origin);
-      return { settled: true, result: [state.address] };
-    }
-    await queueApproval('connect', { id, target, origin, sender });
-    return { settled: false };
-  },
-
-  znn_disconnect: async ({ origin }) => {
-    await permissions.revoke(origin);
-    return { settled: true, result: true };
-  },
-
-  // Anything that moves value is prompted every time, even for a connected
-  // origin, and is refused outright for one that has never connected.
-  znn_sendTransaction: async ({ id, origin, target, sender, params }) => {
-    if (!(await permissions.isConnected(origin))) {
-      throw errors.unauthorized;
-    }
-    await queueApproval('sendTransaction', { id, target, origin, sender, params });
-    return { settled: false };
-  },
-
-  znn_signAndSendBlock: async ({ id, origin, target, sender, params }) => {
-    if (!(await permissions.isConnected(origin))) {
-      throw errors.unauthorized;
-    }
-    await queueApproval('signAndSendBlock', { id, target, origin, sender, params });
-    return { settled: false };
-  },
-
-  // Signing a message. Nothing is broadcast and nothing is spent, but it is
-  // still the account's key answering a stranger's question, so it is prompted
-  // every time exactly like the two above.
-  //
-  // Desktop Syrius passes the message as the bare `params` string; the provider
-  // in this extension sends `{message}` like every other method here. Both are
-  // accepted and normalised to one shape, so the queue and the approval screen
-  // only ever see the one.
-  znn_sign: async ({ id, origin, target, sender, params }) => {
-    if (!(await permissions.isConnected(origin))) {
-      throw errors.unauthorized;
-    }
-    const message = typeof params === 'string' ? params : params?.message;
-
-    if (typeof message !== 'string' || !message.length) {
-      throw invalidParams('znn_sign expects a message string');
-    }
-    // Bounded here rather than at the approval screen: the request sits in
-    // session storage until somebody answers it, and a page must not be able to
-    // fill that with a megabyte nobody asked for. The screen enforces the same
-    // limit again before signing.
-    if (message.length > maxSignMessageLength) {
-      throw invalidParams(`A message can be at most ${maxSignMessageLength} characters`);
-    }
-    await queueApproval('signMessage', { id, target, origin, sender, params: { message } });
-    return { settled: false };
+  znn_disconnect: async ({ origin, stored }) => ({ settled: true, result: await revokeOrigin(stored, origin) }),
+  znn_sendTransaction: args => queueApproval('sendTransaction', args),
+  znn_signAndSendBlock: args => queueApproval('signAndSendBlock', args),
+  znn_sign: async args => {
+    const message = typeof args.params === 'string' ? args.params : args.params?.message;
+    if (typeof message !== 'string' || !message.length || message.length > maxSignMessageLength) throw invalidParams('znn_sign expects a nonempty message of at most 8192 characters');
+    return queueApproval('signMessage', { ...args, params: { message } });
   },
 };
 
@@ -246,17 +205,21 @@ const handleProviderRequest = async (request, sender) => {
   }
 
   try {
-    const outcome = await handler({ id, origin, target, sender, params });
-
-    // Read-only methods return their value directly; the ones that need a
-    // person return `{settled: false}` and are answered when the popup does.
-    if (outcome && typeof outcome === 'object' && 'settled' in outcome) {
-      if (outcome.settled) {
-        await respond(target, id, outcome.result);
+    const pending = await selection.transaction(async stored => {
+      const outcome = await handler({ id, origin, target, sender, params, stored });
+      if (outcome && typeof outcome === 'object' && 'settled' in outcome) {
+        if (outcome.settled) await respond(target, id, outcome.result);
+        return outcome.present;
       }
-      return;
+      await respond(target, id, outcome);
+      return null;
+    });
+    // Window operations take window -> pending; never hold selection while
+    // awaiting popup startup, which will itself need the selection lock.
+    if (pending) {
+      try { if (!(await requests.present(pending))) throw selection.ended(); }
+      catch (error) { await requests.reject(pending); throw error; }
     }
-    await respond(target, id, outcome);
   } catch (err) {
     const error = { code: Number.isFinite(err?.code) ? err.code : errors.internal.code,
       message: err?.message || 'Internal error' };
@@ -264,35 +227,54 @@ const handleProviderRequest = async (request, sender) => {
   }
 };
 
-const announceState = async (leaseId, event, payloadOf) => {
-  const state = await sessionLease.eventState(leaseId);
-  if (!state) return false;
-  if (state.hidden) {
-    if (event === 'accountsChanged') await broadcast(event, []);
-    return true;
-  }
-  await broadcast(event, payloadOf(state));
-  return true;
-};
-
 //
 // Popup-facing methods
 //
+const requestAllowed = async (record, request) => selection.matches(record, request?.binding) &&
+  (request.type === 'connect' || await permissions.isConnected(request.origin, request.binding.scope));
 const internalMethods = {
-  // The approval screens ask what they are being opened for.
   'approvals.list': () => requests.list(),
-  'approvals.next': () => requests.oldest(),
-
-  'approvals.claim': ({ identity, windowId }) => requests.claim(identity, windowId),
-  'approvals.checkClaim': ({ identity }) => requests.checkClaim(identity),
-  'approvals.resolve': async ({ identity, result }) => {
+  'approvals.next': ({ binding }) => selection.transaction(async stored => {
+    const record = selection.current(stored);
+    selection.assert(record, binding, true);
+    const { next, removed } = await requests.nextFor(record);
+    await rejectRemoved(removed);
+    if (next && !(await requestAllowed(record, next))) {
+      await rejectRemoved(await requests.cancelWhere(item => item.id === next.id));
+      return null;
+    }
+    return next;
+  }),
+  'approvals.claim': ({ identity, windowId }) => selection.transaction(async stored => {
+    const request = await requests.get(identity?.id);
+    if (!(await requestAllowed(selection.current(stored), request))) return null;
+    return requests.claim(identity, windowId);
+  }),
+  // Read-only check may run inside a popup's selection-locked key operation.
+  'approvals.checkClaim': async ({ identity }) => {
+    const request = await requests.get(identity?.id);
+    return await requestAllowed(selection.current(await selection.read()), request) && await requests.checkClaim(identity);
+  },
+  // Resolution is bound to the selection the request was shown under, then to
+  // the approval deadline and the relay's acceptance.
+  'approvals.resolve': ({ identity, result }) => selection.transaction(async stored => {
+    const candidate = await requests.get(identity?.id);
+    if (!(await requestAllowed(selection.current(stored), candidate))) return false;
     const request = await requests.resolve(identity);
     if (!request) return false;
     const checkDeadline = () => {
       if (Date.now() >= request.expiresAt) throw new Error('Approval expired during finalization.');
     };
+    // A connection answers with the bound account, and a signature must be the
+    // bound account's: never a value the popup chose.
+    let payload = result;
+    if (request.type === 'connect') payload = [request.binding.scope.address];
+    else if (request.type === 'signMessage' && result?.address !== request.binding.scope.address) {
+      await respond(request, request.responseId, undefined, errors.internal);
+      return false;
+    }
     let delivery;
-    const complete = () => { checkDeadline(); delivery = respond(request, request.responseId, result); return delivery; };
+    const complete = () => { checkDeadline(); delivery = respond(request, request.responseId, payload); return delivery; };
     try {
       checkDeadline();
       // Save this optional convenience before permission activation. A held
@@ -301,7 +283,7 @@ const internalMethods = {
       catch (error) { console.error('Unable to save approval follow-up allowance', error); }
       checkDeadline();
       if (request.type === 'connect') {
-        if (!(await permissions.grant(request.origin, { title: request.title, favicon: request.favicon },
+        if (!(await permissions.grant(request.origin, request.binding.scope, { title: request.title, favicon: request.favicon },
           { expiresAt: request.expiresAt, confirm: complete }))) throw new Error('The connection permission could not be saved.');
       } else complete();
       await delivery;
@@ -311,50 +293,52 @@ const internalMethods = {
         ? errors.expiredClaim : { ...errors.internal, message: error.message });
       return false;
     }
-  },
+  }),
   'approvals.reject': async ({ identity, error }) => {
     const request = await requests.reject(identity);
     if (!request) return false;
     await respond(request, request.responseId, undefined, error || errors.userRejected);
     return true;
   },
-
-  //
-  // Connected sites
-  //
   'permissions.list': () => permissions.list(),
-  'permissions.revoke': async ({ origin }) => {
-    const revoked = await permissions.revoke(origin);
-    await broadcast('disconnect', { origin });
-    return revoked;
-  },
-  'permissions.revokeAll': async () => {
-    const sites = await permissions.list();
-    const revoked = await permissions.revokeAll();
-    await Promise.all(sites.map((site) => broadcast('disconnect', { origin: site.origin })));
-    return revoked;
-  },
+  'permissions.revoke': ({ origin, scope }) => selection.transaction(stored => revokeOrigin(stored, origin, scope)),
+  'permissions.revokeAll': () => selection.transaction(async stored => {
+    const sites = await permissions.revokeAll();
+    await rejectRemoved(await requests.cancelWhere(() => true));
+    await announceToSites(stored, 'accountsChanged', undefined, sites.map(site => site.origin));
+    return true;
+  }),
+  // Removing a wallet withdraws every site's consent to any of its accounts,
+  // and cancels what those sites have queued -- and any unbound connect, which
+  // could otherwise authorize a later import that reuses this wallet's name.
+  'permissions.revokeWallet': ({ scope }) => selection.transaction(async stored => {
+    if (!selection.validScope(scope)) throw selection.ended();
+    const sites = await permissions.revokeWallet(scope);
+    await rejectRemoved(await requests.cancelWhere(request => !request.admitted ||
+      selection.sameWallet(request.admitted.scope, scope)));
+    await announceToSites(stored, 'accountsChanged', undefined, sites.map(site => site.origin));
+    return true;
+  }),
 
   //
   // State changes the popup makes that sites care about
   //
-  // Each names the lease it is about, and the payload is read from that
-  // lease's current public state rather than taken from the message — so a
-  // delayed announcement from an older popup cannot advertise a wallet that
-  // has since been locked or replaced. Under On close there is no public
-  // state, and sites are told there is no account.
-  'events.accountsChanged': ({ leaseId }) => announceState(leaseId, 'accountsChanged',
-    (state) => (state.address ? [state.address] : [])),
-  'events.chainChanged': ({ leaseId }) => announceState(leaseId, 'chainChanged', (state) => state.chainId),
-  'events.nodeChanged': ({ leaseId }) => announceState(leaseId, 'nodeChanged', (state) => state.nodeUrl),
+  // Each names the selection generation it is about, and the payload is read
+  // from the current public state under the session lock rather than taken
+  // from the message -- so a delayed announcement from an older popup cannot
+  // advertise an account that has since been locked or replaced. Under On
+  // close there is no public state, and sites are told there is no account.
+  'events.accountsChanged': ({ selectionId }) => selection.transaction(stored => announceToSites(stored, 'accountsChanged', selectionId)),
+  'events.chainChanged': ({ selectionId }) => selection.transaction(stored => announceToSites(stored, 'chainChanged', selectionId)),
+  'events.nodeChanged': ({ selectionId }) => selection.transaction(stored => announceToSites(stored, 'nodeChanged', selectionId)),
 
   // Locking has to reach the pages too, or a site keeps showing an address for
-  // a wallet that is shut.
-  'session.locked': async ({ leaseId }) => {
-    if (!(await sessionLease.isLockedGeneration(leaseId))) return false;
-    await broadcast('accountsChanged', []);
-    return true;
-  },
+  // a wallet that is shut. `leaseId` is the revocation's own generation.
+  'session.locked': ({ leaseId }) => selection.transaction(async stored => {
+    const record = selection.current(stored);
+    if (!leaseId || record?.id !== leaseId || !record.locked) return false;
+    return announceToSites(stored, 'accountsChanged', record.selectionId);
+  }),
 };
 
 //
@@ -472,7 +456,10 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   try { await requests.prune(); }
   catch (error) { console.error('Unable to expire wallet approvals', error); }
   const generation = await sessionLease.expire();
-  if (generation && await sessionLease.isLockedGeneration(generation)) {
-    await broadcast('accountsChanged', []);
+  if (generation) {
+    await selection.transaction(async stored => {
+      const record = selection.current(stored);
+      if (record?.id === generation) await announceToSites(stored, 'accountsChanged', record.selectionId);
+    });
   }
 });

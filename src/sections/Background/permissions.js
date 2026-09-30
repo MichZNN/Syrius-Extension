@@ -1,73 +1,125 @@
-// Readers and writers share a lock: an immediate follow-up waits for the
-// accepted connection's durable promotion, and stale writes cannot undo revoke.
+import selection from '../../services/wallet/selection';
+
+// Which sites may see which wallet account.
+//
+// A connection is read access to one wallet import's one account (`scope`),
+// its chain identifier and node, granted per origin and remembered. It is never
+// permission to move anything: signing and sending are prompted every time.
+// Consent that named only an origin followed whichever wallet or account was
+// selected later; grants from those versions are not carried over.
+//
+// Rows are `{active: true, origin, scope, ...}`, or a tentative row that is
+// inactive by itself — `{active: false, pendingApproval, previous}` — written
+// while a new connection waits for the page's relay to accept its response.
+// Readers and writers share a lock, so an immediate follow-up waits for the
+// accepted connection's durable promotion, and stale writes cannot undo a
+// revocation. A revocation is also recorded as a session denial before the
+// durable row is removed, so a failed removal still withdraws access.
 const storageKey = 'syrius.permissions';
-const serialized = operation => navigator.locks.request(storageKey, operation);
-const own = (all, key) => Object.hasOwn(all, key) ? all[key] : null;
-const readAll = async () => (await chrome.storage.local.get(storageKey))[storageKey] || {};
-const writeAll = all => chrome.storage.local.set({ [storageKey]: all });
-// Tentative state is durably inactive by itself, including after session loss.
-// Preserve prior consent; old tentative formats require a fresh connection.
-const activeEntry = entry => entry?.pendingApproval ? entry.previous || null
-  : entry?.approvalAttempt ? null : entry || null;
-const checkDeadline = expiresAt => {
+const deniedKey = 'syrius.permissionDenials';
+const revoked = new Set();
+const keyOf = (origin, scope) => JSON.stringify([origin, selection.scopeKey(scope)]);
+const validRow = (entry) => Boolean(entry && typeof entry.origin === 'string' && selection.validScope(entry.scope) &&
+  (entry.active === true || (entry.active === false && entry.pendingApproval)));
+const readRaw = async () => {
+  const value = (await chrome.storage.local.get(storageKey))[storageKey];
+  return value?.version === 2 && Array.isArray(value.entries) ? value.entries.filter(validRow) : [];
+};
+const writeAll = (entries) => chrome.storage.local.set({ [storageKey]: { version: 2, entries } });
+const serialized = (operation) => navigator.locks.request(storageKey, async () => operation(await readRaw()));
+// A tentative row stands for the grant it would replace, if any.
+const activeOf = (entry) => (entry.active === true ? entry : entry.previous?.active === true ? entry.previous : null);
+const activeEntries = (raw) => raw.map(activeOf).filter(Boolean);
+const checkDeadline = (expiresAt) => {
   if (!Number.isFinite(expiresAt) || Date.now() >= expiresAt) throw new Error('Approval expired during finalization.');
 };
-
-const originOf = (sender) => {
-  if (sender && sender.origin) {
-    return sender.origin;
-  }
-  try {
-    return sender && sender.url ? new URL(sender.url).origin : null;
-  } catch (err) {
-    return null;
-  }
+const denied = async (origin, scope) => {
+  const stored = (await chrome.storage.session.get(deniedKey))[deniedKey] || [];
+  return revoked.has('*') || revoked.has(origin) || revoked.has(keyOf(origin, scope)) ||
+    stored.includes('*') || stored.includes(origin) || stored.includes(keyOf(origin, scope));
 };
+const find = (entries, origin, scope) => entries.find((entry) => entry.origin === origin && selection.sameScope(entry.scope, scope));
+const connected = async (raw, origin, scope) => Boolean(find(activeEntries(raw), origin, scope)) && !(await denied(origin, scope));
 
-const isConnected = async origin => {
-  try { return await serialized(async () => Boolean(origin && activeEntry(own(await readAll(), origin)))); }
+// A page can claim to be any origin it likes in a postMessage, so the origin
+// used for a permission decision is always the one Chrome reports for the
+// sender, never one the page supplied.
+const originOf = (sender) => {
+  try { return sender?.origin || (sender?.url ? new URL(sender.url).origin : null); }
+  catch (error) { return null; }
+};
+// Fails closed: an unreadable store is not consent.
+const isConnected = async (origin, scope) => {
+  try { return await serialized((raw) => connected(raw, origin, scope)); }
   catch (error) { return false; }
 };
-const get = origin => serialized(async () => activeEntry(own(await readAll(), origin)));
-const list = () => serialized(async () => Object.values(await readAll()).map(activeEntry).filter(Boolean)
-  .sort((a, b) => (b.connectedAt || 0) - (a.connectedAt || 0)));
-
-const grant = (origin, { title = '', favicon = '' } = {}, { expiresAt, confirm } = {}) => serialized(async () => {
-  if (!origin || typeof confirm !== 'function') return false;
+// The active grant for exactly this account, whether or not a session denial
+// currently withholds it.
+const get = (origin, scope) => serialized((raw) => find(activeEntries(raw), origin, scope) || null);
+const list = () => serialized(async (raw) => {
+  const entries = activeEntries(raw);
+  const allowed = await Promise.all(entries.map((entry) => connected(raw, entry.origin, entry.scope)));
+  return entries.filter((_, index) => allowed[index]).sort((a, b) => (b.connectedAt || 0) - (a.connectedAt || 0));
+});
+// Saves a tentative (inactive) row first, preserving any prior consent. The
+// exact isolated relay must accept the connection response before the fixed
+// deadline (`confirm` returns its receipt); that acceptance is the consent
+// commitment point, and the durable promotion completes it. Any failure puts
+// the prior state back, and a stranded tentative row stays inactive — even
+// after a browser restart loses every session-only record.
+const grant = (origin, scope, { title = '', favicon = '' } = {}, { expiresAt, confirm } = {}) => serialized(async (raw) => {
+  if (!origin || !selection.validScope(scope)) throw selection.ended();
+  if (typeof confirm !== 'function') return false;
   checkDeadline(expiresAt);
-  const all = await readAll(); checkDeadline(expiresAt);
-  const previous = activeEntry(own(all, origin));
-  const restored = { ...all }; if (previous) restored[origin] = previous; else delete restored[origin];
-  const completed = { origin, title, favicon,
-    connectedAt: previous?.connectedAt || Date.now(), lastUsedAt: Date.now() };
-  // A failed write cannot leave unmarked new authority. No session-only denial
-  // is needed to interpret this row after a browser restart.
-  await writeAll({ ...all, [origin]: { pendingApproval: { id: crypto.randomUUID(), expiresAt }, previous } });
+  const same = (entry) => entry.origin === origin && selection.sameScope(entry.scope, scope);
+  const others = raw.filter((entry) => !same(entry));
+  const previous = raw.filter(same).map(activeOf).find(Boolean) || null;
+  const restored = previous ? [...others, previous] : others;
+  await writeAll([...others, { active: false, origin, scope: { ...scope }, pendingApproval: { id: crypto.randomUUID(), expiresAt }, previous }]);
   try {
     checkDeadline(expiresAt);
     const receipt = await confirm();
     if (receipt?.accepted !== true || !Number.isFinite(receipt.acceptedAt) || receipt.acceptedAt >= expiresAt) {
       throw new Error('The connection was not accepted before its approval expired.');
     }
-    // The exact isolated relay accepted the response before expiry. This is
-    // the consent commitment point, even if its native acknowledgement arrives
-    // later. Durable promotion completes that already-accepted decision. If it
-    // fails, the provisional row remains inactive and reconnect is required.
-    await writeAll({ ...all, [origin]: { ...completed, approvalAcceptedAt: receipt.acceptedAt } });
-    return true;
+    await writeAll([...others, { active: true, origin, scope: { ...scope }, title, favicon,
+      connectedAt: previous?.connectedAt || Date.now(), lastUsedAt: Date.now(), approvalAcceptedAt: receipt.acceptedAt }]);
   } catch (error) {
-    await writeAll(restored).catch(() => {}); // Stranded provisional stays inactive.
+    await writeAll(restored).catch(() => {}); // A stranded tentative row stays inactive.
     throw error;
   }
+  // Explicit reconnection clears an earlier revocation of exactly this grant.
+  // Only now, once the new grant is durable: lifting it first would let a
+  // failed reconnect restore a revoked grant whose durable removal had failed.
+  const key = keyOf(origin, scope);
+  const stored = (await chrome.storage.session.get(deniedKey))[deniedKey] || [];
+  await chrome.storage.session.set({ [deniedKey]: stored.filter((item) => !['*', origin, key].includes(item)) });
+  revoked.delete('*'); revoked.delete(origin); revoked.delete(key);
+  return true;
 });
-const revoke = origin => serialized(async () => {
-  const all = await readAll(); delete all[origin]; await writeAll(all); return true;
+const withdraw = (predicate) => serialized(async (raw) => {
+  const affected = activeEntries(raw).filter(predicate);
+  const keys = raw.filter(predicate).map((entry) => keyOf(entry.origin, entry.scope));
+  keys.forEach((key) => revoked.add(key));
+  const stored = (await chrome.storage.session.get(deniedKey))[deniedKey] || [];
+  await chrome.storage.session.set({ [deniedKey]: [...new Set([...stored, ...keys])] });
+  await writeAll(raw.filter((entry) => !predicate(entry)));
+  return affected;
 });
-const revokeAll = () => serialized(async () => { await writeAll({}); return true; });
-const touch = origin => serialized(async () => {
-  const all = await readAll(), entry = activeEntry(own(all, origin));
+const revoke = (origin, scope) => withdraw((entry) => entry.origin === origin && (!scope || selection.sameScope(entry.scope, scope)));
+const revokeAll = () => withdraw(() => true);
+const revokeWallet = (scope) => withdraw((entry) => selection.sameWallet(entry.scope, scope));
+// Cleanup needs every durable target, including a grant conservatively denied
+// in this realm. Another worker realm may have reconnected it meanwhile.
+const forWallet = (scope) => serialized((raw) => activeEntries(raw).filter((entry) => selection.sameWallet(entry.scope, scope)));
+const touch = (origin, scope) => serialized(async (raw) => {
+  if (!(await connected(raw, origin, scope))) return false;
+  const entry = raw.find((row) => row.active === true && row.origin === origin && selection.sameScope(row.scope, scope));
   if (!entry) return false;
-  all[origin] = { ...entry, lastUsedAt: Date.now() }; await writeAll(all); return true;
+  entry.lastUsedAt = Date.now();
+  await writeAll(raw);
+  return true;
 });
-const permissions = { storageKey, originOf, isConnected, get, list, grant, revoke, revokeAll, touch };
+
+const permissions = { storageKey, deniedKey, originOf, isConnected, get, list, grant, revoke, revokeAll, revokeWallet, forWallet, touch };
 export default permissions;

@@ -16,6 +16,7 @@ const root = path.join(__dirname, '..'), compiled = new Map();
 const clone = value => value === undefined ? value : structuredClone(value);
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const flush = async () => { for (let i = 0; i < 12; i++) await tick(); };
+const navigateStub = () => {};
 const deferred = () => { let resolve; const promise = new Promise(yes => { resolve = yes; }); return { promise, resolve }; };
 const loader = (environment, overrides = () => undefined) => {
   const cache = new Map();
@@ -40,7 +41,14 @@ const emptyHash = sdk.Primitives.Hash.parse('00'.repeat(32));
 const message = 'Approval identity: defensive signing fixture.';
 const block = () => sdk.Primitives.AccountBlockTemplate.send(address, token, BigNumber.from(1)).toJson();
 const paramsFor = type => ({ connect: {}, sendTransaction: { to: address.toString(), tokenStandard: token.toString(), amount: '1' }, signAndSendBlock: block(), signMessage: { message } })[type];
-const entry = (responseId = 'same', documentId = 'doc-a', type = 'signMessage') => ({ responseId, documentId, origin: 'https://fixture.invalid', tabId: 1, frameId: 0, type, params: paramsFor(type), title: '', favicon: '' });
+// Wallet scoping (#11): consent, admission and approval are bound to one
+// wallet account and selection generation. The fixture wallet is always
+// unlocked on this one; these scenarios test identity and claims on top of it.
+const scope = { walletName: 'fixture', walletId: address.toString(), address: address.toString(), index: 0 };
+const selectionId = 'fixture-selection';
+const binding = Object.freeze({ id: selectionId, ownerId: 'owner', scope: Object.freeze({ ...scope }) });
+const entry = (responseId = 'same', documentId = 'doc-a', type = 'signMessage') => ({ responseId, documentId, origin: 'https://fixture.invalid', tabId: 1, frameId: 0, type, params: paramsFor(type), title: '', favicon: '',
+  admitted: { id: selectionId, scope }, waitForUnlock: false, binding: null });
 // The queue's admission limits (#10) are exercised by approval-queue-test.
 // These scenarios test identity and claims, some with many requests from one
 // origin at once, so they run with the numeric limits lifted. The one-pending-
@@ -51,7 +59,11 @@ const relaxedLimits = load => id => {
   return { ...real, limits: Object.freeze({ ...real.limits, pending: 1000, perOrigin: 1000, globalAttention: 0, originAttention: 0 }) };
 };
 const fixture = () => {
-  const session = {}, local = {}, locks = new Map(), listeners = {}, delivered = [], windows = new Map([[10, {}], [11, {}]]);
+  const session = {
+    'znn.unlock': { version: 2, id: 'lease', revision: 'r', walletName: 'fixture', minutes: 15, mode: 'timed', entropy: 'fixture',
+      ownerId: 'owner', selectedAddressIndex: 0, selectionId, scope, resumeFrom: null, lastActiveAt: Date.now(), expiresAt: Date.now() + 3600000 },
+    'znn.publicState': { address: address.toString(), scope, selectionId, leaseId: 'lease', chainId: 1, nodeUrl: 'wss://fixture.invalid' },
+  }, local = {}, locks = new Map(), listeners = {}, delivered = [], windows = new Map([[10, {}], [11, {}]]);
   const faults = {}, counts = { created: 0, signs: 0, publishes: 0 }, events = [];
   let storageGate, phaseGate, internalGate;
   const hold = phase => (phaseGate = { phase, started: deferred(), release: deferred() });
@@ -109,13 +121,19 @@ const fixture = () => {
     assert.equal(ack?.accepted, true); await flush();
   };
   const key = { getAddress: async () => address, getPublicKey: async () => Buffer.alloc(32, 7), sign: async () => { counts.signs++; await pause('sign'); return Buffer.alloc(64, 9); } };
-  const vault = { getKeyPair: () => key, getSigningKeyPair: async () => { await pause('key'); return key; } };
+  const vault = { getKeyPair: () => key, getSigningKeyPair: async () => { await pause('key'); return key; },
+    getBinding: () => binding, whileBound: async (_, operation) => operation() };
   const zenon = sdk.Zenon.getSingleton();
   zenon.ledger.getFrontierBlock = async () => { await pause('rpc'); return null; };
   zenon.ledger.getFrontierMomentum = async () => ({ hash: emptyHash, height: 1 });
   zenon.embedded.plasma.getRequiredPoWForAccountBlock = async () => { await pause('pow'); return { requiredDifficulty: 0, basePlasma: 0, availablePlasma: 0 }; };
   zenon.ledger.publishRawTransaction = async template => { await pause('publish'); counts.publishes++; assert.equal(template.signature.length, 64); };
+  // Scoped consent for the fixture origin.
+  const connect = () => { local['syrius.permissions'] = { version: 2, entries: [{ active: true, origin: 'https://fixture.invalid', scope, title: '', favicon: '', connectedAt: 1, lastUsedAt: 1 }] }; };
   const ui = (windowId = 10) => {
+    // Every approval-screen flow here is for a site already connected to the
+    // fixture account; only a connected account's requests are shown (#11).
+    connect();
     const states = [], refs = [], effects = [], callbacks = [], notices = [];
     let si, ri, ei, ci, tree, closes = 0;
     const state = { wallet: { address: address.toString(), isUnlocked: true }, connectionParameters: { chainIdentifier: 1, nodeUrl: 'wss://fixture.invalid' } };
@@ -129,7 +147,8 @@ const fixture = () => {
     const uiChrome = { ...chrome, windows: { ...chrome.windows, getCurrent: async () => ({ id: windowId }) } };
     const uiLoad = loader({ ...environment, chrome: uiChrome, window: { close() { closes++; } }, setTimeout: (fn, ms) => setTimeout(fn, ms === 1200 ? 0 : ms) }, id => {
       if (id === 'react') return hooks;
-      if (id === 'react-router-dom') return { useNavigate: () => () => {} };
+      // Stable within a route, as React Router's is: the screen's loaders depend on it.
+      if (id === 'react-router-dom') return { useNavigate: () => navigateStub };
       if (id === 'react-redux') return { useSelector: select => select(state) };
       if (id === './vault' || id.endsWith('/wallet/vault')) return { __esModule: true, default: vault };
       if (id === './useAccount' || id.endsWith('/hooks/useAccount')) return { __esModule: true, default: () => ({ balanceMap: { [token.toString()]: { balance: BigNumber.from('1000000000'), token: { decimals: 8, symbol: 'ZNN' } } } }), invalidateAccountCache() {} };
@@ -143,7 +162,9 @@ const fixture = () => {
     return { settle, render, state, notices, closes: () => closes, button: text => flatten(tree).find(node => node.type === 'button' && node.props.children === text), markup: () => renderToStaticMarkup(tree), dispose: () => effects.forEach(effect => effect.cleanup?.()) };
   };
   const add = async value => { const request = await queue.add(value); await queue.attachWindow(identity.identityOf(request), 10); return queue.get(request.id); };
-  return { queue, identity, add, freshQueue: () => loader(environment, relaxedLimits(plain))('src/sections/Background/requests.js').default, session, local, faults, counts, events, windows, delivered, listeners, chrome, internal, sender, provider, hold, ui,
+  // The popup's binding step.
+  const bindNext = () => internal('approvals.next', { binding });
+  return { connect, bindNext, queue, identity, add, freshQueue: () => loader(environment, relaxedLimits(plain))('src/sections/Background/requests.js').default, session, local, faults, counts, events, windows, delivered, listeners, chrome, internal, sender, provider, hold, ui,
     holdStorage: area => (storageGate = { area, started: deferred(), release: deferred() }),
     holdInternal: method => (internalGate = { method, started: deferred(), release: deferred() }) };
 };
@@ -202,25 +223,26 @@ const watchdog = setTimeout(() => { console.error('Request identity checks timed
   // Actual worker routing preserves original public IDs, types and doc targets.
   for (const type of ['connect', 'sendTransaction', 'signAndSendBlock', 'signMessage']) {
     const f = fixture(), method = { connect: 'znn_connect', sendTransaction: 'znn_sendTransaction', signAndSendBlock: 'znn_signAndSendBlock', signMessage: 'znn_sign' }[type];
-    if (type !== 'connect') f.local['syrius.permissions'] = { 'https://fixture.invalid': { origin: 'https://fixture.invalid' } };
+    if (type !== 'connect') f.connect();
     await f.provider(method, type === 'signMessage' ? message : paramsFor(type), 0);
-    const row = await f.queue.oldest(); assert.equal(row.type, type); assert.equal(row.responseId, 0);
+    const row = await f.bindNext(); assert.equal(row.type, type); assert.equal(row.responseId, 0);
     if (type === 'signMessage') assert.deepEqual(row.params, { message });
     assert.equal(await f.internal('approvals.resolve', { identity: f.identity.identityOf(row), result: 'premature' }), false);
     const claim = await f.internal('approvals.claim', { identity: f.identity.identityOf(row), windowId: 10 }); assert(claim);
-    assert.equal(await f.internal('approvals.resolve', { identity: claim, result: type === 'connect' ? [address.toString()] : { fixture: type } }), true);
+    // A signature must be the bound account's (#11).
+    assert.equal(await f.internal('approvals.resolve', { identity: claim, result: type === 'connect' ? [address.toString()] : type === 'signMessage' ? { address: address.toString() } : { fixture: type } }), true);
     assert.equal(f.delivered.length, 1); assert.equal(f.delivered[0].value.id, 0);
     assert.deepEqual(f.delivered[0].options, { frameId: 0, documentId: 'doc-a' });
     assert.equal(await f.internal('approvals.resolve', { identity: claim, result: 'duplicate' }), false);
     assert.equal(f.delivered.length, 1);
   }
   {
-    const f = fixture(); await f.provider('znn_connect', {}, 'legacy-like'); const row = await f.queue.oldest();
+    const f = fixture(); await f.provider('znn_connect', {}, 'legacy-like'); const row = await f.bindNext();
     const claim = await f.internal('approvals.claim', { identity: f.identity.identityOf(row), windowId: 10 });
     f.faults.localWrite = true;
     assert.equal(await f.internal('approvals.resolve', { identity: claim, result: [address.toString()] }), false);
     assert.equal(f.delivered[0].value.id, 'legacy-like'); assert.equal(f.delivered[0].value.error.code, -32603);
-    assert.equal(f.local['syrius.permissions'], undefined);
+    assert.deepEqual(f.local['syrius.permissions']?.entries ?? [], []);
   }
   {
     const f = fixture(); f.faults.windowCreate = true; await f.provider('znn_connect', {}, 'window-failure');
@@ -243,14 +265,10 @@ const watchdog = setTimeout(() => { console.error('Request identity checks timed
   {
     const f = fixture();
     await f.provider('znn_sign', message, 'denied'); assert.equal(f.delivered[0].value.error.code, 4100);
-    f.local['syrius.permissions'] = { 'https://fixture.invalid': { origin: 'https://fixture.invalid' } };
+    f.connect();
     await f.provider('znn_sign', { message: '' }, 'empty'); assert.equal(f.delivered[1].value.error.code, -32602);
     await f.provider('znn_sign', { message: 'a'.repeat(8193) }, 'large'); assert.equal(f.delivered[2].value.error.code, -32602);
-    // A live timed lease in the integrated session format (sessionLease.js),
-    // and public state bound to it.
-    f.session['znn.unlock'] = { version: 1, id: 'lease', revision: 'r', walletName: 'fixture', minutes: 15, mode: 'timed',
-      entropy: 'fixture', ownerId: 'owner', selectedAddressIndex: 0, lastActiveAt: Date.now(), expiresAt: Date.now() + 60000 };
-    f.session['znn.publicState'] = { address: address.toString(), leaseId: 'lease' };
+    // The fixture's live scoped session and public state answer this directly.
     await f.provider('znn_connect', {}, 'connected'); assert.deepEqual(f.delivered[3].value.result, [address.toString()]);
     assert.equal(f.counts.created, 0); assert.equal((await f.queue.list()).length, 0);
     await assert.rejects(async () => f.queue.add({ ...entry(), documentId: undefined }), error => error.code === -32602);
@@ -270,7 +288,9 @@ const watchdog = setTimeout(() => { console.error('Request identity checks timed
     assert.equal(f.delivered[0].value.id, row.responseId);
     assert.equal(f.counts.signs, type === 'connect' ? 0 : 1);
     assert.equal(f.counts.publishes, ['sendTransaction', 'signAndSendBlock'].includes(type) ? 1 : 0);
-    assert.equal(f.events.filter(x => x.method === 'approvals.reject').length, 0, 'failed claimant does not reject winner');
+    // A losing claimant may ask to retire its view (#11), but the queue refuses
+    // an identity another popup has claimed: the winner's result is delivered.
+    assert.equal(f.delivered[0].value.error, undefined, 'failed claimant does not reject winner');
     first.dispose(); second.dispose();
   }
   for (const type of ['sendTransaction', 'signAndSendBlock', 'signMessage']) {

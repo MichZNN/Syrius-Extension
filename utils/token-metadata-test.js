@@ -74,12 +74,17 @@ const view = ({ file, states, account }) => {
     if (name.endsWith('/hooks/useBackgroundSender')) return () => ({ sendInBackground: template => sent.push(template) });
     if (name.endsWith('/hooks/useBlockSender')) return () => ({ send: async template => { sent.push(template); return template; }, isSending: false, isGeneratingPlasma: false });
     if (name.endsWith('/hooks/modal/modalContext')) return { ModalContext: {} };
-    if (name.endsWith('/wallet/vault')) return {};
+    // Requests reach the approval screen bound to a wallet account (#11); the
+    // stand-in vault is on that same selection.
+    if (name.endsWith('/wallet/vault')) return { getBinding: () => fixtureBinding, getKeyPair: () => ({}), whileBound: async (_, operation) => operation() };
     if (name.endsWith('/wallet/signMessage')) return {};
     // The approval screen claims a request before signing (single-use request
     // identities); the stand-in worker grants the claim and accepts the result.
     if (name.endsWith('/utils/messaging')) return { sendInternal: async (type, params) => {
-      if (type === 'approvals.next') return { id: 'next', type: 'connect', params: {} };
+      // A well-formed next request: an invalid one is now a reported error (#11).
+      if (type === 'approvals.next') return { version: 4, id: 'next', type: 'connect', params: {}, origin: 'https://example.invalid',
+        tabId: 1, frameId: 0, documentId: 'doc', responseId: 1, title: '', favicon: '', createdAt: Date.now(),
+        expiresAt: Date.now() + 600000, admitted: null, waitForUnlock: false, binding: fixtureBinding };
       if (type === 'approvals.claim') return { ...params.identity, claimId: 'fixture-claim' };
       if (type === 'approvals.checkClaim' || type === 'approvals.resolve') return true;
       return null;
@@ -90,6 +95,8 @@ const view = ({ file, states, account }) => {
   })(file).default;
   return { render: () => { cursor = 0; refCursor = 0; return Component(); }, sent, errors, rules, modal: () => modal };
 };
+const fixtureBinding = Object.freeze({ id: 'fixture-selection', ownerId: 'owner', scope: Object.freeze({
+  walletName: 'fixture', walletId: 'z1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsggv2f', address: 'z1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsggv2f', index: 0 }) });
 const elements = tree => !tree || typeof tree !== 'object' ? [] : Array.isArray(tree) ? tree.flatMap(elements) : [tree, ...elements(tree.props?.children)];
 const sendFile = 'src/pages/send-receive/send/send.js';
 const approvalFile = 'src/layouts/siteIntegrationLayout/siteIntegrationLayout.js';
@@ -169,7 +176,7 @@ const approvalFile = 'src/layouts/siteIntegrationLayout/siteIntegrationLayout.js
     for (const zts of [znnZts, custom]) {
       for (const destination of [recipient, 'z1qxemdeddedxplasmaxxxxxxxxxxxxxxxxsctrp']) {
         const amount = zts === custom ? exact : '100000001';
-        const request = { id: 'fixture', expiresAt: Date.now() + 600000, type, origin: 'https://example.invalid', params: { amount, tokenStandard: zts, to: destination, toAddress: destination, data: '' } };
+        const request = { id: 'fixture', expiresAt: Date.now() + 600000, binding: fixtureBinding, type, origin: 'https://example.invalid', params: { amount, tokenStandard: zts, to: destination, toAddress: destination, data: '' } };
         // Deliberately supply hostile metadata directly, bypassing normalization:
         // amount rendering must enforce its own trust boundary too.
         const page = view({ file: approvalFile, states: [request, null, false, false], account: { address: recipient, balanceMap: { [zts]: entry(zts, 30, 'FORGED') } } });
@@ -187,7 +194,7 @@ const approvalFile = 'src/layouts/siteIntegrationLayout/siteIntegrationLayout.js
     for (const amount of ['0x05f5e100', '0100000000', 100000000, ethers.BigNumber.from(100000000), { type: 'BigNumber', hex: '0x05f5e100' }]) {
       assert.equal(normalizeBaseUnits(amount), '100000000');
       const params = { ...sdk.Primitives.AccountBlockTemplate.send(sdk.Primitives.Address.parse(recipient), sdk.Primitives.TokenStandard.parse(znnZts), ethers.BigNumber.from(1)).toJson(), to: recipient, amount };
-      const request = { id: 'encoded', expiresAt: Date.now() + 600000, type, params };
+      const request = { id: 'encoded', expiresAt: Date.now() + 600000, binding: fixtureBinding, type, params };
       const page = view({ file: approvalFile, states: [request, null, false, false], account: { address: recipient, balanceMap: withBaseTokens({ [znnZts]: entry(znnZts, 30) }) } });
       const tree = page.render();
       assert(renderToStaticMarkup(tree).includes('1.0 ZNN'));
@@ -200,7 +207,7 @@ const approvalFile = 'src/layouts/siteIntegrationLayout/siteIntegrationLayout.js
     }
     for (const amount of ['-1', '-0x01', '1.1', '1e8', '', null, undefined, Number.MAX_SAFE_INTEGER + 1, { toString: 'invalid' }]) {
       assert.throws(() => normalizeBaseUnits(amount));
-      const request = { id: 'invalid', expiresAt: Date.now() + 600000, type, params: { to: recipient, tokenStandard: znnZts, amount } };
+      const request = { id: 'invalid', expiresAt: Date.now() + 600000, binding: fixtureBinding, type, params: { to: recipient, tokenStandard: znnZts, amount } };
       const page = view({ file: approvalFile, states: [request, null, false, false], account: { address: recipient, balanceMap: withBaseTokens({ [znnZts]: entry(znnZts, 8) }) } });
       const tree = page.render();
       const button = elements(tree).find(el => el.type === 'button' && el.props.children !== 'Reject');

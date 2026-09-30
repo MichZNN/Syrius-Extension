@@ -78,7 +78,7 @@ const fixture = () => {
     const setTimeout = (fn, ms) => { const id = ++state.nextTimer; state.timers.set(id, { fn, at: state.now + ms }); return id; };
     const clearTimeout = id => state.timers.delete(id);
     const cache = new Map();
-    const storage = { getSettings: () => settings, getAddressInfo: () => ({ selectedAddressIndex: 1, maxAddressIndex: 3 }), setLastWalletName() {}, getCurrentNodeUrl: () => 'wss://example.invalid', setCurrentNodeUrl() {}, defaultNodeUrl: 'wss://example.invalid' };
+    const storage = { getSettings: () => settings, getAddressInfo: () => ({ selectedAddressIndex: 1, maxAddressIndex: 3 }), setAddressInfo: () => true, setLastWalletName() {}, getCurrentNodeUrl: () => 'wss://example.invalid', setCurrentNodeUrl() {}, defaultNodeUrl: 'wss://example.invalid' };
     const load = file => {
       const filename = path.resolve(root, file); if (cache.has(filename)) return cache.get(filename).exports;
       const module = { exports: {} }; cache.set(filename, module);
@@ -87,7 +87,8 @@ const fixture = () => {
         const override = extra(id); if (override !== undefined) return override;
         if (id === 'znn-ts-sdk') return sdk;
         if (id.endsWith('/utils/storage')) return storage;
-        if (id.endsWith('/utils/messaging')) return { sendInternalQuietly: async (method, params) => { messages.push({ method, params }); return true; } };
+        if (id.endsWith('/utils/messaging')) return { sendInternalQuietly: async (method, params) => { messages.push({ method, params }); return true; },
+          sendInternal: async (method, params) => { messages.push({ method, params }); return true; } };
         if (id.endsWith('/utils/notify')) return { notify: { dismissAll() {}, error() {} } };
         if (id.endsWith('/redux/connectionParametersSlice')) return Object.fromEntries(['storeChainIdentifier', 'storeIsConnected', 'storeNodeUrl'].map(type => [type, payload => ({ type, payload })]));
         if (id.endsWith('/redux/walletSlice')) return { walletUnlocked: payload => ({ type: 'walletUnlocked', payload }), resetWalletState: () => ({ type: 'resetWalletState' }) };
@@ -113,12 +114,12 @@ const fixture = () => {
     assert.equal((await signer.getAddress()).toString(), 'A:1');
     assert.deepEqual([...await signer.sign(new Uint8Array([4]))], [1, 65]);
     const before = await b.session.load(); f.state.now += 100;
-    await b.vault.restore(before, 1); await f.flush();
+    await b.vault.restore(before); await f.flush(); // resumes the record's own account (1)
     assert.equal(b.vault.capture().id, scope.id); assert.equal(a.vault.isUnlocked(), true);
     assert.equal(f.state.passwordReads, 1); // restore does not decrypt again
     const extended = f.state.storage[a.session.sessionKey].expiresAt;
     assert(extended > before.expiresAt);
-    await a.vault.touch({ selectedAddressIndex: 2 });
+    await a.vault.selectAddress(2, 3); // a new selection generation, same lease
     assert.equal(f.state.storage[a.session.sessionKey].id, scope.id);
     assert.equal(f.state.storage[a.session.sessionKey].selectedAddressIndex, 2);
     await signer.sign(new Uint8Array([5]));

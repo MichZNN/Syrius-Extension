@@ -50,16 +50,19 @@ const completeUnlock = async ({ walletName, password, sessionRecord, dispatch })
   // must never become the screen's next default — and before the keys are
   // adopted, so a failed write leaves nothing half unlocked.
   const prepare = () => setLastWalletName(walletName);
+  // A resumed session keeps the account it was on; the shared selection, not
+  // this window's saved default, is what sites and approvals are bound to.
+  const index = sessionRecord ? sessionRecord.scope?.index : addressInfo.selectedAddressIndex;
   const lifetime = sessionRecord
-    ? await vault.restore(sessionRecord, addressInfo.selectedAddressIndex, prepare)
-    : await vault.unlockWithPassword(walletName, password, addressInfo.selectedAddressIndex, prepare);
-  const address = await vault.getAddress(addressInfo.selectedAddressIndex, lifetime);
+    ? await vault.restore(sessionRecord, prepare)
+    : await vault.unlockWithPassword(walletName, password, index, prepare);
+  const address = await vault.getAddress(index, lifetime);
   await vault.assertSession(lifetime);
   dispatch(walletUnlocked({
     walletName, address,
-    selectedAddressIndex: addressInfo.selectedAddressIndex,
+    selectedAddressIndex: index,
     // A saved selection past the saved count would draw no selected row.
-    maxAddressIndex: Math.max(addressInfo.maxAddressIndex, addressInfo.selectedAddressIndex + 1),
+    maxAddressIndex: Math.max(addressInfo.maxAddressIndex, index + 1),
   }));
   dispatch(storeChainIdentifier(Zenon.getChainIdentifier()));
   const isConnected = await connectToNode(dispatch, () => vault.isCurrent(lifetime));

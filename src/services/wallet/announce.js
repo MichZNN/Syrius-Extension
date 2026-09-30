@@ -4,18 +4,19 @@ import { getCurrentNodeUrl } from '../utils/storage';
 import session from './session';
 import vault from './vault';
 
-// Derive public values from the captured live vault, never from an address
-// argument retained by a screen before an asynchronous connection/unlock.
+// The address published is the shared selection's own, read from the session
+// record, never one a screen retained before an asynchronous connection or
+// unlock. The worker is told which selection generation the event is about and
+// announces only that one; a stale event reveals nothing.
 const announce = async (event, expectedLifetime) => {
   if (!vault.isUnlocked() || (expectedLifetime && !vault.isCurrent(expectedLifetime))) return false;
   try {
     const lifetime = expectedLifetime || vault.capture();
-    const address = await vault.getAddress(vault.getSelectedIndex(), lifetime);
     await vault.assertSession(lifetime);
-    await session.publish(lifetime.id, {
-      address, chainId: Zenon.getChainIdentifier(), nodeUrl: getCurrentNodeUrl(),
+    const { selectionId } = await session.publish(lifetime.id, {
+      chainId: Zenon.getChainIdentifier(), nodeUrl: getCurrentNodeUrl(),
     });
-    await sendInternalQuietly(event, { leaseId: lifetime.id });
+    await sendInternalQuietly(event, { leaseId: lifetime.id, selectionId });
     return true;
   } catch (error) { return false; }
 };

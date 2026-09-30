@@ -57,7 +57,7 @@ const fixture = () => {
     set: async patch => {
       await pause(area + ':set');
       if (area === 'session' && failSessionWrite && --failSessionWrite === 0) throw Error('storage write failed');
-      if (area === 'session' && failingSessionWrites > 0) { failingSessionWrites--; throw Error('storage write failed'); }
+      if (area === 'session' && failingSessionWrites > 0 && 'znn.unlock' in patch) { failingSessionWrites--; throw Error('storage write failed'); }
       const delta = Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, { oldValue: clone(values[key]), newValue: clone(value) }]));
       Object.assign(values, clone(patch));
       for (const callback of changes) callback(delta, area);
@@ -98,12 +98,10 @@ const fixture = () => {
     const session = load('src/services/wallet/session.js').default, vault = load('src/services/wallet/vault.js').default;
     const boot = ({ record, ...rest }) => load('src/services/wallet/bootstrap.js').completeUnlock({ ...rest, sessionRecord: record });
     const { updateSetting } = load('src/services/wallet/preferences.js');
-    const { setAddressInfo } = load('src/services/utils/storage.js');
-    // The same steps as the Settings > Addresses screen.
+    // The same step as the Settings > Addresses screen: a new selection
+    // generation, with the saved selection written first.
     const select = async (index, maxAddressIndex) => {
-      if (!setAddressInfo(vault.getWalletName(), { selectedAddressIndex: index, maxAddressIndex })) throw Error('Could not save the selected address');
-      vault.setSelectedIndex(index);
-      await vault.touch({ selectedAddressIndex: index });
+      await vault.selectAddress(index, maxAddressIndex);
       return vault.capture();
     };
     const api = {
@@ -125,7 +123,11 @@ const fixture = () => {
   chrome.runtime.sendMessage = (message, callback) => internal(message.method, message.params).then(result => callback({ result }), error => callback({ error: error.message }));
   // Chrome's native document identity: replies are bound to it (#8).
   const sender = { id: 'fixture', url: 'https://fixture.invalid/app', origin: 'https://fixture.invalid', tab: { id: 1 }, frameId: 0, documentId: 'fixture-document' };
-  local['syrius.permissions'] = { [sender.origin]: { origin: sender.origin } };
+  // Consent is per wallet account (#11); the scenarios read accounts 0 and 1
+  // of wallet A. A fixture wallet's seed is its name, so its addresses follow.
+  const scopeFor = (name, index) => ({ walletName: name, walletId: name + '-address-0', address: name + '-address-' + index, index });
+  local['syrius.permissions'] = { version: 2, entries: [0, 1].map(index => ({ active: true, origin: sender.origin,
+    scope: scopeFor('A', index), title: '', favicon: '', connectedAt: 1, lastUsedAt: 1 })) };
   let responseId = 0;
   const provider = async method => {
     const id = ++responseId; handlers.message({ channel: 'znn', kind: 'request', method, id }, sender, () => {});
@@ -162,7 +164,8 @@ const fixture = () => {
   return { ...first, realm, ui, session, disk, env, sdk, messages, events, faults, hold, provider, internal, register, handlers,
     record: () => clone(session['znn.unlock']), public: () => clone(session['znn.publicState']),
     advance: ms => { now += ms; }, now: () => now,
-    // failWrite(n): the nth session write from now fails. failWrites(n): the next n all fail.
+    // failWrite(n): the nth session write from now fails. failWrites(n): the
+    // next n writes of the session record itself all fail.
     failWrite: (count = 1) => { failSessionWrite = count; }, failWrites: count => { failingSessionWrites = count; } };
 };
 const ended = record => record?.locked === true;

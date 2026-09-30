@@ -61,7 +61,10 @@ const fixture = async () => {
       if (id === 'react-router-dom') return { useNavigate: () => (...args) => navigations.push(args) };
       if (id === 'react-redux') return { useSelector: fn => fn(state), useStore: () => ({ getState: () => state }), useDispatch: () => action => events.push(action.type) };
       if (id.endsWith('/utils/notify')) return { notify: { dismissAll() {}, success: value => notices.push({ success: value }), error: error => notices.push({ error: String(error) }) } };
-      if (id.endsWith('/utils/messaging')) return { sendInternalQuietly: async () => true };
+      // Removal withdraws the wallet's site consent through the worker (#11)
+      // before it locks; the stand-in records that it was asked.
+      if (id.endsWith('/utils/messaging')) return { sendInternalQuietly: async () => true,
+        sendInternal: async method => { events.push(method); return true; } };
       if (id.endsWith('/hooks/useAccount')) return { invalidateAccountCache: () => events.push('cache cleared') };
       if (id.endsWith('/components/change-address-item/change-address-item')) return { __esModule: true, default: 'address-item' };
       if (id.endsWith('/wallet/announce') && !filename.endsWith('lock.js')) return { announceAddress: async () => {} };
@@ -242,6 +245,7 @@ const watchdog = setTimeout(() => { console.error('Wallet deletion checks timed 
   {
     const f = await fixture(), ui = f.ui(); ui.fill(); await ui.button('Remove').props.onClick();
     assert(f.notices.some(x => x.success === 'Removed A')); assert.equal(f.navigations.at(-1)[0], '/password'); assert.equal(f.vault.isUnlocked(), false); assert(f.events.includes('lock')); assert(f.events.includes('wallet/resetWalletState'));
+    assert(f.events.indexOf('permissions.revokeWallet') >= 0 && f.events.indexOf('permissions.revokeWallet') < f.events.indexOf('lock'));
   }
   {
     const f = await fixture(); f.put(W, { A: f.read(W).A }); const ui = f.ui(); ui.fill(); await ui.button('Remove').props.onClick(); assert.equal(f.navigations.at(-1)[0], '/auth/onboarding');

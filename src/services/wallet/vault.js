@@ -1,11 +1,18 @@
 import { KeyFile, KeyStore, KeyStoreManager, Primitives } from 'znn-ts-sdk';
 import session from './session';
 import { validateWalletPassword } from './password';
+import { sameScope, scopeKey } from './walletScope';
 
 // Raw keystores/keys never leave this module. Every exported key handle is a
 // revocable facade, including the public derivation handle used by previews.
+//
+// `binding` is this document's view of the shared selection (see
+// sessionLease.js): `{id: selectionId, ownerId, scope}`. It is one frozen
+// object per selection, so a screen can tell by identity whether the selection
+// it rendered is still the current one. `selectedIndex` is this window's own
+// account; another window choosing an account moves the binding, not it.
 const state = {
-  generation: 0, walletName: null, keyStore: null, lease: null, selectedIndex: 0,
+  generation: 0, walletName: null, keyStore: null, lease: null, binding: null, selectedIndex: 0,
   rawKeys: new Map(), rawSigningKeys: new Map(), publicKeys: new Map(), signingKeys: new Map(), addresses: new Map(),
 };
 const listeners = new Set();
@@ -20,7 +27,7 @@ const revokeLocal = (expectedId) => {
   const wasUnlocked = Boolean(state.keyStore);
   const leaseId = state.lease?.id;
   state.generation += 1;
-  state.walletName = null; state.keyStore = null; state.lease = null; state.selectedIndex = 0;
+  state.walletName = null; state.keyStore = null; state.lease = null; state.binding = null; state.selectedIndex = 0;
   state.rawKeys.clear(); state.rawSigningKeys.clear(); state.publicKeys.clear(); state.signingKeys.clear(); state.addresses.clear();
   clearTimeout(timer);
   return wasUnlocked ? { leaseId } : null;
@@ -44,6 +51,22 @@ const capture = () => {
   return Object.freeze({ id: state.lease.id, generation: state.generation });
 };
 const assertLocal = (scope) => { if (!isCurrent(scope)) throw session.ended(); };
+const bindingOf = (record) => [record.selectionId, scopeKey(record.scope), record.mode === 'local' ? record.ownerId : null];
+const setLease = (record) => {
+  const previous = state.lease;
+  state.lease = record;
+  const before = previous && bindingOf(previous), after = bindingOf(record);
+  if (!state.binding || !before || before.some((value, index) => value !== after[index])) {
+    state.binding = Object.freeze({ id: record.selectionId, ownerId: record.ownerId, scope: Object.freeze({ ...record.scope }) });
+  }
+};
+// Runs inside the lease transaction (sessionLease.use's check): the selection
+// the approval was bound to is still the shared one, for this account.
+const bindingCheck = (binding, index) => (record) => {
+  if (!binding || record.selectionId !== binding.id || !sameScope(record.scope, binding.scope) ||
+      (index !== undefined && binding.scope.index !== index) ||
+      (record.mode === 'local' && record.ownerId !== binding.ownerId)) throw session.changed();
+};
 const schedule = () => {
   clearTimeout(timer);
   if (state.lease?.mode !== 'timed') return;
@@ -51,17 +74,17 @@ const schedule = () => {
   timer = setTimeout(() => { authorize(scope, () => true).catch(() => {}); },
     Math.max(0, Math.min(2147483647, state.lease.expiresAt - Date.now())));
 };
-const authorize = async (scope, operation) => {
+const authorize = async (scope, operation, check) => {
   assertLocal(scope);
   try {
     const result = await session.use(scope.id, async (record) => {
       assertLocal(scope);
-      state.lease = record;
+      setLease(record);
       schedule();
       const result = await operation();
       assertLocal(scope);
       return result;
-    });
+    }, check);
     assertLocal(scope);
     if (!isUnlocked()) throw session.ended();
     return result;
@@ -78,11 +101,18 @@ const adopt = (walletName, keyStore, record, selectedIndex) => {
   // event in the middle of a successful password/restore workflow.
   state.generation += 1;
   state.rawKeys.clear(); state.rawSigningKeys.clear(); state.publicKeys.clear(); state.signingKeys.clear(); state.addresses.clear();
-  state.walletName = walletName; state.keyStore = keyStore; state.lease = record;
+  state.walletName = walletName; state.keyStore = keyStore; state.lease = null; state.binding = null; setLease(record);
   state.selectedIndex = Number.isInteger(selectedIndex) && selectedIndex >= 0 ? selectedIndex : 0;
   schedule();
   return capture();
 };
+// The wallet and account a session is on, derived from the keys themselves:
+// the first address identifies the import, so a new seed reusing a wallet name
+// is a different wallet.
+const scopeOf = async (keyStore, walletName, index) => ({
+  walletName, walletId: (await keyStore.getKeyPair(0).getAddress()).toString(),
+  address: (await keyStore.getKeyPair(index).getAddress()).toString(), index,
+});
 // `prepare` runs under the lease lock after the password checks out and before
 // the keys are adopted; if it throws, the new lease is revoked and nothing is
 // adopted. Startup uses it for the persistence an unlock requires.
@@ -93,18 +123,27 @@ const unlockWithPassword = async (walletName, password, selectedIndex = 0, prepa
   const keyStore = await new KeyStoreManager().readKeyStore(password, walletName);
   if (!keyStore) throw new Error('Error decrypting');
   if (generation !== state.generation) throw session.ended();
-  return session.create(expectedId, { walletName, entropy: keyStore.entropy, selectedAddressIndex: selectedIndex }, (record) => {
+  const scope = await scopeOf(keyStore, walletName, selectedIndex);
+  if (generation !== state.generation) throw session.ended();
+  return session.create(expectedId, { walletName, entropy: keyStore.entropy, selectedAddressIndex: selectedIndex, scope }, (record) => {
     if (generation !== state.generation) throw session.ended();
     prepare();
     return adopt(walletName, keyStore, record, selectedIndex);
   });
 };
-const restore = async (record, selectedIndex = 0, prepare = () => {}) => {
+// Resumes the shared selection as recorded: its account, checked against the
+// keys it would resume, so a record cannot pair one wallet's name and scope
+// with another's entropy.
+const restore = async (record, prepare = () => {}) => {
   const generation = state.generation;
-  return session.restore(record, selectedIndex, (current, entropy) => {
+  const index = record?.scope?.index;
+  if (!record?.entropy || !Number.isSafeInteger(index)) throw session.ended();
+  const scope = await scopeOf(new KeyStore().fromEntropy(record.entropy), record.walletName, index);
+  if (generation !== state.generation || !sameScope(scope, record.scope)) throw session.ended();
+  return session.restore(record, scope, (current, entropy) => {
     if (generation !== state.generation) throw session.ended();
     prepare();
-    return adopt(current.walletName, new KeyStore().fromEntropy(entropy), current, selectedIndex);
+    return adopt(current.walletName, new KeyStore().fromEntropy(entropy), current, current.scope.index);
   });
 };
 const getSelectedIndex = () => state.selectedIndex;
@@ -114,6 +153,10 @@ const setSelectedIndex = (index) => {
 };
 const getWalletName = () => state.walletName;
 const getLeaseId = () => state.lease?.id ?? null;
+const getBinding = () => state.binding;
+const assertBinding = (binding) => {
+  if (!binding || binding !== state.binding || !isUnlocked()) throw session.changed();
+};
 const rawKey = (scope, index) => {
   assertLocal(scope);
   if (!state.rawKeys.has(index)) state.rawKeys.set(index, state.keyStore.getKeyPair(index));
@@ -142,25 +185,47 @@ const publicHandle = (scope, index) => {
   return state.publicKeys.get(index);
 };
 const getKeyPair = (index = state.selectedIndex) => publicHandle(capture(), index);
-const getSigningKeyPair = async (index = state.selectedIndex) => {
+// A binding-scoped handle checks the selection under the lease lock at every
+// use. Approvals sign through one, so an account switch in any window stops
+// them at their next key operation rather than letting them sign as whoever is
+// selected by then.
+const signingHandle = (scope, index, check) => Object.freeze({
+  getAddress: () => authorize(scope, async () => {
+    if (!state.addresses.has(index)) {
+      const address = (await rawKey(scope, index).getAddress()).toString();
+      assertLocal(scope);
+      state.addresses.set(index, address);
+    }
+    return Primitives.Address.parse(state.addresses.get(index));
+  }, check),
+  getPublicKey: () => authorize(scope, async () => {
+    const publicKey = await rawKey(scope, index).getPublicKey();
+    // Preserve the SDK Buffer type: its transaction JSON calls
+    // toString('base64'). Copy through that type without an app polyfill.
+    return publicKey.constructor.from(publicKey);
+  }, check),
+  sign: (bytes) => {
+    const message = new Uint8Array(bytes);
+    return authorize(scope, () => state.rawSigningKeys.get(index).sign(message), check);
+  },
+});
+const getSigningKeyPair = async (index = state.selectedIndex, binding) => {
   const scope = capture();
+  const check = binding ? bindingCheck(binding, index) : undefined;
   return authorize(scope, async () => {
     if (!state.signingKeys.has(index)) {
       const raw = await rawKey(scope, index).generateKeyPair();
       assertLocal(scope);
       state.rawSigningKeys.set(index, raw);
-      const handle = publicHandle(scope, index);
-      state.signingKeys.set(index, Object.freeze({
-        ...handle,
-        sign: (bytes) => {
-          const message = new Uint8Array(bytes);
-          return authorize(scope, () => state.rawSigningKeys.get(index).sign(message));
-        },
-      }));
+      state.signingKeys.set(index, signingHandle(scope, index));
     }
-    return state.signingKeys.get(index);
-  });
+    return binding ? signingHandle(scope, index, check) : state.signingKeys.get(index);
+  }, check);
 };
+// Runs `operation` under the lease lock while `binding` is still the shared
+// selection. Starting a block's publication goes through here: the account it
+// was approved for is checked at the moment it is sent.
+const whileBound = (binding, operation) => authorize(capture(), operation, bindingCheck(binding));
 const getAddress = async (index = state.selectedIndex, scope = capture()) =>
   (await publicHandle(scope, index).getAddress()).toString();
 const getAddressObject = async (index = state.selectedIndex) => publicHandle(capture(), index).getAddress();
@@ -227,21 +292,30 @@ const changePassword = async (currentPassword, newPassword) => {
     throw error;
   }
 };
-const touch = async (patch = {}, scope = capture()) => {
+const lockOn = (scope, error) => {
+  if (['WALLET_LOCKED', 'WALLET_SESSION_UNAVAILABLE'].includes(error.code) && isCurrent(scope)) lock(scope.id, error);
+};
+const touch = async (scope = capture()) => {
   assertLocal(scope);
   try {
     return await session.touch(scope.id, {
       walletName: state.walletName, entropy: state.keyStore.entropy,
-      selectedAddressIndex: patch.selectedAddressIndex ?? state.selectedIndex,
     }, (record) => {
-      assertLocal(scope); state.lease = record; schedule(); return true;
+      assertLocal(scope); setLease(record); schedule(); return true;
     });
-  } catch (error) {
-    if (['WALLET_LOCKED', 'WALLET_SESSION_UNAVAILABLE'].includes(error.code) && isCurrent(scope)) {
-      lock(scope.id, error);
-    }
-    throw error;
-  }
+  } catch (error) { lockOn(scope, error); throw error; }
+};
+// Chooses this window's account and makes it the shared selection: a new
+// selection generation, saved as the wallet's selected address first.
+const selectAddress = async (index, maxAddressIndex, scope = capture()) => {
+  assertLocal(scope);
+  try {
+    const address = await getAddress(index, scope);
+    const record = await session.select(scope.id, { index, address, entropy: state.keyStore.entropy }, state.walletName, maxAddressIndex);
+    assertLocal(scope); setLease(record); schedule();
+    state.selectedIndex = index;
+    return { address, binding: state.binding };
+  } catch (error) { lockOn(scope, error); throw error; }
 };
 // Applies a changed lock duration to this running session; the preference is
 // saved inside the same lease transaction. A failed preference write leaves the
@@ -250,7 +324,7 @@ const setLockPolicy = async (minutes, scope = capture()) => {
   assertLocal(scope);
   try {
     const { record, settings } = await session.setPolicy(scope.id, minutes, state.keyStore.entropy);
-    assertLocal(scope); state.lease = record; schedule();
+    assertLocal(scope); setLease(record); schedule();
     return settings;
   } catch (error) {
     if (['WALLET_LOCKED', 'WALLET_SESSION_UNAVAILABLE'].includes(error.code) && isCurrent(scope)) {
@@ -269,8 +343,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 const vault = {
-  isUnlocked, getWalletName, getLeaseId, getSelectedIndex, setSelectedIndex, getEntropy, getMnemonic,
-  unlockWithPassword, restore, getKeyPair, getSigningKeyPair, getAddress, getAddressObject,
-  getAddresses, verifyPassword, changePassword, touch, setLockPolicy, capture, isCurrent, assertSession, lock, seal, onLock,
+  isUnlocked, getWalletName, getLeaseId, getBinding, assertBinding, getSelectedIndex, setSelectedIndex, getEntropy,
+  getMnemonic, unlockWithPassword, restore, getKeyPair, getSigningKeyPair, whileBound, getAddress, getAddressObject,
+  getAddresses, verifyPassword, changePassword, touch, selectAddress, setLockPolicy, capture, isCurrent, assertSession,
+  lock, seal, onLock,
 };
 export default vault;

@@ -49,17 +49,14 @@ const ChangeAddress = () => {
       return;
     }
     try {
-      // Saved first: a selection the next unlock would not restore is not a
-      // selection, and must not be shown as one.
-      if (!setAddressInfo(walletName, { selectedAddressIndex: index, maxAddressIndex })) {
-        throw new Error('Could not save the selected address. Try again.');
-      }
-      vault.setSelectedIndex(index);
-      dispatch(storeSelectedAddress({ index, address }));
+      // A new selection generation: consent, public state and approvals bound
+      // to the previous account stop applying. The saved selection is written
+      // first, inside the same session transaction; if that fails nothing moves.
+      const changed = await vault.selectAddress(index, maxAddressIndex);
+      dispatch(storeSelectedAddress({ index, address: changed.address }));
 
       // The cached balances belong to the address being left behind.
       invalidateAccountCache();
-      await vault.touch({ selectedAddressIndex: index });
       await announceAddress();
 
       // Switching addresses repeatedly while this toast is still up reuses it

@@ -72,14 +72,16 @@ const messageProblem = (message) => {
 // Signs with the selected address unless told otherwise. A site never gets to
 // choose the address: it asked the wallet to sign, and the wallet signs as
 // whoever the person has selected.
-const signMessage = async (message, { addressIndex, assertRequest } = {}) => {
+const signMessage = async (message, { addressIndex, assertRequest, binding } = {}) => {
   const problem = messageProblem(message);
 
   if (problem) {
     throw new Error(problem);
   }
   await assertRequest?.();
-  const keyPair = requestSigningKey(await vault.getSigningKeyPair(addressIndex), assertRequest);
+  // A binding (from an approval) makes every key use re-check, under the
+  // session lock, that the approved wallet account is still the selected one.
+  const keyPair = requestSigningKey(await vault.getSigningKeyPair(addressIndex, binding), assertRequest);
   await assertRequest?.();
   const [signature, publicKey, address] = await Promise.all([
     keyPair.sign(encodeMessage(message)),
