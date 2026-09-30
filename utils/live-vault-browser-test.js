@@ -11,8 +11,22 @@ const root = path.join(__dirname, '..');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'syrius-live-vault-'));
 const ext = path.join(dir, 'extension'); fs.mkdirSync(ext);
 const compile = file => babel.transformFileSync(path.join(root, file), { presets: [['@babel/preset-env', { targets: { chrome: '111' } }], '@babel/preset-react'], babelrc: false, configFile: false }).code;
-const factory = (name, file) => `${JSON.stringify(name)}: function(module, exports, require) {\n${compile(file)}\n}`;
-const sources = [factory('lease', 'src/services/wallet/sessionLease.js'), factory('session', 'src/services/wallet/session.js'), factory('vault', 'src/services/wallet/vault.js'), factory('main', 'src/layouts/mainLayout/mainLayout.js')];
+// Imports the page replaces (see the page's require below). Everything else a
+// real module imports is the real module, found from its compiled requires.
+const stubbed = id => !id.startsWith('.') || ['/utils/storage', '/wallet/bootstrap', '/redux/walletSlice', '/redux/pendingTransactionsSlice',
+  '/hooks/useAccount', '/utils/notify', '/utils/utils', '/utils/devWallet', '/splash/splash'].some(end => id.endsWith(end)) ||
+  id.includes('Layout/') || id.includes('/pages/');
+const modules = new Map();
+const collect = file => {
+  if (modules.has(file)) return;
+  const code = compile(file); modules.set(file, code);
+  for (const [, id] of code.matchAll(/require\("([^"]+)"\)/g)) {
+    if (stubbed(id)) continue;
+    const next = path.posix.join(path.posix.dirname(file), id); collect(path.posix.extname(next) ? next : next + '.js');
+  }
+};
+['src/services/wallet/sessionLease.js', 'src/services/wallet/session.js', 'src/services/wallet/vault.js', 'src/layouts/mainLayout/mainLayout.js'].forEach(collect);
+const sources = [...modules].map(([file, code]) => `${JSON.stringify(file)}: function(module, exports, require) {\n${code}\n}`);
 const pageScript = `
 const fixture = { settings: { autoLockMinutes: 15 }, signs: 0, locks: 0, pathname: '/site-integration', restores: 0, failRead: false, failWrite: false, readFailures: 0, writeFailures: 0 };
 const originalGet = chrome.storage.session.get.bind(chrome.storage.session);
@@ -45,14 +59,13 @@ const cache = {};
 function load(name) {
   if (cache[name]) return cache[name].exports;
   const module = { exports: {} }; cache[name] = module;
+  const resolve = id => { let p = new URL(id, 'https://bundle/' + name).pathname.slice(1); if (!p.endsWith('.js')) p += '.js'; return p; };
   factories[name](module, module.exports, id => {
     if (id === 'znn-ts-sdk') return sdk;
-    if (id.endsWith('/utils/storage')) return { getSettings: () => fixture.settings, getCurrentNodeUrl: () => 'wss://example.invalid' };
+    if (id.endsWith('/utils/storage')) return { getSettings: () => fixture.settings, setSetting() {}, setAddressInfo: () => true, getCurrentNodeUrl: () => 'wss://example.invalid' };
     if (id === 'react') return React;
     if (id === 'react-router-dom') return { useLocation: () => ({ pathname: fixture.pathname }), useNavigate: () => navigate, Route: () => null, Routes: () => React.createElement('div', { id: 'wallet-routes' }, fixture.pathname) };
     if (id === 'react-redux') return { useDispatch: () => dispatch };
-    if (id.endsWith('/wallet/session')) return load('session');
-    if (id.endsWith('/wallet/vault')) return load('vault');
     if (id.endsWith('/wallet/bootstrap')) return { completeUnlock: async ({sessionRecord}) => {
       fixture.restores++;
       const lifetime = await vault.restore(sessionRecord);
@@ -77,26 +90,37 @@ function load(name) {
     if (id.endsWith('/hooks/useAccount')) return { invalidateAccountCache() {} };
     if (id.endsWith('/utils/notify')) return { notify: { dismissAll() {} } };
     if (id.endsWith('/utils/utils')) return { loadStorageWalletNames: () => ['synthetic-boot', 'synthetic-replacement'] };
-    if (id.endsWith('/utils/devWallet')) return { isDevWalletBuild: false };
+    if (id.endsWith('/utils/devWallet')) return { isDevWalletBuild: false, prepareDevWallet: async () => {} };
     if (id.includes('Layout/') || id.includes('/pages/') || id.endsWith('/splash/splash')) return () => React.createElement('div', null, 'Loading');
-    return load({ './session': 'session', './sessionLease': 'lease' }[id]);
+    return load(resolve(id));
   });
   return module.exports;
 }
 globalThis.fixture = fixture;
-globalThis.vault = load('vault').default;
-globalThis.session = load('session').default;
-globalThis.lease = load('lease').default;
+// A module that fails to load is reported by openPage, not just as a timeout.
+try {
+globalThis.vault = load('src/services/wallet/vault.js').default;
+globalThis.session = load('src/services/wallet/session.js').default;
+globalThis.lease = load('src/services/wallet/sessionLease.js').default;
 vault.onLock(() => fixture.locks++);
+} catch (error) { globalThis.loadError = String(error.stack || error); }
 globalThis.worker = (method, ...args) => new Promise((resolve, reject) => chrome.runtime.sendMessage({kind:'lease-test',method,args}, response => chrome.runtime.lastError ? reject(Error(chrome.runtime.lastError.message)) : response.error ? reject(Error(response.error)) : resolve(response.result)));
 globalThis.mountStartup = () => {
   fixture.reactRoot = ReactDOM.createRoot(document.getElementById('root'));
-  fixture.reactRoot.render(React.createElement(load('main').default));
+  fixture.reactRoot.render(React.createElement(load('src/layouts/mainLayout/mainLayout.js').default));
 };
 globalThis.denied = operation => Promise.resolve().then(operation).then(() => false, error => error.code === 'WALLET_LOCKED');
 `;
-const workerSource = fs.readFileSync(path.join(root, 'src/services/wallet/sessionLease.js'), 'utf8').replace('export default sessionLease;', '');
-fs.writeFileSync(path.join(ext, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Isolated Syrius live vault test', version: '1.0', permissions: ['storage'], background: { service_worker: 'worker.js' } }));
+require('./fixtures/extension-modules').copyModules(ext, 'src/services/wallet/sessionLease.js');
+// deadlineIn stands in for elapsed time: it moves the live lease's deadline
+// under the lease's own lock, and every page is told by the storage change.
+const workerSource = `import sessionLease from './src/services/wallet/sessionLease.js';
+sessionLease.deadlineIn = ms => navigator.locks.request('znn.walletSession', async () => {
+  const record = (await chrome.storage.session.get('znn.unlock'))['znn.unlock'];
+  await chrome.storage.session.set({ 'znn.unlock': { ...record, expiresAt: Date.now() + ms } });
+  return true;
+});`;
+fs.writeFileSync(path.join(ext, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Isolated Syrius live vault test', version: '1.0', permissions: ['storage'], background: { service_worker: 'worker.js', type: 'module' } }));
 fs.writeFileSync(path.join(ext, 'worker.js'), workerSource + `\nchrome.runtime.onMessage.addListener((message, sender, reply) => { if (message.kind !== 'lease-test') return false; sessionLease[message.method](...message.args).then(result => reply({result}), error => reply({error:String(error)})); return true; });`);
 fs.copyFileSync(path.join(root, 'node_modules/react/umd/react.production.min.js'), path.join(ext, 'react.js'));
 fs.copyFileSync(path.join(root, 'node_modules/react-dom/umd/react-dom.production.min.js'), path.join(ext, 'react-dom.js'));
@@ -128,7 +152,7 @@ let socket, cdp;
     const target = await cdp('Target.createTarget', { url: `chrome-extension://${loaded.id}/page.html` });
     const page = { ...target, ...await cdp('Target.attachToTarget', { targetId: target.targetId, flatten: true }) };
     for (let i = 0; i < 100; i++) { if (await evaluate(page, "typeof vault === 'object'")) return page; await sleep(50); }
-    throw Error('Page vault did not initialize');
+    throw Error('Page vault did not initialize: ' + await evaluate(page, 'globalThis.loadError'));
   };
   const until = async (page, expression) => {
     for (let i = 0; i < 100; i++) { if (await evaluate(page, expression)) return; await sleep(50); }
@@ -136,7 +160,7 @@ let socket, cdp;
   };
   let a = await openPage(); const b = await openPage();
   const first = await evaluate(a, "(async () => { const scope = await vault.unlockWithPassword('synthetic-A','ok',1); globalThis.old = await vault.getSigningKeyPair(); return scope.id; })()");
-  assert.equal(await evaluate(b, "(async () => { const record = await session.load(); await vault.restore(record,1); globalThis.old = await vault.getSigningKeyPair(); return vault.capture().id; })()"), first);
+  assert.equal(await evaluate(b, "(async () => { const record = await session.load(); await vault.restore(record); globalThis.old = await vault.getSigningKeyPair(); return vault.capture().id; })()"), first);
   assert.equal(await evaluate(b, "(await old.getAddress()).toString()"), 'synthetic-A:1');
   assert.equal(await evaluate(a, "(await old.sign(new Uint8Array([1]))).length"), 2);
   await evaluate(b, "worker('clear')");
@@ -161,10 +185,15 @@ let socket, cdp;
   assert.equal(await evaluate(a, 'session.load()'), null);
   assert.equal(await evaluate(a, 'vault.isUnlocked()'), false);
   // A real wall-clock deadline revokes both live pages and triggers cleanup.
-  await evaluate(a, "fixture.settings.autoLockMinutes = 0.03, vault.unlockWithPassword('synthetic-short','ok')");
-  await evaluate(b, "fixture.settings.autoLockMinutes = 0.03, (async () => { await vault.restore(await session.load()); globalThis.short = await vault.getSigningKeyPair(); })()");
-  await until(a, '!vault.isUnlocked() && fixture.locks > 0');
-  await until(b, '!vault.isUnlocked() && fixture.locks > 1');
+  // Lock durations are the policy's choices (0, 5, 15, 60 minutes), so a
+  // 15-minute lease has its deadline brought to two seconds from now in
+  // storage; both pages re-arm their own timers from the record they read.
+  await evaluate(a, "fixture.settings.autoLockMinutes = 15, vault.unlockWithPassword('synthetic-short','ok')");
+  await evaluate(b, "fixture.settings.autoLockMinutes = 15, (async () => { await vault.restore(await session.load()); globalThis.short = await vault.getSigningKeyPair(); })()");
+  const locksBefore = { a: await evaluate(a, 'fixture.locks'), b: await evaluate(b, 'fixture.locks') };
+  await evaluate(b, "worker('deadlineIn', 2000)");
+  await until(a, `!vault.isUnlocked() && fixture.locks > ${locksBefore.a}`);
+  await until(b, `!vault.isUnlocked() && fixture.locks > ${locksBefore.b}`);
   assert.equal(await evaluate(b, 'denied(() => short.sign(new Uint8Array([4])))'), true);
   assert.equal(await evaluate(a, "(await chrome.storage.session.get('znn.unlock'))['znn.unlock'].entropy === undefined"), true);
   // Real React MainLayout, actual vault/session/lease modules, native MV3

@@ -5,12 +5,13 @@ const fs = require('node:fs'), path = require('node:path'), os = require('node:o
 const { spawn } = require('node:child_process');
 const root = path.join(__dirname, '..'), dir = fs.mkdtempSync(path.join(os.tmpdir(), 'syrius-request-identity-'));
 const ext = path.join(dir, 'extension'); fs.mkdirSync(ext);
-fs.writeFileSync(path.join(ext, 'requests.js'), fs.readFileSync(path.join(root, 'src/sections/Background/requests.js'), 'utf8').replace("'../../services/utils/approvalIdentity'", "'./approvalIdentity.js'"));
-fs.copyFileSync(path.join(root, 'src/services/utils/approvalIdentity.js'), path.join(ext, 'approvalIdentity.js'));
+// Actual modules with their import closure (see fixtures/extension-modules).
+const { copyModules, documentFields } = require('./fixtures/extension-modules');
+copyModules(ext, 'src/sections/Background/requests.js', 'src/services/utils/approvalIdentity.js');
 fs.writeFileSync(path.join(ext, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Isolated approval identity checks', version: '1.0', minimum_chrome_version: '111', permissions: ['storage'], background: { service_worker: 'worker.js', type: 'module' } }));
-fs.writeFileSync(path.join(ext, 'worker.js'), `import requests from './requests.js'; chrome.runtime.onMessage.addListener((message,sender,reply)=>{if(message.kind!=='fixture')return false;Promise.resolve(requests[message.method](...message.args)).then(result=>reply({result}),error=>reply({error:String(error)}));return true;});`);
+fs.writeFileSync(path.join(ext, 'worker.js'), `import requests from './src/sections/Background/requests.js'; chrome.runtime.onMessage.addListener((message,sender,reply)=>{if(message.kind!=='fixture')return false;Promise.resolve(requests[message.method](...message.args)).then(result=>reply({result}),error=>reply({error:String(error)}));return true;});`);
 fs.writeFileSync(path.join(ext, 'page.html'), '<!doctype html><title>Isolated approval checks</title><script type="module" src="page.js"></script>');
-fs.writeFileSync(path.join(ext, 'page.js'), `import requests from './requests.js';import {identityOf} from './approvalIdentity.js';Object.assign(window,{requests,identityOf,worker:(method,...args)=>new Promise((resolve,reject)=>chrome.runtime.sendMessage({kind:'fixture',method,args},response=>chrome.runtime.lastError?reject(Error(chrome.runtime.lastError.message)):response.error?reject(Error(response.error)):resolve(response.result)))});`);
+fs.writeFileSync(path.join(ext, 'page.js'), `import requests from './src/sections/Background/requests.js';import {identityOf} from './src/services/utils/approvalIdentity.js';Object.assign(window,{requests,identityOf,worker:(method,...args)=>new Promise((resolve,reject)=>chrome.runtime.sendMessage({kind:'fixture',method,args},response=>chrome.runtime.lastError?reject(Error(chrome.runtime.lastError.message)):response.error?reject(Error(response.error)):resolve(response.result)))});`);
 const browser = spawn(process.env.CHROMIUM_PATH || '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser', ['--headless=new', '--remote-debugging-port=0', '--user-data-dir=' + path.join(dir, 'profile'), '--enable-unsafe-extension-debugging', '--disable-background-networking', '--disable-component-update', '--disable-sync', '--no-first-run', '--no-default-browser-check', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
 let stderr = '', launchError, socket, cdp;
 browser.stderr.on('data', value => { stderr += value; }); browser.on('error', error => { launchError = error; });
@@ -40,7 +41,7 @@ const watchdog = setTimeout(() => { console.error('Native identity checks timed 
   };
   const pages = [await createPage(), await createPage()];
   const windowId = await evaluate(pages[0], 'chrome.windows.getCurrent().then(value=>value.id)');
-  const base = { responseId: 'same', documentId: 'doc-a', type: 'signMessage', params: { message: 'Synthetic approval metadata only' }, tabId: 1, frameId: 0, origin: 'https://fixture.invalid', title: '', favicon: '' };
+  const base = { responseId: 'same', documentId: 'doc-a', type: 'signMessage', params: { message: 'Synthetic approval metadata only' }, tabId: 1, frameId: 0, origin: 'https://fixture.invalid', title: '', favicon: '', ...documentFields() };
   const a = await evaluate(pages[0], `requests.add(${JSON.stringify(base)})`);
   const b = await evaluate(pages[1], `worker('add',${JSON.stringify({ ...base, documentId: 'doc-b' })})`);
   assert.notEqual(a.id, b.id); assert.notEqual(a.id, a.responseId);
@@ -56,7 +57,8 @@ const watchdog = setTimeout(() => { console.error('Native identity checks timed 
   assert.equal(await evaluate(pages[0], `worker('resolve',${JSON.stringify({ ...winner, claimId: 'other' })})`), null);
   const fresh = await createPage();
   assert.equal(await evaluate(fresh, `requests.checkClaim(${JSON.stringify(winner)})`), true, 'fresh module realm sees durable ownership');
-  await Promise.all(Array.from({ length: 12 }, (_, i) => evaluate(pages[i % 2], `${i % 3 === 0 ? "worker('add'," : 'requests.add('}${JSON.stringify({ ...base, responseId: i, documentId: 'parallel-' + i })})`)));
+  // One origin may hold two requests (#10), so each concurrent add is its own origin.
+  await Promise.all(Array.from({ length: 12 }, (_, i) => evaluate(pages[i % 2], `${i % 3 === 0 ? "worker('add'," : 'requests.add('}${JSON.stringify({ ...base, responseId: i, documentId: 'parallel-' + i, origin: `https://parallel-${i}.invalid` })})`)));
   assert.equal((await evaluate(fresh, 'requests.list()')).length, 14);
   const removed = await evaluate(pages[0], `worker('closeWindow',${windowId})`); assert.equal(removed.length, 1); assert.equal(removed[0].id, a.id);
   assert.equal(await evaluate(fresh, `requests.checkClaim(${JSON.stringify(winner)})`), false);

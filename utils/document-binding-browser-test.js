@@ -17,31 +17,58 @@ const write = (name, value) => fs.writeFileSync(path.join(extension, name), valu
 const compile = file => babel.transformFileSync(path.join(root, file), {
   presets: [['@babel/preset-env', { targets: { chrome: '111' }, modules: 'commonjs' }]], configFile: false, babelrc: false,
 }).code;
-const files = ['src/sections/Background/index.js', 'src/sections/Background/requests.js',
-  'src/sections/Background/frames.js', 'src/sections/Background/permissions.js', 'src/services/utils/documentBinding.js', 'src/services/utils/nativeNavigation.js'];
+// Every application module an entry imports, found from its compiled requires.
+const closure = entry => {
+  const found = [];
+  const visit = file => {
+    if (found.includes(file)) return; found.push(file);
+    for (const [, id] of compile(file).matchAll(/require\("([^"]+)"\)/g)) {
+      if (!id.startsWith('.')) throw Error(`${file} imports ${id}; this fixture bundles application modules only`);
+      const next = path.posix.join(path.posix.dirname(file), id); visit(path.posix.extname(next) ? next : next + '.js');
+    }
+  };
+  visit(entry); return found;
+};
+const files = closure('src/sections/Background/index.js');
+// The wallet is unlocked on one account (#11): consent and approvals are bound
+// to it, and the popup binds, claims and resolves (#8).
+const scope = { walletName: 'fixture', walletId: 'inert-approved-account', address: 'inert-approved-account', index: 0 };
+const binding = { id: 'fixture-selection', ownerId: 'owner', scope };
 const scheduler = `// Fixture-only storage scheduler; the imported application modules are unchanged.
 let permissionGate; const nativeSet=chrome.storage.local.set.bind(chrome.storage.local);
-chrome.storage.local.set=async values=>{if(permissionGate&&values['syrius.permissions']&&Object.values(values['syrius.permissions']).some(entry=>entry.pendingApproval)){
+chrome.storage.local.set=async values=>{if(permissionGate&&values['syrius.permissions']?.entries?.some(entry=>entry.pendingApproval)){
 const gate=permissionGate;gate.entered=true;await gate.wait;permissionGate=null;}return nativeSet(values);};
 chrome.runtime.onMessage.addListener((message,sender,reply)=>{if(message.channel!=='fixture'||sender.url!==chrome.runtime.getURL('control.html'))return false;
 if(message.method==='hold'){let release;const wait=new Promise(resolve=>{release=resolve;});permissionGate={wait,release,entered:false};reply(true);}
 if(message.method==='entered')reply(Boolean(permissionGate?.entered));if(message.method==='release'){permissionGate?.release();reply(true);}return false;});
 `;
-const bundle = (sources, entry = sources[0]) => `(()=>{const factories={${sources.map(file => `${JSON.stringify(file)}:(module,exports,require)=>{${compile(file)}\n}`).join(',')}};
+const bundle = (sources, entry = sources[0], expose) => `(()=>{const factories={${sources.map(file => `${JSON.stringify(file)}:(module,exports,require)=>{${compile(file)}\n}`).join(',')}};
 const cache={}; const load=name=>{if(cache[name])return cache[name].exports;const module=cache[name]={exports:{}};
-factories[name](module,module.exports,id=>{let p=new URL(id,'https://bundle/'+name).pathname.slice(1);if(!p.endsWith('.js'))p+='.js';return load(p);});return module.exports;};load(${JSON.stringify(entry)});})();`;
+factories[name](module,module.exports,id=>{let p=new URL(id,'https://bundle/'+name).pathname.slice(1);if(!p.endsWith('.js'))p+='.js';return load(p);});return module.exports;};const exported=load(${JSON.stringify(entry)});${expose ? `globalThis[${JSON.stringify(expose)}]=exported;` : ''}})();`;
 write('worker.js', scheduler + bundle(files));
-for (const [name, section] of [['content.js', 'Content'], ['inpage.js', 'Inpage']]) write(name, bundle([
-  `src/sections/${section}/index.js`, 'src/services/utils/documentLifetime.js',
-]));
+for (const [name, section] of [['content.js', 'Content'], ['inpage.js', 'Inpage']]) write(name, bundle(closure(`src/sections/${section}/index.js`)));
 write('manifest.json', JSON.stringify({ manifest_version: 3, name: 'Syrius document lifecycle regression', version: '1.0', minimum_chrome_version: '111',
   permissions: ['storage', 'alarms', 'webNavigation'], background: { service_worker: 'worker.js' },
   content_scripts: ['MAIN', 'ISOLATED'].map(world => ({ matches: ['http://*.test/*'], js: [world === 'MAIN' ? 'inpage.js' : 'content.js'], world, all_frames: true, run_at: 'document_start' })) }));
-write('control.html', '<!doctype html><script src="control.js"></script>');
+// The control page claims with the application's own approval identity.
+write('identity.js', bundle(closure('src/services/utils/approvalIdentity.js'), undefined, 'approvalIdentity'));
+write('control.html', '<!doctype html><script src="identity.js"></script><script src="control.js"></script>');
 write('popup.html', '<!doctype html><title>Inert approval window</title><p>Lifecycle fixture: no signing UI.</p>');
 write('control.js', `globalThis.fixture=method=>chrome.runtime.sendMessage({channel:'fixture',method});
 globalThis.internal = async (method,params={})=>{const reply=await chrome.runtime.sendMessage({channel:'internal',method,params});if(reply.error)throw Error(reply.error);return reply.result;};
 globalThis.records=async key=>(await chrome.storage.session.get(key))[key];
+globalThis.unlock=()=>{const now=Date.now(),scope=${JSON.stringify(scope)};return chrome.storage.session.set({
+'znn.unlock':{version:2,id:'lease',revision:'r',walletName:'fixture',minutes:15,mode:'timed',entropy:'fixture',ownerId:'owner',selectedAddressIndex:0,selectionId:'fixture-selection',scope,resumeFrom:null,lastActiveAt:now,expiresAt:now+3600000},
+'znn.publicState':{address:scope.address,scope,selectionId:'fixture-selection',leaseId:'lease',chainId:1,nodeUrl:'wss://node.invalid'}}).then(()=>true);};
+globalThis.current=async request=>{const stored=(await records('znn.pendingRequests'))?.[request.id];
+if(!stored||stored.requestToken!==request.requestToken||stored.activation!==request.activation)return false;
+const nav=(await records('znn.navigation'))?.[request.tabId];
+if((nav?.epoch||'initial')!==request.navigationTab||(nav?.frames?.[request.frameId]||'initial')!==request.navigationFrame)return false;
+return (await target(request,{kind:'probe',requireRequest:true}))?.accepted===true;};
+globalThis.approve=async (request,binding)=>{for(let i=0;i<8;i++){const pending=await records('znn.pendingRequests');if(!pending?.[request.id])return false;
+const next=await internal('approvals.next',{binding});if(!next)return false;
+const claim=await internal('approvals.claim',{identity:approvalIdentity.identityOf(next),windowId:next.windowId});
+if(next.id!==request.id)continue;if(!claim)return false;return internal('approvals.resolve',{identity:claim,result:['inert-approved-account']});}return false;};
 globalThis.target=async (record,payload)=>{try{return await chrome.tabs.sendMessage(record.tabId,{channel:'znn',activation:record.activation,requestToken:record.requestToken,...payload},{frameId:record.frameId,documentId:record.documentId});}catch{return {accepted:false};}};`);
 let browser, socket, cdp, server;
 const watchdog = setTimeout(() => { console.error('Native document fixture timed out'); browser?.kill(); server?.close(); process.exit(1); }, 90000);
@@ -77,23 +104,39 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
   const loaded = await cdp('Extensions.loadUnpacked', { path: extension });
   const control = await open(`chrome-extension://${loaded.id}/control.html`);
   await eventually(() => evaluate(control, 'typeof internal'), v => v === 'function', 'control ready');
+  assert.equal(await evaluate(control, 'unlock()'), true);
   const internal = (method, params = {}) => evaluate(control, `internal(${JSON.stringify(method)},${JSON.stringify(params)})`);
   const target = (record, payload) => evaluate(control, `target(${JSON.stringify(record)},${JSON.stringify(payload)})`);
   const queue = () => internal('approvals.list');
   const frameRecords = () => evaluate(control, "records('znn.frames')");
   const ready = async (page, url) => eventually(() => evaluate(page, '({url:location.href,ready:typeof zenon})').catch(() => null), v => v?.url === url && v.ready === 'object', 'provider ready');
   const begin = (page, windowExpression = 'window') => evaluate(page, `(()=>{const w=${windowExpression};w.outcomes=[];w.zenon.connect().then(value=>w.outcomes.push({value}),error=>w.outcomes.push({error:error.code}));return true;})()`);
-  const waitRequest = tabId => eventually(queue, value => value.some(r => tabId === undefined || r.tabId === tabId), 'queued request').then(value => value.find(r => tabId === undefined || r.tabId === tabId));
-  const resolve = request => internal('approvals.resolve', { binding: request, result: ['inert-approved-account'] });
+  // A request is offered to the popup once its approval window is attached;
+  // until then approvals.next passes over it.
+  const shown = (r, tabId) => (tabId === undefined || r.tabId === tabId) && Number.isInteger(r.windowId);
+  const waitRequest = tabId => eventually(queue, value => value.some(r => shown(r, tabId)), 'shown request').then(value => value.find(r => shown(r, tabId)));
+  // An unlocked wallet answers a connected origin's connect at once (#11), so
+  // each approved connect is disconnected again unless the step keeps it: the
+  // next round must prompt, as it did against a locked wallet.
+  const resolve = async (request, { keep = false } = {}) => {
+    const approved = await evaluate(control, `approve(${JSON.stringify(request)},${JSON.stringify(binding)})`);
+    if (approved && request.type === 'connect' && !keep) await internal('permissions.revoke', { origin: request.origin });
+    return approved;
+  };
+  // What the old approvals.current answered: still pending, and its document
+  // still the live one that made it (a claim runs the same check).
+  // Read-only, from the control page: the stored record is unchanged, its
+  // navigation generations are the current ones, and its relay accepts a probe.
+  const current = request => evaluate(control, `current(${JSON.stringify(request)})`);
   const page = await open(aOrigin + '/a'); await ready(page, aOrigin + '/a');
   assert.equal(await evaluate(page, 'isSecureContext'), false);
   assert.equal(await evaluate(page, 'typeof crypto.randomUUID'), 'undefined');
   assert.deepEqual(await evaluate(page, 'zenon.getAccounts().catch(error=>({failure:error}))'), []);
   await begin(page); const first = await waitRequest(); assert.equal(first.frameId, 0);
-  assert.equal(await internal('approvals.current', { binding: first }), true);
+  assert.equal(await current(first), true);
   // Opening an approval changes focus but must not expire its request.
   await evaluate(page, "history.replaceState({},'',location.href+'#same-document')");
-  assert.equal(await internal('approvals.current', { binding: first }), true);
+  assert.equal(await current(first), true);
   await cdp('Page.navigate', { url: aOrigin + '/b' }, page.sessionId); await ready(page, aOrigin + '/b');
   assert.equal(await resolve(first), false);
   assert.equal((await target(first, { kind: 'response', result: 'inert-old-result' })).accepted, false);
@@ -110,15 +153,14 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
   assert.deepEqual(await evaluate(page, 'outcomes'), [{ error: 4900 }]);
   await begin(page); const fresh = await waitRequest(first.tabId);
   assert.equal(fresh.documentId, first.documentId); assert.notEqual(fresh.activation, first.activation);
-  assert.equal(await resolve(first), false); assert.equal(await resolve(fresh), true);
+  assert.equal(await resolve(first), false); assert.equal(await resolve(fresh, { keep: true }), true);
   // Connected event broadcasts use the newly registered activation.
-  await evaluate(control, `chrome.storage.local.set({'syrius.permissions':{[${JSON.stringify(aOrigin)}]:{origin:${JSON.stringify(aOrigin)}}}})`);
   await evaluate(page, "(window.accountEvents=[],zenon.on('accountsChanged',value=>accountEvents.push(value)),true)");
   await eventually(frameRecords, rows => Object.values(rows || {}).some(r => r.documentId === fresh.documentId && r.activation === fresh.activation), 'fresh frame registration');
-  await internal('events.accountsChanged', { address: 'inert-event-account' });
+  await internal('events.accountsChanged', { selectionId: binding.id });
   await eventually(() => evaluate(page, 'accountEvents'), value => value.length === 1, 'fresh activation event');
-  assert.deepEqual(await evaluate(page, 'accountEvents'), [['inert-event-account']]);
-  await evaluate(control, "chrome.storage.local.remove('syrius.permissions')");
+  assert.deepEqual(await evaluate(page, 'accountEvents'), [['inert-approved-account']]);
+  await internal('permissions.revoke', { origin: aOrigin });
   await begin(page); const beforeCross = await waitRequest(first.tabId);
   await cdp('Page.navigate', { url: bOrigin + '/cross' }, page.sessionId); await ready(page, bOrigin + '/cross');
   assert.equal(await resolve(beforeCross), false);
@@ -172,7 +214,7 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
   // Ordinary body edits preserve the current approval.
   await begin(page); const beforeBody = await waitRequest(first.tabId);
   await evaluate(page, "(document.body.textContent='Ordinary local body update',true)");
-  assert.equal(await internal('approvals.current', { binding: beforeBody }), true); assert.equal(await resolve(beforeBody), true);
+  assert.equal(await current(beforeBody), true); assert.equal(await resolve(beforeBody), true);
   // Chrome's navigation fence also works when a rewritten local page owns its
   // lifecycle listeners. No approval should survive the real history round trip.
   await evaluate(page, "(()=>{document.open();document.write('<!doctype html><p>Inert lifecycle recovery</p>');document.close();window.nativeShows=[];addEventListener('pageshow',e=>nativeShows.push(e.persisted),true);for(const type of ['pagehide','pageshow'])addEventListener(type,e=>e.stopImmediatePropagation(),true);return true;})()");
@@ -188,7 +230,8 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
   assert.notEqual(nativeFresh.navigationTab, nativeOld.navigationTab);
   assert.equal(await resolve(nativeFresh), true);
   // Two ordinary legacy tabs remain independently queued and resolvable.
-  const second = await open(aOrigin + '/legacy'); await ready(second, aOrigin + '/legacy');
+  // Another origin: one origin has one pending connect at a time (#10).
+  const second = await open(bOrigin + '/legacy'); await ready(second, bOrigin + '/legacy');
   for (const current of [page, second]) await evaluate(current, "(window.legacy=[],addEventListener('message',e=>{if(e.data?.method==='znn.grantedWalletRead')legacy.push(e.data.data);}),postMessage({method:'znn.requestWalletAccess'},location.origin),true)");
   const legacy = await eventually(queue, value => value.length === 2, 'two legacy approvals');
   assert.notEqual(legacy[0].id, legacy[1].id);
@@ -198,25 +241,25 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
   // adapter. Real page navigation/cancellation must prevent its activation.
   await begin(second); const canceledGrant = await waitRequest();
   await evaluate(control, "fixture('hold')");
-  await evaluate(control, `(window.grantOutcome=null,internal('approvals.resolve',${JSON.stringify({ binding: canceledGrant, result: ['inert-approved-account'], grantOrigin: true })}).then(value=>{grantOutcome={value};},error=>{grantOutcome={error:String(error)};}),true)`);
+  await evaluate(control, `(window.grantOutcome=null,approve(${JSON.stringify(canceledGrant)},${JSON.stringify(binding)}).then(value=>{grantOutcome={value};},error=>{grantOutcome={error:String(error)};}),true)`);
   await eventually(() => evaluate(control, "fixture('entered')"), Boolean, 'provisional grant write held');
-  await cdp('Page.navigate', { url: aOrigin + '/grant-replacement' }, second.sessionId); await ready(second, aOrigin + '/grant-replacement');
+  await cdp('Page.navigate', { url: bOrigin + '/grant-replacement' }, second.sessionId); await ready(second, bOrigin + '/grant-replacement');
   await eventually(() => evaluate(control, "records('znn.pendingRequests')"), value => !Object.values(value || {}).some(r => r.requestToken === canceledGrant.requestToken), 'native departure cancels held grant');
   await evaluate(control, "fixture('release')");
   await eventually(() => evaluate(control, 'grantOutcome'), Boolean, 'canceled grant completes');
   assert.deepEqual(await evaluate(control, 'grantOutcome'), { value: false });
   assert.deepEqual(await internal('permissions.list'), []);
   await begin(second); const approvedGrant = await waitRequest();
-  assert.equal(await internal('approvals.resolve', { binding: approvedGrant, result: ['inert-approved-account'], grantOrigin: true }), true);
+  assert.equal(await resolve(approvedGrant, { keep: true }), true);
   await eventually(() => evaluate(second, 'outcomes'), value => value.length === 1, 'native accepted connection');
   assert.equal((await internal('permissions.list')).length, 1);
-  await cdp('Page.navigate', { url: aOrigin + '/after-accepted-grant' }, second.sessionId); await ready(second, aOrigin + '/after-accepted-grant');
+  await cdp('Page.navigate', { url: bOrigin + '/after-accepted-grant' }, second.sessionId); await ready(second, bOrigin + '/after-accepted-grant');
   assert.equal((await internal('permissions.list')).length, 1, 'completed consent survives later navigation');
   await internal('permissions.revokeAll');
   await begin(second); const closing = await waitRequest();
   await cdp('Target.closeTarget', { targetId: second.targetId });
   await eventually(() => evaluate(control, "records('znn.pendingRequests')"), value => !Object.values(value || {}).some(r => r.tabId === closing.tabId), 'tab close cleanup');
-  const result = { browser: version.Browser, actualModules: files.concat(['src/sections/Content/index.js', 'src/sections/Inpage/index.js', 'src/services/utils/documentLifetime.js']), nonSecureHttp: true, lifecycleCaptureOrdering: true, nativeNavigationFence: true, documentRewriteRecovery: true, subframeRewriteRecovery: true, emptyRewriteRecovery: true, ordinaryBodyEdits: true, sameOriginNavigation: true,
+  const result = { browser: version.Browser, actualModules: [...new Set([...files, ...closure('src/sections/Content/index.js'), ...closure('src/sections/Inpage/index.js')])], nonSecureHttp: true, lifecycleCaptureOrdering: true, nativeNavigationFence: true, documentRewriteRecovery: true, subframeRewriteRecovery: true, emptyRewriteRecovery: true, ordinaryBodyEdits: true, sameOriginNavigation: true,
     crossOriginNavigation: true, nativeSubframeNavigation: true, bfcacheRestored: restored, oldApprovalsCancelled: true, freshRequestsAndEvents: true, independentLegacyTabs: true, provisionalGrantCancellation: true, completedConsentSurvivesNavigation: true, tabCloseCleanup: true };
   fs.writeFileSync(path.join(dir, 'result.json'), JSON.stringify(result, null, 2));
   console.log(JSON.stringify({ ...result, artifact: path.join(dir, 'result.json') }));
