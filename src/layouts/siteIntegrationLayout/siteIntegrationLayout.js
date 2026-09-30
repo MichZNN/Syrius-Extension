@@ -12,6 +12,7 @@ import selection from '../../services/wallet/selection';
 import ContractCallArguments from '../../components/contract-call-arguments/contract-call-arguments';
 import { signMessage } from '../../services/wallet/signMessage';
 import { sendInternal } from '../../services/utils/messaging';
+import publicNodeUrl from '../../services/utils/publicNodeUrl';
 import { identityOf, freezeApproval, approvalEnded } from '../../services/utils/approvalIdentity';
 import withApprovalDeadline from '../../services/utils/approvalDeadline';
 import { runApprovalOperation } from '../../services/wallet/approvalOperation';
@@ -407,8 +408,9 @@ const SiteIntegrationLayout = () => {
             <h2 className="approval-title">Connect this wallet?</h2>
             <p className="approval-note">
               {hostOf(request.origin)} will be able to see your address, the
-              chain you are signing for and your node URL. It cannot move
-              anything without asking again.
+              chain you are signing for and your node host. Private endpoint
+              details stay in your wallet. It cannot move anything without
+              asking again.
             </p>
 
             <dl className="confirm-details">
@@ -416,8 +418,8 @@ const SiteIntegrationLayout = () => {
               <dd className="word-break-all">{address}</dd>
               <dt>Chain</dt>
               <dd>{chainIdentifier}</dd>
-              <dt>Node</dt>
-              <dd className="word-break-all">{nodeUrl}</dd>
+              <dt>Node host</dt>
+              <dd className="word-break-all">{publicNodeUrl(nodeUrl) || 'Unavailable'}</dd>
             </dl>
           </div>
 

@@ -5,6 +5,7 @@ import requests from './requests';
 import sessionLease from '../../services/wallet/sessionLease';
 import { identityOf } from '../../services/utils/approvalIdentity';
 import { limits, validateEnvelope, busy } from '../../services/utils/approvalLimits';
+import publicNodeUrl from '../../services/utils/publicNodeUrl';
 
 // The service worker.
 //
@@ -115,7 +116,7 @@ const announceToSites = async (stored, event, expectedId, clearOrigins = []) => 
   await Promise.all(targets.map(async frame => {
     const allowed = value && await permissions.isConnected(frame.origin, value.scope) && selection.publicValue(stored);
     const data = event === 'accountsChanged' ? (allowed ? [value.address] : []) :
-      allowed ? (event === 'chainChanged' ? value.chainId : value.nodeUrl) : undefined;
+      allowed ? (event === 'chainChanged' ? value.chainId : publicNodeUrl(value.nodeUrl)) : undefined;
     if (data !== undefined) await sendToTab(frame.tabId, { channel: 'znn', kind: 'event', event, data }, frame.frameId, frame.documentId);
   }));
   return true;
@@ -171,7 +172,8 @@ const readFor = async (stored, origin) => {
 const providerMethods = {
   znn_accounts: async ({ origin, stored }) => { const value = await readFor(stored, origin); return value ? [value.address] : []; },
   znn_chainId: async ({ origin, stored }) => (await readFor(stored, origin))?.chainId ?? null,
-  znn_nodeUrl: async ({ origin, stored }) => (await readFor(stored, origin))?.nodeUrl ?? null,
+  // Redacted at egress too: a session can retain raw state from an older build.
+  znn_nodeUrl: async ({ origin, stored }) => publicNodeUrl((await readFor(stored, origin))?.nodeUrl),
   znn_connect: async args => {
     const value = await readFor(args.stored, args.origin);
     if (value && await permissions.touch(args.origin, value.scope) && selection.publicValue(args.stored)) return { settled: true, result: [value.address] };

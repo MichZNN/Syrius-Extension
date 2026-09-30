@@ -1,6 +1,7 @@
 import { Zenon } from 'znn-ts-sdk';
 import { sendInternalQuietly } from '../utils/messaging';
 import { getCurrentNodeUrl } from '../utils/storage';
+import publicNodeUrl from '../utils/publicNodeUrl';
 import session from './session';
 import vault from './vault';
 
@@ -13,8 +14,10 @@ const announce = async (event, expectedLifetime) => {
   try {
     const lifetime = expectedLifetime || vault.capture();
     await vault.assertSession(lifetime);
+    // Sites learn the node's scheme and host, never credentials or a private
+    // endpoint's path; the wallet keeps the full URL for its own connection.
     const { selectionId } = await session.publish(lifetime.id, {
-      chainId: Zenon.getChainIdentifier(), nodeUrl: getCurrentNodeUrl(),
+      chainId: Zenon.getChainIdentifier(), nodeUrl: publicNodeUrl(getCurrentNodeUrl()),
     });
     await sendInternalQuietly(event, { leaseId: lifetime.id, selectionId });
     return true;

@@ -37,6 +37,10 @@ notes behind it are in [REFACTOR.md](REFACTOR.md).
 
 ## Installation
 
+Requires Chrome/Chromium 112 or later (`minimum_chrome_version` in the manifest):
+the approval queue relies on Chrome 112's session-storage quota, and
+document-bound provider events and the shared session coordinator on Chrome 111.
+
 ### From a release
 
 Every `v*.*.*` tag is built by GitHub Actions and published as a Chrome/Brave
@@ -193,8 +197,8 @@ const zenon = window.zenon ?? (await new Promise((resolve) =>
 
 // Read-only, never prompts. Empty until this origin is connected.
 await zenon.getAccounts();   // [] | ['z1q…']
-await zenon.getChainId();    // 1 for mainnet
-await zenon.getNodeUrl();
+await zenon.getChainId();    // null until connected/unlocked; 1 for mainnet
+await zenon.getNodeUrl();    // null | ws(s)://host[:port], without private endpoint details
 
 // Opens the connect prompt. Resolves immediately for an origin already
 // connected; rejects with {code: 4001} if the person declines.
@@ -223,6 +227,18 @@ zenon.on('nodeChanged', (nodeUrl) => {});
 
 await zenon.disconnect();
 ```
+
+Chain and node reads are unprompted and return `null` until the origin is
+connected and the wallet is unlocked. Node reads, node-change events and legacy
+grant fields expose only the WebSocket scheme, host and nondefault port. URL
+credentials, paths, query strings and fragments remain private. This public
+descriptor may not be a usable connection endpoint; the wallet keeps the full
+configured URL for its own SDK connection and reconnect fallback.
+
+Failed disconnections remain visible in Connected Sites for retry. Treat an
+error as incomplete and retry until the site is removed. A saved session denial
+blocks access while a failed durable removal is pending; it is not a substitute
+for completing that removal before restarting the browser.
 
 Errors follow EIP-1193 numbering: `4001` the person declined, `4100` the origin
 is not connected, `4200` unknown method, `4900` the wallet is locked, `-32602`
@@ -323,7 +339,8 @@ A failure to reach shared session storage is treated as unavailability: the
 affected window's keys are purged and it offers a retry. Existing legacy unlock
 records require a password once after this update.
 
-The shared popup/worker session coordinator requires Chrome 111 or newer.
+The shared popup/worker session coordinator needs Chrome 111 or newer; the
+extension as a whole requires 112 (see Installation).
 `npm run test:security` includes inert session-policy regression checks; they
 use no live node, real wallet, funds, or existing browser profile.
 
@@ -335,7 +352,7 @@ Capacity/attention limits return retryable code `-32005`; invalid or oversized r
 
 A new approval window is limited to one per five seconds globally and one per 30 seconds per origin. Existing windows are reused without refocusing. A successful human approval permits that origin one follow-up opening within 30 seconds, including connect-then-sign after the empty-window grace; rejection does not grant that allowance. These decisions survive worker restarts within the browser session. At most 32 provider handlers/transports are active at each boundary. Chrome necessarily decodes messages before these checks, so these are wallet admission bounds, not a general browser traffic guarantee.
 
-Chrome112 is required for the 10 MB session-storage quota. JSON size is not Chrome's exact memory accounting; native quota/storage failures remain errors and never authorize signing. Expired requests are pruned on queue access and the worker alarm. Old unversioned queue entries require a fresh request after an extension update. Queue deadlines, claim ownership and key/publication checks fail closed; the wallet's other session and document-lifetime policies still apply independently.
+Chrome 112 is required for the 10 MB session-storage quota. JSON size is not Chrome's exact memory accounting; native quota/storage failures remain errors and never authorize signing. Expired requests are pruned on queue access and the worker alarm. Old unversioned queue entries require a fresh request after an extension update. Queue deadlines, claim ownership and key/publication checks fail closed; the wallet's other session and document-lifetime policies still apply independently.
 
 Approval preparation and submission use at most two operation slots per popup. Each node RPC has a native client cleanup timeout of at most 10 seconds, shortened by the approval deadline. Canceled operations keep their slot until outstanding native RPC promises settle. The automatic block preview is canceled when its view is replaced or submission begins. Approval proof of work uses a static, operation-owned worker terminated on completion, cancellation, error or expiry. A submitted transaction whose response is lost has an unknown outcome; check the ledger before retrying.
 

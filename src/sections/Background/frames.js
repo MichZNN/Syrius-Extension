@@ -34,6 +34,7 @@ const writeAll = async (frames) => {
 };
 
 const register = async (sender, origin) => {
+  if (typeof sender.documentId !== 'string' || !sender.documentId) return false;
   const frames = await readAll();
   frames[keyOf(sender.tab.id, sender.frameId ?? 0)] = {
     tabId: sender.tab.id,
@@ -46,7 +47,8 @@ const register = async (sender, origin) => {
 
 const forTabs = async (origins) => {
   const frames = await readAll();
-  return Object.values(frames).filter((frame) => origins.has(frame.origin));
+  return Object.values(frames).filter((frame) => origins.has(frame.origin) &&
+    typeof frame.documentId === 'string' && frame.documentId.length > 0);
 };
 
 const forget = async (predicate) => {

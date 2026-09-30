@@ -33,8 +33,18 @@ const activeEntries = (raw) => raw.map(activeOf).filter(Boolean);
 const checkDeadline = (expiresAt) => {
   if (!Number.isFinite(expiresAt) || Date.now() >= expiresAt) throw new Error('Approval expired during finalization.');
 };
+// A denial record that cannot be read as one withholds everything (callers
+// fail closed) rather than being read as "nothing revoked".
+const readDenials = async () => {
+  const stored = (await chrome.storage.session.get(deniedKey))[deniedKey];
+  if (stored === undefined) return [];
+  if (!Array.isArray(stored) || !stored.every((item) => typeof item === 'string')) {
+    throw new Error('Connected-site revocations are unavailable. Retry disconnecting.');
+  }
+  return stored;
+};
 const denied = async (origin, scope) => {
-  const stored = (await chrome.storage.session.get(deniedKey))[deniedKey] || [];
+  const stored = await readDenials();
   return revoked.has('*') || revoked.has(origin) || revoked.has(keyOf(origin, scope)) ||
     stored.includes('*') || stored.includes(origin) || stored.includes(keyOf(origin, scope));
 };
@@ -56,10 +66,13 @@ const isConnected = async (origin, scope) => {
 // The active grant for exactly this account, whether or not a session denial
 // currently withholds it.
 const get = (origin, scope) => serialized((raw) => find(activeEntries(raw), origin, scope) || null);
+// Every saved grant, including one whose revocation did not complete: it stays
+// visible (`revocationPending`, access already withheld) so it can be retried.
 const list = () => serialized(async (raw) => {
   const entries = activeEntries(raw);
-  const allowed = await Promise.all(entries.map((entry) => connected(raw, entry.origin, entry.scope)));
-  return entries.filter((_, index) => allowed[index]).sort((a, b) => (b.connectedAt || 0) - (a.connectedAt || 0));
+  const pending = await Promise.all(entries.map((entry) => denied(entry.origin, entry.scope).catch(() => true)));
+  return entries.map((entry, index) => ({ ...entry, revocationPending: pending[index] }))
+    .sort((a, b) => (b.connectedAt || 0) - (a.connectedAt || 0));
 });
 // Saves a tentative (inactive) row first, preserving any prior consent. The
 // exact isolated relay must accept the connection response before the fixed
@@ -91,18 +104,30 @@ const grant = (origin, scope, { title = '', favicon = '' } = {}, { expiresAt, co
   // Explicit reconnection clears an earlier revocation of exactly this grant.
   // Only now, once the new grant is durable: lifting it first would let a
   // failed reconnect restore a revoked grant whose durable removal had failed.
+  // Written only when there is a denial to lift, so a grant that needed no
+  // session write is not reported as failed after it took effect. If one
+  // cannot be lifted, the grant is reported failed and stays withheld.
   const key = keyOf(origin, scope);
-  const stored = (await chrome.storage.session.get(deniedKey))[deniedKey] || [];
-  await chrome.storage.session.set({ [deniedKey]: stored.filter((item) => !['*', origin, key].includes(item)) });
+  const stored = await readDenials();
+  const lifted = stored.filter((item) => !['*', origin, key].includes(item));
+  if (lifted.length !== stored.length) await chrome.storage.session.set({ [deniedKey]: lifted });
   revoked.delete('*'); revoked.delete(origin); revoked.delete(key);
   return true;
 });
+// Withdrawal denies in this realm at once, then installs a session denial,
+// then removes the durable row. Removal is attempted even when the denial
+// cannot be saved: on its own it revokes across a browser restart. Only a
+// failed removal is reported, and the grant then stays listed as pending.
 const withdraw = (predicate) => serialized(async (raw) => {
   const affected = activeEntries(raw).filter(predicate);
   const keys = raw.filter(predicate).map((entry) => keyOf(entry.origin, entry.scope));
   keys.forEach((key) => revoked.add(key));
-  const stored = (await chrome.storage.session.get(deniedKey))[deniedKey] || [];
-  await chrome.storage.session.set({ [deniedKey]: [...new Set([...stored, ...keys])] });
+  try {
+    const stored = await readDenials();
+    await chrome.storage.session.set({ [deniedKey]: [...new Set([...stored, ...keys])] });
+  } catch (error) {
+    // This realm's denial above still holds; the durable removal decides.
+  }
   await writeAll(raw.filter((entry) => !predicate(entry)));
   return affected;
 });
