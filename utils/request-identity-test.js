@@ -17,6 +17,11 @@ const liveDocument = require('./fixtures/document-binding-stub');
 // Every module realm here sees the requesting document as live (see the stub).
 const withBinding = (override = () => undefined) => id => (liveDocument.isNavigation(id) ? liveDocument.navigationStub : override(id));
 const clone = value => value === undefined ? value : structuredClone(value);
+// What chrome.storage gives back: a copy with every object's keys sorted.
+// Identities taken before a write must still match the record read back.
+const sortedKeys = value => Array.isArray(value) ? value.map(sortedKeys) : value && typeof value === 'object'
+  ? Object.fromEntries(Object.keys(value).sort().map(key => [key, sortedKeys(value[key])])) : value;
+const stored = value => value === undefined ? value : sortedKeys(structuredClone(value));
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const flush = async () => { for (let i = 0; i < 12; i++) await tick(); };
 const navigateStub = () => {};
@@ -78,7 +83,7 @@ const fixture = () => {
   } };
   const changeListeners = new Set();
   const storage = (area, data) => ({
-    get: async key => { if (faults[area + 'Read']) throw Error(area + ' read unavailable'); return Object.fromEntries((Array.isArray(key) ? key : [key]).map(k => [k, clone(data[k])])); },
+    get: async key => { if (faults[area + 'Read']) throw Error(area + ' read unavailable'); return Object.fromEntries((Array.isArray(key) ? key : [key]).map(k => [k, stored(data[k])])); },
     set: async values => {
       if (storageGate?.area === area) { const held = storageGate; storageGate = null; held.started.resolve(); await held.release.promise; }
       if (faults[area + 'Write']) throw Error(area + ' write unavailable');

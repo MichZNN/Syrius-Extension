@@ -160,6 +160,14 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
   await internal('events.accountsChanged', { selectionId: binding.id });
   await eventually(() => evaluate(page, 'accountEvents'), value => value.length === 1, 'fresh activation event');
   assert.deepEqual(await evaluate(page, 'accountEvents'), [['inert-approved-account']]);
+  // A transfer's params come back from chrome.storage with their keys sorted.
+  // Its identity must still match the stored record, or the request can be
+  // neither shown nor rejected (a regression the fixtures could not see).
+  await evaluate(page, "(window.transfer=null,zenon.sendTransaction({to:'z1qqjnwjjpnue8xmmpanz6csze6tcmtzzdtfsww7',tokenStandard:'zts1znnxxxxxxxxxxxxx9z4ulx',amount:'1'}).then(value=>{transfer={value};},error=>{transfer={error:error.code};}),true)");
+  const transfer = await waitRequest(first.tabId); assert.equal(transfer.type, 'sendTransaction');
+  assert.equal(await evaluate(control, `internal('approvals.reject',{identity:approvalIdentity.identityOf(${JSON.stringify(transfer)})})`), true);
+  await eventually(() => evaluate(page, 'transfer'), Boolean, 'rejected transfer');
+  assert.deepEqual(await evaluate(page, 'transfer'), { error: 4001 }); assert.deepEqual(await queue(), []);
   await internal('permissions.revoke', { origin: aOrigin });
   await begin(page); const beforeCross = await waitRequest(first.tabId);
   await cdp('Page.navigate', { url: bOrigin + '/cross' }, page.sessionId); await ready(page, bOrigin + '/cross');
@@ -260,7 +268,7 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
   await cdp('Target.closeTarget', { targetId: second.targetId });
   await eventually(() => evaluate(control, "records('znn.pendingRequests')"), value => !Object.values(value || {}).some(r => r.tabId === closing.tabId), 'tab close cleanup');
   const result = { browser: version.Browser, actualModules: [...new Set([...files, ...closure('src/sections/Content/index.js'), ...closure('src/sections/Inpage/index.js')])], nonSecureHttp: true, lifecycleCaptureOrdering: true, nativeNavigationFence: true, documentRewriteRecovery: true, subframeRewriteRecovery: true, emptyRewriteRecovery: true, ordinaryBodyEdits: true, sameOriginNavigation: true,
-    crossOriginNavigation: true, nativeSubframeNavigation: true, bfcacheRestored: restored, oldApprovalsCancelled: true, freshRequestsAndEvents: true, independentLegacyTabs: true, provisionalGrantCancellation: true, completedConsentSurvivesNavigation: true, tabCloseCleanup: true };
+    crossOriginNavigation: true, nativeSubframeNavigation: true, bfcacheRestored: restored, oldApprovalsCancelled: true, freshRequestsAndEvents: true, multiKeyParamsIdentity: true, independentLegacyTabs: true, provisionalGrantCancellation: true, completedConsentSurvivesNavigation: true, tabCloseCleanup: true };
   fs.writeFileSync(path.join(dir, 'result.json'), JSON.stringify(result, null, 2));
   console.log(JSON.stringify({ ...result, artifact: path.join(dir, 'result.json') }));
 })().catch(error => { console.error(error.stack || String(error)); process.exitCode = 1; }).finally(async () => {
