@@ -7,7 +7,7 @@ through `znn-ts-sdk`) and never leave the machine. The extension talks to a
 Zenon node of your choosing over a websocket, and to web pages through an
 injected provider that cannot do anything without being asked first.
 
-Current version: **0.3.3**, Manifest V3, Chrome/Brave 112 or later. What changed against the published
+Current version: **0.3.4**, Manifest V3, Chrome/Brave 112 or later. What changed against the published
 `MichZNN/syrius-extension` build is in [CHANGELOG.md](CHANGELOG.md); the working
 notes behind it are in [REFACTOR.md](REFACTOR.md).
 
@@ -175,7 +175,7 @@ merging a release. To use the tag-triggered path manually instead of the
 automatic `main` release:
 
 ```bash
-git tag v0.3.3 && git push origin v0.3.3
+git tag v0.3.4 && git push origin v0.3.4
 ```
 
 The normal `main` workflow creates the tag itself. The workflow does not

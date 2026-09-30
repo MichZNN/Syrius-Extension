@@ -1,6 +1,22 @@
 # Changelog
 
-## 0.3.3
+## 0.3.4
+
+- Locking, expiry and wallet removal now revoke every open wallet window's
+  keys, not just the one that locked. Lock durations are 5, 15 or 60 minutes,
+  or On close, and a change applies to the running session.
+- A site's connection is to one wallet and account. Switching accounts hides
+  the address from sites that were not approved for the new one, and every
+  approval is bound to the account it was shown for.
+- Every dApp approval is single use, expires, and is tied to the page that
+  asked: navigating away, going back or rewriting the page cancels it, and an
+  answer can never reach a different page.
+- The approval screen signs exactly the block it showed, and embedded
+  contract calls list every decoded argument.
+- Sites see no address, chain or node until they are approved, see only the
+  node's host, and a disconnect holds even if the browser restarts.
+- The approval window no longer opens repeatedly for one site, and connection
+  requests are bounded per site and in total.
 
 - Fixed a receive-history bug where an incoming transfer's "From" address and
   explorer link pointed at the account's own receive block instead of the
