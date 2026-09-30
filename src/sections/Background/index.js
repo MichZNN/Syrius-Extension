@@ -73,11 +73,19 @@ const getPublicState = () => sessionLease.getPublicState();
 // Talking back to pages
 //
 const sendToTab = async (tabId, message, frameId) => {
+  // Bounded: a frame that never acknowledges must not hold up a broadcast, or
+  // the lease transaction a caller is waiting in, indefinitely.
+  let timer;
   try {
-    await chrome.tabs.sendMessage(tabId, message, frameId === undefined ? {} : { frameId });
+    await Promise.race([
+      chrome.tabs.sendMessage(tabId, message, frameId === undefined ? {} : { frameId }),
+      new Promise((resolve) => { timer = setTimeout(resolve, 5000); }),
+    ]);
   } catch (err) {
     // The tab navigated away or closed. Nothing to deliver to and nothing to
     // do about it.
+  } finally {
+    clearTimeout(timer);
   }
 };
 
@@ -244,6 +252,17 @@ const handleProviderRequest = async (request, sender) => {
   }
 };
 
+const announceState = async (leaseId, event, payloadOf) => {
+  const state = await sessionLease.eventState(leaseId);
+  if (!state) return false;
+  if (state.hidden) {
+    if (event === 'accountsChanged') await broadcast(event, []);
+    return true;
+  }
+  await broadcast(event, payloadOf(state));
+  return true;
+};
+
 //
 // Popup-facing methods
 //
@@ -294,24 +313,15 @@ const internalMethods = {
   //
   // State changes the popup makes that sites care about
   //
-  'events.accountsChanged': async ({ leaseId }) => {
-    const state = await sessionLease.getPublicState(leaseId, true);
-    if (!state) return false;
-    await broadcast('accountsChanged', state.address ? [state.address] : []);
-    return true;
-  },
-  'events.chainChanged': async ({ leaseId }) => {
-    const state = await sessionLease.getPublicState(leaseId, true);
-    if (!state) return false;
-    await broadcast('chainChanged', state.chainId);
-    return true;
-  },
-  'events.nodeChanged': async ({ leaseId }) => {
-    const state = await sessionLease.getPublicState(leaseId, true);
-    if (!state) return false;
-    await broadcast('nodeChanged', state.nodeUrl);
-    return true;
-  },
+  // Each names the lease it is about, and the payload is read from that
+  // lease's current public state rather than taken from the message — so a
+  // delayed announcement from an older popup cannot advertise a wallet that
+  // has since been locked or replaced. Under On close there is no public
+  // state, and sites are told there is no account.
+  'events.accountsChanged': ({ leaseId }) => announceState(leaseId, 'accountsChanged',
+    (state) => (state.address ? [state.address] : [])),
+  'events.chainChanged': ({ leaseId }) => announceState(leaseId, 'chainChanged', (state) => state.chainId),
+  'events.nodeChanged': ({ leaseId }) => announceState(leaseId, 'nodeChanged', (state) => state.nodeUrl),
 
   // Locking has to reach the pages too, or a site keeps showing an address for
   // a wallet that is shut.

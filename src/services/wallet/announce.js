@@ -7,7 +7,7 @@ import vault from './vault';
 // Derive public values from the captured live vault, never from an address
 // argument retained by a screen before an asynchronous connection/unlock.
 const announce = async (event, expectedLifetime) => {
-  if (!vault.isUnlocked()) return false;
+  if (!vault.isUnlocked() || (expectedLifetime && !vault.isCurrent(expectedLifetime))) return false;
   try {
     const lifetime = expectedLifetime || vault.capture();
     const address = await vault.getAddress(vault.getSelectedIndex(), lifetime);
@@ -19,10 +19,14 @@ const announce = async (event, expectedLifetime) => {
     return true;
   } catch (error) { return false; }
 };
+// Captured before a screen's own slow work (a node connection, say), so the
+// announcement that follows is bound to the session that started it and not
+// to whatever unlocked in the meantime. Null when there is nothing to bind to.
+const captureLifetime = () => (vault.isUnlocked() ? vault.capture() : null);
 const announceUnlock = (address, lifetime) => announce('events.accountsChanged', lifetime);
-const announceAddress = () => announce('events.accountsChanged');
-const announceChain = () => announce('events.chainChanged');
-const announceNode = () => announce('events.nodeChanged');
+const announceAddress = (lifetime) => announce('events.accountsChanged', lifetime);
+const announceChain = (lifetime) => announce('events.chainChanged', lifetime);
+const announceNode = (lifetime) => announce('events.nodeChanged', lifetime);
 const announceLock = (leaseId) => sendInternalQuietly('session.locked', { leaseId });
 
-export { announceUnlock, announceAddress, announceChain, announceNode, announceLock };
+export { captureLifetime, announceUnlock, announceAddress, announceChain, announceNode, announceLock };

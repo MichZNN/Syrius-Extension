@@ -1,5 +1,6 @@
 import { KeyFile, KeyStore, KeyStoreManager, Primitives } from 'znn-ts-sdk';
 import session from './session';
+import { validateWalletPassword } from './password';
 
 // Raw keystores/keys never leave this module. Every exported key handle is a
 // revocable facade, including the public derivation handle used by previews.
@@ -11,17 +12,28 @@ const listeners = new Set();
 let timer;
 const isCurrent = (scope) => Boolean(scope && state.keyStore &&
   scope.generation === state.generation && scope.id === state.lease?.id);
-const lock = (expectedId, error) => {
-  if (expectedId !== undefined && state.lease?.id !== expectedId) return;
+// Clears this document's keys without telling the UI. Explicit lock uses it to
+// purge secrets before shared revocation is confirmed, then reports the
+// outcome through `announce` once it is known.
+const revokeLocal = (expectedId) => {
+  if (expectedId !== undefined && state.lease?.id !== expectedId) return null;
   const wasUnlocked = Boolean(state.keyStore);
   const leaseId = state.lease?.id;
   state.generation += 1;
   state.walletName = null; state.keyStore = null; state.lease = null; state.selectedIndex = 0;
   state.rawKeys.clear(); state.rawSigningKeys.clear(); state.publicKeys.clear(); state.signingKeys.clear(); state.addresses.clear();
   clearTimeout(timer);
-  if (wasUnlocked) listeners.forEach((listener) => {
-    try { listener({ leaseId, error }); } catch (error) { /* UI cleanup cannot block key revocation. */ }
+  return wasUnlocked ? { leaseId } : null;
+};
+const announce = (event, error) => {
+  if (event) listeners.forEach((listener) => {
+    try { listener({ leaseId: event.leaseId, error }); } catch (error) { /* UI cleanup cannot block key revocation. */ }
   });
+};
+const lock = (expectedId, error) => announce(revokeLocal(expectedId), error);
+const seal = () => {
+  const event = revokeLocal();
+  return (error) => announce(event, error);
 };
 const onLock = (listener) => { listeners.add(listener); return () => listeners.delete(listener); };
 const isUnlocked = () => Boolean(state.keyStore && state.lease && (
@@ -71,7 +83,10 @@ const adopt = (walletName, keyStore, record, selectedIndex) => {
   schedule();
   return capture();
 };
-const unlockWithPassword = async (walletName, password, selectedIndex = 0) => {
+// `prepare` runs under the lease lock after the password checks out and before
+// the keys are adopted; if it throws, the new lease is revoked and nothing is
+// adopted. Startup uses it for the persistence an unlock requires.
+const unlockWithPassword = async (walletName, password, selectedIndex = 0, prepare = () => {}) => {
   const generation = state.generation;
   const expectedId = await session.begin();
   if (generation !== state.generation) throw session.ended();
@@ -80,13 +95,15 @@ const unlockWithPassword = async (walletName, password, selectedIndex = 0) => {
   if (generation !== state.generation) throw session.ended();
   return session.create(expectedId, { walletName, entropy: keyStore.entropy, selectedAddressIndex: selectedIndex }, (record) => {
     if (generation !== state.generation) throw session.ended();
+    prepare();
     return adopt(walletName, keyStore, record, selectedIndex);
   });
 };
-const restore = async (record, selectedIndex = 0) => {
+const restore = async (record, selectedIndex = 0, prepare = () => {}) => {
   const generation = state.generation;
   return session.restore(record, selectedIndex, (current, entropy) => {
     if (generation !== state.generation) throw session.ended();
+    prepare();
     return adopt(current.walletName, new KeyStore().fromEntropy(entropy), current, selectedIndex);
   });
 };
@@ -96,6 +113,7 @@ const setSelectedIndex = (index) => {
   state.selectedIndex = Number.isInteger(index) && index >= 0 ? index : 0;
 };
 const getWalletName = () => state.walletName;
+const getLeaseId = () => state.lease?.id ?? null;
 const rawKey = (scope, index) => {
   assertLocal(scope);
   if (!state.rawKeys.has(index)) state.rawKeys.set(index, state.keyStore.getKeyPair(index));
@@ -171,6 +189,10 @@ const verifyPassword = async (password) => {
 // The SDK manager combines slow encryption and an unconditional disk write.
 // Separate those phases so a completed lock can cancel a pending password change.
 const changePassword = async (currentPassword, newPassword) => {
+  // The strength policy belongs to the encrypted-wallet commit, not only the
+  // form in front of it: a bypassed submit must not save a weak password.
+  const validation = validateWalletPassword(newPassword);
+  if (validation !== true) throw new Error(validation);
   const scope = capture();
   const verified = await verifyPassword(currentPassword);
   await assertSession(scope);
@@ -221,6 +243,25 @@ const touch = async (patch = {}, scope = capture()) => {
     throw error;
   }
 };
+// Applies a changed lock duration to this running session; the preference is
+// saved inside the same lease transaction. A failed preference write leaves the
+// staged (stricter) record in place and is reported for an explicit retry.
+const setLockPolicy = async (minutes, scope = capture()) => {
+  assertLocal(scope);
+  try {
+    const { record, settings } = await session.setPolicy(scope.id, minutes, state.keyStore.entropy);
+    assertLocal(scope); state.lease = record; schedule();
+    return settings;
+  } catch (error) {
+    if (['WALLET_LOCKED', 'WALLET_SESSION_UNAVAILABLE'].includes(error.code) && isCurrent(scope)) {
+      lock(scope.id, error);
+    } else if (isCurrent(scope)) {
+      // The stage may already be committed; pick it up for local expiry.
+      authorize(scope, () => true).catch(() => {});
+    }
+    throw error;
+  }
+};
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'session' || !changes[session.sessionKey] || !state.keyStore) return;
   const scope = capture();
@@ -228,8 +269,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 const vault = {
-  isUnlocked, getWalletName, getSelectedIndex, setSelectedIndex, getEntropy, getMnemonic,
+  isUnlocked, getWalletName, getLeaseId, getSelectedIndex, setSelectedIndex, getEntropy, getMnemonic,
   unlockWithPassword, restore, getKeyPair, getSigningKeyPair, getAddress, getAddressObject,
-  getAddresses, verifyPassword, changePassword, touch, capture, isCurrent, assertSession, lock, onLock,
+  getAddresses, verifyPassword, changePassword, touch, setLockPolicy, capture, isCurrent, assertSession, lock, seal, onLock,
 };
 export default vault;

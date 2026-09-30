@@ -27,10 +27,12 @@ import vault from './vault';
 
 const connectToNode = async (dispatch, isCurrent = () => true) => {
   const nodeUrl = getCurrentNodeUrl() || defaultNodeUrl;
-  setCurrentNodeUrl(nodeUrl);
   dispatch(storeNodeUrl(nodeUrl));
 
   try {
+    // Inside the try: remembering the node is optional, and a storage failure
+    // here must not undo an unlock that has already been adopted.
+    setCurrentNodeUrl(nodeUrl);
     await Zenon.getSingleton().initialize(nodeUrl, false, 8000);
     if (isCurrent()) dispatch(storeIsConnected(true));
     return true;
@@ -44,16 +46,20 @@ const connectToNode = async (dispatch, isCurrent = () => true) => {
 // one. Slow address/node work cannot re-publish a revoked unlock.
 const completeUnlock = async ({ walletName, password, sessionRecord, dispatch }) => {
   const addressInfo = getAddressInfo(walletName);
+  // Recorded once the password (or session) has checked out — a wrong guess
+  // must never become the screen's next default — and before the keys are
+  // adopted, so a failed write leaves nothing half unlocked.
+  const prepare = () => setLastWalletName(walletName);
   const lifetime = sessionRecord
-    ? await vault.restore(sessionRecord, addressInfo.selectedAddressIndex)
-    : await vault.unlockWithPassword(walletName, password, addressInfo.selectedAddressIndex);
+    ? await vault.restore(sessionRecord, addressInfo.selectedAddressIndex, prepare)
+    : await vault.unlockWithPassword(walletName, password, addressInfo.selectedAddressIndex, prepare);
   const address = await vault.getAddress(addressInfo.selectedAddressIndex, lifetime);
   await vault.assertSession(lifetime);
-  setLastWalletName(walletName);
   dispatch(walletUnlocked({
     walletName, address,
     selectedAddressIndex: addressInfo.selectedAddressIndex,
-    maxAddressIndex: addressInfo.maxAddressIndex,
+    // A saved selection past the saved count would draw no selected row.
+    maxAddressIndex: Math.max(addressInfo.maxAddressIndex, addressInfo.selectedAddressIndex + 1),
   }));
   dispatch(storeChainIdentifier(Zenon.getChainIdentifier()));
   const isConnected = await connectToNode(dispatch, () => vault.isCurrent(lifetime));

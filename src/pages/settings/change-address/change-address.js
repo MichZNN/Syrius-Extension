@@ -48,18 +48,26 @@ const ChangeAddress = () => {
     if (!address) {
       return;
     }
-    setAddressInfo(walletName, { selectedAddressIndex: index, maxAddressIndex });
-    vault.setSelectedIndex(index);
-    dispatch(storeSelectedAddress({ index, address }));
+    try {
+      // Saved first: a selection the next unlock would not restore is not a
+      // selection, and must not be shown as one.
+      if (!setAddressInfo(walletName, { selectedAddressIndex: index, maxAddressIndex })) {
+        throw new Error('Could not save the selected address. Try again.');
+      }
+      vault.setSelectedIndex(index);
+      dispatch(storeSelectedAddress({ index, address }));
 
-    // The cached balances belong to the address being left behind.
-    invalidateAccountCache();
-    await vault.touch({ selectedAddressIndex: index });
-    await announceAddress(address);
+      // The cached balances belong to the address being left behind.
+      invalidateAccountCache();
+      await vault.touch({ selectedAddressIndex: index });
+      await announceAddress();
 
-    // Switching addresses repeatedly while this toast is still up reuses it
-    // rather than stacking one per click, the same as `notify.copied`.
-    notify.success('Address changed', { toastId: 'address-changed' });
+      // Switching addresses repeatedly while this toast is still up reuses it
+      // rather than stacking one per click, the same as `notify.copied`.
+      notify.success('Address changed', { toastId: 'address-changed' });
+    } catch (error) {
+      notify.error(error);
+    }
   };
 
   const addAddress = () => {

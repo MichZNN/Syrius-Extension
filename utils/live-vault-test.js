@@ -275,23 +275,32 @@ const fixture = () => {
   }
   // Explicit lock commits shared revocation before presenting local locked UI.
   // A failed attempt is visible and retryable; a transient fault is retried once.
+  // Integrated with the session-policy branch: the locking document's own keys
+  // are purged at once either way, and a failure reaches its lock listener as
+  // WALLET_LOCK_FAILED (MainLayout's retry screen), not as the password screen.
   for (const phase of ['read', 'write']) for (const transient of [false, true]) {
     const f = fixture(); const a = f.realm('locker'); const b = f.realm('approval');
     await a.vault.unlockWithPassword('A', 'ok'); await b.vault.restore(await b.session.load());
     const signer = await b.vault.getSigningKeyPair(); await f.flush();
-    let localLocks = 0; a.vault.onLock(() => localLocks++);
+    let localLocks = 0; const lockErrors = [], lockLeases = []; a.vault.onLock(({ error, leaseId }) => { localLocks++; lockErrors.push(error); lockLeases.push(leaseId); });
     const lockWallet = a.load('src/services/wallet/lock.js').default;
     const failureKey = phase === 'read' ? 'failRead' : 'failWrite';
     if (transient) f.state[phase === 'read' ? 'readFailures' : 'writeFailures'] = 1;
     else f.state[failureKey] = true;
     if (!transient) {
       await assert.rejects(lockWallet(), error => error.code === 'WALLET_LOCK_FAILED' && /Try again/.test(error.message));
-      assert.equal(localLocks, 0); assert.equal(a.vault.isUnlocked(), true);
+      assert.equal(localLocks, 1); assert.equal(lockErrors[0].code, 'WALLET_LOCK_FAILED');
+      assert.equal(a.vault.isUnlocked(), false);
       assert.equal(b.vault.isUnlocked(), true); assert.equal(a.messages.length, 0);
       f.state[failureKey] = false;
+      // The retry is MainLayout's: the purged window revokes the lease named
+      // by its failure event (its own lockWallet has no lease left to name).
+      await a.session.clear(lockLeases[0]); await f.flush();
+    } else {
+      await lockWallet(); await f.flush();
     }
-    await lockWallet(); await f.flush();
-    assert.equal(localLocks, 1); assert.equal(a.vault.isUnlocked(), false); assert.equal(b.vault.isUnlocked(), false);
+    assert.equal(localLocks, 1); assert.equal(lockErrors.at(-1), transient ? undefined : lockErrors[0]);
+    assert.equal(a.vault.isUnlocked(), false); assert.equal(b.vault.isUnlocked(), false);
     assert.equal(f.state.storage[a.session.sessionKey].entropy, undefined);
     await assert.rejects(signer.sign(new Uint8Array([9])), locked);
     assert.equal(f.state.signs.length, 0);
@@ -300,7 +309,7 @@ const fixture = () => {
     const f = fixture(); const a = f.realm('locker'); await a.vault.unlockWithPassword('A', 'ok'); await f.flush();
     let lockedUI = false; a.vault.onLock(() => { lockedUI = true; });
     const gate = f.hold('write', 'locker'); const pending = a.load('src/services/wallet/lock.js').default();
-    await gate.started.promise; assert.equal(lockedUI, false); assert.equal(a.vault.isUnlocked(), true);
+    await gate.started.promise; assert.equal(lockedUI, false); assert.equal(a.vault.isUnlocked(), false);
     gate.release.resolve(); await pending; assert.equal(lockedUI, true);
   }
   {
@@ -332,6 +341,8 @@ const fixture = () => {
     f.state.failWrite = true; await item.props.onClick();
     assert.equal(errors[0].code, 'WALLET_LOCK_FAILED'); assert.equal(routes.length, 0); assert.equal(actions.length, 0); assert.equal(invalidations, 0);
     f.state.failWrite = false; await item.props.onClick();
+    // The retry revokes the lease the failed attempt could not.
+    assert.equal(f.state.storage[a.session.sessionKey].locked, true);
     assert.equal(routes.at(-1)[0], label === 'Lock wallet' ? '/password' : '/auth/onboarding');
     assert.equal(a.vault.isUnlocked(), false); assert.equal(invalidations, 1);
   }
@@ -353,7 +364,11 @@ const fixture = () => {
     const remove = React.Children.toArray(actionRow.props.children).at(-1).props.onClick;
     f.state.failWrite = true; await remove();
     assert.equal(errors[0].code, 'WALLET_LOCK_FAILED'); assert.equal(deletes, 0); assert.equal(routes.length, 0);
-    f.state.failWrite = false; await remove();
+    // The failed lock purged this document's keys (session-policy branch), so
+    // the retry goes through recovery and a fresh unlock, as the UI requires.
+    assert.equal(a.vault.isUnlocked(), false);
+    f.state.failWrite = false; await a.session.clear(); await a.vault.unlockWithPassword('A', 'ok'); await f.flush();
+    await remove();
     assert.equal(deletes, 1); assert.equal(routes.at(-1)[0], '/auth/onboarding');
   }
   // Password encryption is deliberately outside the lock; only an authorized
@@ -363,7 +378,7 @@ const fixture = () => {
     f.state.persistent['znn.ts-wallet'] = JSON.stringify({ other: { untouched: true }, 'A-wallet': { old: true } });
     await a.vault.unlockWithPassword('A wallet', 'ok');
     const gate = f.hold('encrypt', 'password');
-    const change = a.vault.changePassword('ok', 'new password');
+    const change = a.vault.changePassword('ok', 'New-passw0rd!');
     const result = mode === 'control' ? change : assert.rejects(change, locked);
     await gate.started.promise;
     // Notifications can be lost; the shared check at commit must still deny.
@@ -377,10 +392,13 @@ const fixture = () => {
     assert.deepEqual(saved.other, { untouched: true });
     if (mode === 'control') {
       assert.equal(saved['A-wallet'].baseAddress, 'A wallet:0');
-      assert.equal(saved['A-wallet'].crypto.syntheticCiphertext, 'A wallet:new password');
-      assert.equal(await a.vault.changePassword('bad', 'never'), false);
+      assert.equal(saved['A-wallet'].crypto.syntheticCiphertext, 'A wallet:New-passw0rd!');
+      assert.equal(await a.vault.changePassword('bad', 'Never-0kay!'), false);
+      // #2's strength policy holds at the commit itself, not only in the form.
+      await assert.rejects(a.vault.changePassword('ok', 'weak password'), /at least 8 characters/);
+      assert.equal(JSON.parse(f.state.persistent['znn.ts-wallet'])['A-wallet'].crypto.syntheticCiphertext, 'A wallet:New-passw0rd!');
       f.state.failPersistent = true;
-      await assert.rejects(a.vault.changePassword('ok', 'failed'), /Persistent write failed/);
+      await assert.rejects(a.vault.changePassword('ok', 'Fail3d-write!'), /Persistent write failed/);
     } else assert.deepEqual(saved['A-wallet'], { old: true });
   }
   {

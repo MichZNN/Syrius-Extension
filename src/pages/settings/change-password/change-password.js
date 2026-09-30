@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 
 import { notify } from '../../../services/utils/notify';
-import { validateWalletPassword, saveWalletWithPassword } from '../../../services/wallet/password';
+import { validateWalletPassword } from '../../../services/wallet/password';
 import vault from '../../../services/wallet/vault';
 
 // Changing the wallet password.

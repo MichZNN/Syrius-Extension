@@ -285,3 +285,26 @@ MIT License - see the [LICENSE](LICENSE) file for details.
 ---
 
 **Disclaimer**: This is experimental software. Use at your own risk. Always verify transactions before signing.
+
+### Lock-duration changes
+
+Changing **Lock after** applies to the current session immediately. A shorter
+positive duration clamps its deadline without extending any time already left;
+selecting the same or a longer duration does not reset that deadline. Later
+activity can renew it under the selected policy. The policy is held in the
+shared session record and every renewal reads it under the session lock, so an
+operation that began before the setting changed cannot extend the session past
+it.
+
+**On close** removes resumable key material and public wallet state from shared
+session storage, retaining only a marker for the current document. A new popup
+must ask for the password. Only that still-open owner may convert its session
+back to a timed duration. Settings errors are reported; a partial persistence
+failure may leave the current session stricter until the setting is retried.
+A failure to reach shared session storage is treated as unavailability: the
+affected window's keys are purged and it offers a retry. Existing legacy unlock
+records require a password once after this update.
+
+The shared popup/worker session coordinator requires Chrome 111 or newer.
+`npm run test:security` includes inert session-policy regression checks; they
+use no live node, real wallet, funds, or existing browser profile.

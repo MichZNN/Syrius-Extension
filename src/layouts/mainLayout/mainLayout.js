@@ -45,8 +45,10 @@ const MainLayout = () => {
     dispatch(resetPendingTransactions());
     dispatch(resetWalletState());
     notify.dismissAll();
-    if (error?.code === 'WALLET_SESSION_UNAVAILABLE') {
-      // Local secrets have been purged, but shared revocation is unconfirmed.
+    if (['WALLET_SESSION_UNAVAILABLE', 'WALLET_LOCK_FAILED'].includes(error?.code)) {
+      // Local secrets have been purged, but shared revocation is unconfirmed —
+      // storage failed under a key operation, or an explicit lock could not
+      // commit.
       // Retain its identity for the same conditional recovery used at startup.
       pendingRevocation.current = leaseId;
       setBootError(error.message);
@@ -81,11 +83,11 @@ const MainLayout = () => {
     let cancelled = false;
 
     const revokeFailedRestore = async () => {
-      const id = pendingRevocation.current;
-      if (!id) return;
-      await session.clear(id);
-      vault.lock(id);
-      if (!cancelled && pendingRevocation.current === id) {
+      const expected = pendingRevocation.current;
+      if (!expected) return;
+      await session.clear(expected);
+      vault.lock(typeof expected === 'object' ? expected.id : expected);
+      if (!cancelled && pendingRevocation.current === expected) {
         pendingRevocation.current = null;
         setIsBooting(true);
         setBootError(null);
@@ -158,7 +160,9 @@ const MainLayout = () => {
           if (cancelled) return;
           // Do not show a successful locked state if shared cleanup fails.
           // The startup error view keeps this identity for an explicit retry.
-          pendingRevocation.current = unlock.id;
+          // Scoped to the revision that was read: if its owner has since
+          // switched to On close, the record is theirs and stays.
+          pendingRevocation.current = { id: unlock.id, revision: unlock.revision };
           await revokeFailedRestore();
         }
       }
