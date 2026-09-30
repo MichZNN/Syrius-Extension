@@ -123,7 +123,8 @@ const fixture = () => {
       { id: 'fixture', url: 'chrome-extension://fixture/popup.html' }, response => response.error ? reject(Error(response.error)) : resolve(response.result)));
   };
   chrome.runtime.sendMessage = (message, callback) => internal(message.method, message.params).then(result => callback({ result }), error => callback({ error: error.message }));
-  const sender = { id: 'fixture', url: 'https://fixture.invalid/app', origin: 'https://fixture.invalid', tab: { id: 1 }, frameId: 0 };
+  // Chrome's native document identity: replies are bound to it (#8).
+  const sender = { id: 'fixture', url: 'https://fixture.invalid/app', origin: 'https://fixture.invalid', tab: { id: 1 }, frameId: 0, documentId: 'fixture-document' };
   local['syrius.permissions'] = { [sender.origin]: { origin: sender.origin } };
   let responseId = 0;
   const provider = async method => {

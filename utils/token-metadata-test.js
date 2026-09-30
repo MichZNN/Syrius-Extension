@@ -9,6 +9,7 @@ const { renderToStaticMarkup } = require('react-dom/server');
 global.window = { crypto: require('node:crypto').webcrypto };
 const memory = new Map();
 global.localStorage = { getItem: key => memory.get(key) ?? null, setItem: (key, value) => memory.set(key, String(value)) };
+global.chrome = { windows: { getCurrent: async () => ({ id: 1 }) } };
 const sdk = require('znn-ts-sdk');
 const { ethers } = require('ethers');
 const root = path.join(__dirname, '..');
@@ -75,7 +76,14 @@ const view = ({ file, states, account }) => {
     if (name.endsWith('/hooks/modal/modalContext')) return { ModalContext: {} };
     if (name.endsWith('/wallet/vault')) return {};
     if (name.endsWith('/wallet/signMessage')) return {};
-    if (name.endsWith('/utils/messaging')) return { sendInternal: async type => type === 'approvals.next' ? { id: 'next', type: 'connect', params: {} } : null };
+    // The approval screen claims a request before signing (single-use request
+    // identities); the stand-in worker grants the claim and accepts the result.
+    if (name.endsWith('/utils/messaging')) return { sendInternal: async (type, params) => {
+      if (type === 'approvals.next') return { id: 'next', type: 'connect', params: {} };
+      if (type === 'approvals.claim') return { ...params.identity, claimId: 'fixture-claim' };
+      if (type === 'approvals.checkClaim' || type === 'approvals.resolve') return true;
+      return null;
+    } };
     if (name.endsWith('/utils/notify')) return { notify: { error: err => errors.push(err), success: () => {} } };
     if (name.includes('/components/modals/') || name.includes('/components/custom-dropdown/')) return () => null;
     return undefined;
