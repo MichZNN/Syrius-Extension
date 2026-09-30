@@ -132,7 +132,9 @@ const fixture = (requiredDifficulty = 0) => {
   };
   const key = { getAddress: async () => address, getPublicKey: async () => Buffer.alloc(32, 7), sign: async () => { counts.signs++; await pause('sign'); return Buffer.alloc(64, 9); } };
   const vault = { getKeyPair: () => key, getSigningKeyPair: async () => { await pause('key'); return key; },
-    getBinding: () => binding, whileBound: async (_, operation) => operation() };
+    getBinding: () => binding, whileBound: async (_, operation) => operation(),
+    // What a prepared block approval checks it is still current against.
+    isUnlocked: () => true, getWalletName: () => 'fixture' };
   // Scoped consent for the fixture origin; the approval screen shows only a
   // connected account's requests (#11).
   const connect = () => { local['syrius.permissions'] = { version: 2, entries: [{ active: true, origin: 'https://fixture.invalid', scope, title: '', favicon: '', connectedAt: 1, lastUsedAt: 1 }] }; };
@@ -405,7 +407,9 @@ const watchdog = setTimeout(() => { console.error('Approval queue checks timed o
     assert.equal(f.counts.publishes, 1); assert.equal(f.counts.workers, 1); assert.equal(f.counts.terminated, 1); view.dispose();
   }
   for (const type of ['sendTransaction', 'signAndSendBlock', 'signMessage']) {
-    for (const phase of type === 'signMessage' ? ['key', 'sign'] : ['key', 'rpc', 'pow', 'sign', 'readyToPublish']) {
+    // An arbitrary block's node lookups happen at preparation (#4), before
+    // approval; its approval phases start at the key.
+    for (const phase of type === 'signMessage' ? ['key', 'sign'] : type === 'signAndSendBlock' ? ['key', 'pow', 'sign', 'readyToPublish'] : ['key', 'rpc', 'pow', 'sign', 'readyToPublish']) {
       const f = fixture(); await f.add(entry('delayed-' + type + phase, 'doc-a', type)); const view = f.ui(); await view.settle();
       const held = f.hold(phase), action = view.button(label[type]).props.onClick(); await held.started.promise;
       f.advance(limits.ttl); held.release.resolve(); await action;

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
-import { Primitives, Zenon, utils as sdkUtils } from 'znn-ts-sdk';
+import { Primitives } from 'znn-ts-sdk';
 
 import TokenAmount from '../../components/token-amount/token-amount';
 import { authorizationMetadata, normalizeBaseUnits } from '../../services/wallet/tokenMetadata';
@@ -14,6 +14,7 @@ import { sendInternal } from '../../services/utils/messaging';
 import { identityOf, freezeApproval, approvalEnded } from '../../services/utils/approvalIdentity';
 import withApprovalDeadline from '../../services/utils/approvalDeadline';
 import { runApprovalOperation } from '../../services/wallet/approvalOperation';
+import { prepareBlockApproval, isCurrentBlockApproval } from '../../services/wallet/blockApproval';
 import {
   formatExact,
   toBigNumber,
@@ -215,49 +216,38 @@ const SiteIntegrationLayout = () => {
     return () => clearTimeout(timer);
   }, [request, loadNext]);
 
-  // For an arbitrary account block, what will actually be signed — with the
-  // fields the SDK fills in (chain, height, previous hash) resolved, rather
-  // than the bare JSON the page sent.
+  // For an arbitrary account block, what will actually be signed: prepared
+  // once, with the fields the SDK fills in (chain, height, previous hash)
+  // resolved, frozen, and bound to this request and wallet account. There is
+  // no fallback to the page's own JSON: approval waits for the preparation, and
+  // it is that preparation which is signed (blockApproval.js).
   useEffect(() => {
-    if (!request || request.type !== 'signAndSendBlock') {
-      setPreview(null);
-      return;
-    }
+    setPreview(null);
+    if (!request || request.type !== 'signAndSendBlock' || !isUnlocked) return undefined;
     let cancelled = false;
     const controller = new AbortController();
     previewOwner.current = controller;
-
-    (async () => {
-      try {
-        const zenon = Zenon.getSingleton();
-        const template = Primitives.AccountBlockTemplate.fromJson(
-          request.params
-        );
-        // Previewed with the bound account's key, which is the one that signs.
-        const keyPair = vault.getKeyPair(request.binding.scope.index);
-        const filled = await runApprovalOperation(request.expiresAt,
-          active => sdkUtils.BlockUtils._checkAndSetFields(active.context(zenon), template, keyPair),
-          { signal: controller.signal });
-
-        if (!cancelled) {
-          setPreview(filled.toJson());
-        }
-      } catch (err) {
-        if (!cancelled) {
-          // Falling back to what the site sent is better than a blank panel:
-          // the point of this screen is that the block is visible before it is
-          // signed.
-          setPreview(request.params);
-        }
-      }
-    })();
+    const binding = vault.getBinding();
+    const isCurrent = () => !cancelled && rendered.current.request === request &&
+      vault.getBinding() === binding && binding?.id === request.binding?.id;
+    prepareBlockApproval(request.params, {
+      address: request.binding.scope.address, index: request.binding.scope.index, nodeUrl,
+      isCurrent, expiresAt: request.expiresAt, signal: controller.signal,
+    }).then(
+      (approval) => { if (!cancelled) setPreview({ request, approval }); },
+      (error) => { if (!cancelled) setPreview({ request, error: readableError(error) }); }
+    );
 
     return () => {
       cancelled = true;
       controller.abort();
       if (previewOwner.current === controller) previewOwner.current = null;
     };
-  }, [request]);
+  }, [request, isUnlocked, chainIdentifier, nodeUrl]);
+  const previewed = preview && request && preview.request === request ? preview : null;
+  const blockApproval = previewed?.approval ?? null;
+  const approvalReady = isCurrentBlockApproval(blockApproval);
+  const preparedBlock = blockApproval && (approvalReady || isBusy) ? blockApproval.block : null;
 
   const approve = async (execute, success) => {
     const selected = { request, address, chainIdentifier, nodeUrl, binding: vault.getBinding() };
@@ -345,14 +335,14 @@ const SiteIntegrationLayout = () => {
     runApprovalOperation(selected.expiresAt, active => signMessage(selected.params.message,
       { assertRequest: active.assertActive, binding, addressIndex: binding.scope.index }),
     { assertRequest }), 'Message signed');
-  const approveSignAndSend = () => approve(async (selected, assertRequest, binding, onSubmitted) => {
-    authorizationMetadata(selected.params.tokenStandard);
-    const template = Primitives.AccountBlockTemplate.fromJson({
-      ...selected.params, amount: normalizeBaseUnits(selected.params.amount),
-    });
-    return blockResult(await send(template, { assertRequest, expiresAt: selected.expiresAt,
-      binding, onSubmitted, addressIndex: binding.scope.index }));
-  }, 'Block sent');
+  // Signs the reviewed preparation, never the page's JSON filled in again.
+  const approveSignAndSend = () => {
+    const prepared = approvalReady ? blockApproval : null;
+    if (!prepared) return undefined;
+    return approve(async (selected, assertRequest, binding, onSubmitted) =>
+      blockResult(await send(null, { assertRequest, expiresAt: selected.expiresAt,
+        binding, onSubmitted, addressIndex: binding.scope.index, prepared })), 'Block sent');
+  };
 
   if (request === undefined) {
     return (
@@ -390,7 +380,9 @@ const SiteIntegrationLayout = () => {
     if (!['sendTransaction', 'signAndSendBlock'].includes(request.type)) {
       return null;
     }
-    const { tokenStandard, amount } = request.params || {};
+    // An arbitrary block is judged by the block that will be signed.
+    const { tokenStandard, amount } = (request.type === 'signAndSendBlock' ? preparedBlock : request.params) || {};
+    if (request.type === 'signAndSendBlock' && !preparedBlock) return null;
     let wanted;
     let metadata;
     try {
@@ -559,8 +551,16 @@ const SiteIntegrationLayout = () => {
           <div className="approval-body">
             <h2 className="approval-title">Sign this block?</h2>
 
-            {(() => {
-              const json = preview ?? request.params;
+            {!preparedBlock ? (
+              <p className={previewed?.error ? 'approval-warning' : 'approval-note'} role="status">
+                {previewed?.error
+                  ? `Unable to prepare this block: ${previewed.error}`
+                  : blockApproval
+                    ? 'The wallet or connection changed. Reject this request and review a new one.'
+                    : 'Preparing this block for review…'}
+              </p>
+            ) : (() => {
+              const json = preparedBlock;
               const info = describeBlock(json);
               const amountRow = info.hasAmount && (
                 <TokenAmount amount={info.amount} tokenStandard={info.tokenStandard} />
@@ -622,12 +622,14 @@ const SiteIntegrationLayout = () => {
               );
             })()}
 
-            <details className="block-preview-details">
-              <summary>Raw transaction data</summary>
-              <pre className="block-preview">
-                {JSON.stringify(preview ?? request.params, null, 2)}
-              </pre>
-            </details>
+            {preparedBlock && (
+              <details className="block-preview-details">
+                <summary>Raw transaction data</summary>
+                <pre className="block-preview">
+                  {JSON.stringify(preparedBlock, null, 2)}
+                </pre>
+              </details>
+            )}
 
             {shortfall && (
               <p className="approval-warning" role="alert">
@@ -649,7 +651,7 @@ const SiteIntegrationLayout = () => {
               type="button"
               className="button warning w-100"
               onClick={approveSignAndSend}
-              disabled={busy || Boolean(shortfall)}
+              disabled={busy || !approvalReady || Boolean(shortfall)}
             >
               {busy ? busyLabel : 'Sign and send'}
             </button>

@@ -122,7 +122,9 @@ const fixture = () => {
   };
   const key = { getAddress: async () => address, getPublicKey: async () => Buffer.alloc(32, 7), sign: async () => { counts.signs++; await pause('sign'); return Buffer.alloc(64, 9); } };
   const vault = { getKeyPair: () => key, getSigningKeyPair: async () => { await pause('key'); return key; },
-    getBinding: () => binding, whileBound: async (_, operation) => operation() };
+    getBinding: () => binding, whileBound: async (_, operation) => operation(),
+    // What a prepared block approval checks it is still current against.
+    isUnlocked: () => true, getWalletName: () => 'fixture' };
   const zenon = sdk.Zenon.getSingleton();
   zenon.ledger.getFrontierBlock = async () => { await pause('rpc'); return null; };
   zenon.ledger.getFrontierMomentum = async () => ({ hash: emptyHash, height: 1 });
@@ -294,7 +296,9 @@ const watchdog = setTimeout(() => { console.error('Request identity checks timed
     first.dispose(); second.dispose();
   }
   for (const type of ['sendTransaction', 'signAndSendBlock', 'signMessage']) {
-    for (const phase of type === 'signMessage' ? ['key', 'sign'] : ['key', 'rpc', 'pow', 'sign']) {
+    // An arbitrary block's node lookups happen at preparation (#4), before
+    // approval; its approval phases start at the key.
+    for (const phase of type === 'signMessage' ? ['key', 'sign'] : type === 'signAndSendBlock' ? ['key', 'pow', 'sign'] : ['key', 'rpc', 'pow', 'sign']) {
       const f = fixture(); await f.add(entry(type + phase, 'doc-a', type)); const view = f.ui(); await view.settle();
       const held = f.hold(phase), result = view.button(label[type]).props.onClick(); await held.started.promise;
       await f.queue.closeWindow(10); held.release.resolve(); await result;
@@ -336,6 +340,34 @@ const watchdog = setTimeout(() => { console.error('Request identity checks timed
     const held = f.hold('key'), result = view.button('Sign').props.onClick(); await held.started.promise;
     view.dispose(); held.release.resolve(); await result;
     assert.equal(f.counts.signs, 0); assert.equal(f.counts.publishes, 0); assert.equal(view.closes(), 0);
+  }
+  // Prepared block approval (#4) on the actual screen: nothing can be
+  // approved until the block is prepared; a failed preparation says so; and
+  // the block signed is the one reviewed even when the account's frontier has
+  // moved since -- there is no second autofill at submission.
+  {
+    const f = fixture(); await f.add(entry('prepared', 'doc-a', 'signAndSendBlock'));
+    const held = f.hold('rpc'); const view = f.ui(); await view.settle(); await held.started.promise;
+    assert.equal(view.button('Sign and send').props.disabled, true);
+    assert.match(view.markup(), /Preparing this block for review/);
+    held.release.resolve(); await view.settle();
+    assert.equal(view.button('Sign and send').props.disabled, false);
+    const zenon = sdk.Zenon.getSingleton(); let lookups = 0, published;
+    zenon.ledger.getFrontierBlock = async () => { lookups++; return { height: 7, hash: emptyHash }; };
+    zenon.ledger.publishRawTransaction = async template => { published = template; f.counts.publishes++; };
+    await view.button('Sign and send').props.onClick(); await view.settle();
+    assert.equal(lookups, 0); assert.equal(f.counts.publishes, 1);
+    assert.equal(published.height, 1); assert.equal(f.delivered[0].value.error, undefined);
+    view.dispose();
+  }
+  {
+    const f = fixture(); await f.add(entry('unpreparable', 'doc-a', 'signAndSendBlock'));
+    sdk.Zenon.getSingleton().ledger.getFrontierBlock = async () => { throw Error('node unavailable'); };
+    const view = f.ui(); await view.settle();
+    assert.match(view.markup(), /Unable to prepare this block/);
+    assert.equal(view.button('Sign and send').props.disabled, true);
+    await view.button('Sign and send').props.onClick(); assert.equal(f.counts.signs, 0);
+    view.dispose();
   }
   // Real pinned-SDK key and UTF-8 signature compatibility with public fixture
   // entropy; no account block is submitted and no live service is contacted.

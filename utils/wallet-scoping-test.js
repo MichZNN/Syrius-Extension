@@ -86,8 +86,12 @@ const fixture = () => {
   const sdk = { KeyStore: class { fromEntropy(seed) { this.entropy = seed; this.mnemonic = 'fixture only'; return this; } getKeyPair(index) { return key(this.entropy, index); } },
     KeyStoreManager: function () { return manager; }, Constants: {}, Primitives: { Address: { parse: value => ({ toString: () => value }) } },
     Zenon: { getSingleton: () => zenon, getChainIdentifier: () => 1 }, Enums: { PowStatus: { generating: 0, done: 1 } } };
+  // Like the SDK's, autofill sets the public key and toJson emits it as base64.
   const makeTemplate = json => ({ ...json, address: json.address || null,
-    hash: { toString: () => 'fixture-block-hash' }, toJson() { return { ...json, address: this.address?.toString() }; } });
+    hash: { toString: () => 'fixture-block-hash' }, toJson() {
+      const publicKey = this.publicKey && typeof this.publicKey !== 'string' ? Buffer.from(this.publicKey).toString('base64') : this.publicKey;
+      return { ...json, address: this.address?.toString(), ...(publicKey ? { publicKey } : {}) };
+    } });
   sdk.Primitives.TokenStandard = { parse: value => ({ toString: () => value }) };
   sdk.Primitives.AccountBlockTemplate = { fromJson: makeTemplate,
     send: (to, token, amount) => makeTemplate({ toAddress: to.toString(), tokenStandard: token.toString(), amount }) };
@@ -95,8 +99,9 @@ const fixture = () => {
   // The approval pipeline's steps (approvalBlock.js); the gates sit where the
   // SDK's own send takes the key and where it has signed.
   sdk.utils = { BlockUtils: {
-    _checkAndSetFields: async (context, template, pair) => { await pause('sdkBeforeKey'); template.address = await pair.getAddress(); return template; },
-    _setHashAndSignature: async (template, pair) => { await pair.getPublicKey(); template.signature = await pair.sign(new Uint8Array([1, 2, 3])); await pause('sdkBeforePublish'); return template; },
+    _checkAndSetFields: async (context, template, pair) => { await pause('sdkBeforeKey'); template.address = await pair.getAddress(); template.publicKey = await pair.getPublicKey(); return template; },
+    // As in the pinned SDK, signing uses only the key's sign().
+    _setHashAndSignature: async (template, pair) => { template.signature = await pair.sign(new Uint8Array([1, 2, 3])); await pause('sdkBeforePublish'); return template; },
     send: async (context, template, pair) => {
       await pause('sdkBeforeKey'); template.address = await pair.getAddress();
       await pair.getPublicKey(); await pair.sign(new Uint8Array([1, 2, 3]));

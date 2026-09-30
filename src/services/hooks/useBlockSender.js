@@ -5,6 +5,7 @@ import vault from '../wallet/vault';
 import requestSigningKey from '../wallet/requestSigningKey';
 import { runApprovalOperation } from '../wallet/approvalOperation';
 import sendApprovalBlock from '../wallet/approvalBlock';
+import { beginPreparedSend } from '../wallet/blockApproval';
 import { invalidateAccountCache } from './useAccount';
 
 // Signing and broadcasting one account block, for the one caller that has to
@@ -35,7 +36,9 @@ const useBlockSender = () => {
   // `binding` (an approval's wallet account) is checked under the session lock
   // at every key use and again at the instant publication starts; after that
   // point a failure means the outcome is unknown, and `onSubmitted` says so.
-  const send = useCallback(async (template, { addressIndex, assertRequest, expiresAt, binding, onSubmitted } = {}) => {
+  // `prepared` (an approval's reviewed block, blockApproval.js) is signed as
+  // reviewed; `template` is then unused.
+  const send = useCallback(async (template, { addressIndex, assertRequest, expiresAt, binding, onSubmitted, prepared } = {}) => {
     const current = ++generation.current;
     const zenon = Zenon.getSingleton();
     setIsSending(true);
@@ -62,10 +65,12 @@ const useBlockSender = () => {
     };
     try {
       const execute = async operation => {
+        // Consumed before any key lookup or other await: one send per review.
+        const begun = prepared ? beginPreparedSend(prepared) : null;
         await operation.assertActive();
         const keyPair = requestSigningKey(await vault.getSigningKeyPair(addressIndex, binding), operation.assertActive);
         await operation.assertActive();
-        return sendApprovalBlock(zenon, template, keyPair, operation, progress, startPublication);
+        return sendApprovalBlock(zenon, template, keyPair, operation, progress, startPublication, begun);
       };
       const signed = assertRequest
         ? await runApprovalOperation(expiresAt, execute, { assertRequest })
