@@ -1,7 +1,7 @@
 // Page response correlation is not approval authority. This snapshot describes
 // exactly what one extension-generated queue identity asks the user to approve.
 const approvalTypes = ['connect', 'sendTransaction', 'signAndSendBlock', 'signMessage'];
-const validApproval = request => Boolean(request && request.version === 1 &&
+const validApproval = request => Boolean(request && request.version === 2 && Number.isFinite(request.expiresAt) && Number.isFinite(request.createdAt) &&
   typeof request.id === 'string' && request.id.length > 0 && approvalTypes.includes(request.type) &&
   typeof request.origin === 'string' && request.origin.length > 0 &&
   Number.isInteger(request.tabId) && Number.isInteger(request.frameId) &&
@@ -10,7 +10,7 @@ const validApproval = request => Boolean(request && request.version === 1 &&
 const snapshotOf = request => validApproval(request) ? JSON.stringify([
   request.version, request.id, request.type, request.params, request.origin,
   request.tabId, request.frameId, request.documentId, request.responseId,
-  request.title, request.favicon, request.createdAt,
+  request.title, request.favicon, request.createdAt, request.expiresAt,
 ]) : null;
 const identityOf = request => ({ id: request?.id, snapshot: snapshotOf(request) });
 const matchesApproval = (request, identity) => Boolean(validApproval(request) &&
@@ -25,5 +25,5 @@ const freezeApproval = request => {
   if (!validApproval(snapshot)) throw new Error('This request must be submitted again.');
   return freeze(snapshot);
 };
-const approvalEnded = () => new Error('This approval was already answered or changed. Review a new request.');
+const approvalEnded = () => new Error('This approval expired, was answered or changed. Review a new request.');
 export { validApproval, snapshotOf, identityOf, matchesApproval, freezeApproval, approvalEnded, copy };

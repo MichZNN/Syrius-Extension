@@ -169,7 +169,7 @@ const approvalFile = 'src/layouts/siteIntegrationLayout/siteIntegrationLayout.js
     for (const zts of [znnZts, custom]) {
       for (const destination of [recipient, 'z1qxemdeddedxplasmaxxxxxxxxxxxxxxxxsctrp']) {
         const amount = zts === custom ? exact : '100000001';
-        const request = { id: 'fixture', type, origin: 'https://example.invalid', params: { amount, tokenStandard: zts, to: destination, toAddress: destination, data: '' } };
+        const request = { id: 'fixture', expiresAt: Date.now() + 600000, type, origin: 'https://example.invalid', params: { amount, tokenStandard: zts, to: destination, toAddress: destination, data: '' } };
         // Deliberately supply hostile metadata directly, bypassing normalization:
         // amount rendering must enforce its own trust boundary too.
         const page = view({ file: approvalFile, states: [request, null, false, false], account: { address: recipient, balanceMap: { [zts]: entry(zts, 30, 'FORGED') } } });
@@ -187,7 +187,7 @@ const approvalFile = 'src/layouts/siteIntegrationLayout/siteIntegrationLayout.js
     for (const amount of ['0x05f5e100', '0100000000', 100000000, ethers.BigNumber.from(100000000), { type: 'BigNumber', hex: '0x05f5e100' }]) {
       assert.equal(normalizeBaseUnits(amount), '100000000');
       const params = { ...sdk.Primitives.AccountBlockTemplate.send(sdk.Primitives.Address.parse(recipient), sdk.Primitives.TokenStandard.parse(znnZts), ethers.BigNumber.from(1)).toJson(), to: recipient, amount };
-      const request = { id: 'encoded', type, params };
+      const request = { id: 'encoded', expiresAt: Date.now() + 600000, type, params };
       const page = view({ file: approvalFile, states: [request, null, false, false], account: { address: recipient, balanceMap: withBaseTokens({ [znnZts]: entry(znnZts, 30) }) } });
       const tree = page.render();
       assert(renderToStaticMarkup(tree).includes('1.0 ZNN'));
@@ -200,7 +200,7 @@ const approvalFile = 'src/layouts/siteIntegrationLayout/siteIntegrationLayout.js
     }
     for (const amount of ['-1', '-0x01', '1.1', '1e8', '', null, undefined, Number.MAX_SAFE_INTEGER + 1, { toString: 'invalid' }]) {
       assert.throws(() => normalizeBaseUnits(amount));
-      const request = { id: 'invalid', type, params: { to: recipient, tokenStandard: znnZts, amount } };
+      const request = { id: 'invalid', expiresAt: Date.now() + 600000, type, params: { to: recipient, tokenStandard: znnZts, amount } };
       const page = view({ file: approvalFile, states: [request, null, false, false], account: { address: recipient, balanceMap: withBaseTokens({ [znnZts]: entry(znnZts, 8) }) } });
       const tree = page.render();
       const button = elements(tree).find(el => el.type === 'button' && el.props.children !== 'Reject');

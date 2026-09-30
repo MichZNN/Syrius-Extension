@@ -11,6 +11,8 @@ import vault from '../../services/wallet/vault';
 import { signMessage } from '../../services/wallet/signMessage';
 import { sendInternal } from '../../services/utils/messaging';
 import { identityOf, freezeApproval, approvalEnded } from '../../services/utils/approvalIdentity';
+import withApprovalDeadline from '../../services/utils/approvalDeadline';
+import { runApprovalOperation } from '../../services/wallet/approvalOperation';
 import {
   formatExact,
   toBigNumber,
@@ -113,10 +115,11 @@ const SiteIntegrationLayout = () => {
   const [preview, setPreview] = useState(null);
   const [isBusy, setIsBusy] = useState(false);
   const [isWaitingForMore, setIsWaitingForMore] = useState(false);
-  const rendered = useRef(null), operation = useRef(null), discarded = useRef(null), mounted = useRef(true);
+  const rendered = useRef(null), operation = useRef(null), discarded = useRef(null), mounted = useRef(true), previewOwner = useRef(null);
   rendered.current = { request, address, isUnlocked, chainIdentifier, nodeUrl };
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const currentView = selected => mounted.current && selected?.request && discarded.current !== selected.request &&
+    selected.request.expiresAt > Date.now() &&
     rendered.current.request === selected.request && rendered.current.isUnlocked &&
     rendered.current.address === selected.address && rendered.current.chainIdentifier === selected.chainIdentifier &&
     rendered.current.nodeUrl === selected.nodeUrl;
@@ -191,6 +194,19 @@ const SiteIntegrationLayout = () => {
     }
   }, [isUnlocked, loadNext]);
 
+  useEffect(() => {
+    if (!request) return undefined;
+    const timer = setTimeout(() => {
+      // A saved callback and a busy SDK operation lose local authority too.
+      discarded.current = request;
+      if (!operation.current) {
+        notify.error(new Error('This approval expired. Ask the site for a new request.'));
+        loadNext();
+      }
+    }, Math.max(0, request.expiresAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [request, loadNext]);
+
   // For an arbitrary account block, what will actually be signed — with the
   // fields the SDK fills in (chain, height, previous hash) resolved, rather
   // than the bare JSON the page sent.
@@ -200,6 +216,8 @@ const SiteIntegrationLayout = () => {
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
+    previewOwner.current = controller;
 
     (async () => {
       try {
@@ -208,11 +226,9 @@ const SiteIntegrationLayout = () => {
           request.params
         );
         const keyPair = vault.getKeyPair();
-        const filled = await sdkUtils.BlockUtils._checkAndSetFields(
-          zenon,
-          template,
-          keyPair
-        );
+        const filled = await runApprovalOperation(request.expiresAt,
+          active => sdkUtils.BlockUtils._checkAndSetFields(active.context(zenon), template, keyPair),
+          { signal: controller.signal });
 
         if (!cancelled) {
           setPreview(filled.toJson());
@@ -229,12 +245,15 @@ const SiteIntegrationLayout = () => {
 
     return () => {
       cancelled = true;
+      controller.abort();
+      if (previewOwner.current === controller) previewOwner.current = null;
     };
   }, [request]);
 
   const approve = async (execute, success) => {
     const selected = { request, address, chainIdentifier, nodeUrl };
     if (operation.current || !currentView(selected)) return;
+    previewOwner.current?.abort();
     const active = { kind: 'approval', selected, identity: identityOf(request), claimed: false };
     operation.current = active;
     setIsBusy(true);
@@ -251,7 +270,7 @@ const SiteIntegrationLayout = () => {
       active.identity = claim;
       active.claimed = true;
       await assertRequest();
-      const result = await execute(selected.request, assertRequest);
+      const result = await withApprovalDeadline(execute(selected.request, assertRequest), selected.request.expiresAt);
       await assertRequest();
       if (!(await sendInternal('approvals.resolve', { identity: active.identity, result }))) throw approvalEnded();
       if (success) notify.success(success);
@@ -302,18 +321,19 @@ const SiteIntegrationLayout = () => {
     authorizationMetadata(tokenStandard);
     const template = Primitives.AccountBlockTemplate.send(Primitives.Address.parse(to),
       Primitives.TokenStandard.parse(tokenStandard), toBigNumber(normalizeBaseUnits(amount)));
-    return blockResult(await send(template, { assertRequest }));
+    return blockResult(await send(template, { assertRequest, expiresAt: selected.expiresAt }));
   }, 'Transaction sent');
   // The only approval here that does not touch the network: no plasma, no
   // block, nothing to broadcast.
   const approveSignMessage = () => approve((selected, assertRequest) =>
-    signMessage(selected.params.message, { assertRequest }), 'Message signed');
+    runApprovalOperation(selected.expiresAt, active => signMessage(selected.params.message, { assertRequest: active.assertActive }),
+      { assertRequest }), 'Message signed');
   const approveSignAndSend = () => approve(async (selected, assertRequest) => {
     authorizationMetadata(selected.params.tokenStandard);
     const template = Primitives.AccountBlockTemplate.fromJson({
       ...selected.params, amount: normalizeBaseUnits(selected.params.amount),
     });
-    return blockResult(await send(template, { assertRequest }));
+    return blockResult(await send(template, { assertRequest, expiresAt: selected.expiresAt }));
   }, 'Block sent');
 
   if (request === undefined) {
@@ -381,6 +401,7 @@ const SiteIntegrationLayout = () => {
   return (
     <div className="page approval-screen">
       <SiteHeader request={request} />
+      <p className="approval-note">This request expires at {new Date(request.expiresAt).toLocaleTimeString()}.</p>
       {busy && operation.current?.kind === 'approval' && <p className="approval-note" role="status">Your approval is being processed and can no longer be rejected.</p>}
 
       {request.type === 'connect' && (

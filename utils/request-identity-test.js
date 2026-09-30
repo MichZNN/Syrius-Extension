@@ -41,6 +41,15 @@ const message = 'Approval identity: defensive signing fixture.';
 const block = () => sdk.Primitives.AccountBlockTemplate.send(address, token, BigNumber.from(1)).toJson();
 const paramsFor = type => ({ connect: {}, sendTransaction: { to: address.toString(), tokenStandard: token.toString(), amount: '1' }, signAndSendBlock: block(), signMessage: { message } })[type];
 const entry = (responseId = 'same', documentId = 'doc-a', type = 'signMessage') => ({ responseId, documentId, origin: 'https://fixture.invalid', tabId: 1, frameId: 0, type, params: paramsFor(type), title: '', favicon: '' });
+// The queue's admission limits (#10) are exercised by approval-queue-test.
+// These scenarios test identity and claims, some with many requests from one
+// origin at once, so they run with the numeric limits lifted. The one-pending-
+// connect-per-origin rule still applies.
+const relaxedLimits = load => id => {
+  if (!id.endsWith('/utils/approvalLimits')) return undefined;
+  const real = load(path.join('src', 'services', 'utils', 'approvalLimits.js'));
+  return { ...real, limits: Object.freeze({ ...real.limits, pending: 1000, perOrigin: 1000, globalAttention: 0, originAttention: 0 }) };
+};
 const fixture = () => {
   const session = {}, local = {}, locks = new Map(), listeners = {}, delivered = [], windows = new Map([[10, {}], [11, {}]]);
   const faults = {}, counts = { created: 0, signs: 0, publishes: 0 }, events = [];
@@ -67,14 +76,21 @@ const fixture = () => {
     windows: { onRemoved: event('closedWindow'), getCurrent: async () => ({ id: 10 }),
       getLastFocused: async () => ({ top: 0, left: 0, width: 1200 }),
       update: async id => { if (!windows.has(id)) throw Error('window gone'); return { id }; },
+      // The queue reuses an open window without refocusing it (#10).
+      get: async id => { if (!windows.has(id)) throw Error('window gone'); return { id }; },
       create: async () => { if (faults.windowCreate) throw Error('window creation unavailable'); const id = 100 + ++counts.created; windows.set(id, {}); return { id }; },
       remove: async id => { windows.delete(id); },
     },
-    tabs: { onRemoved: event('closedTab'), sendMessage: async (tabId, value, options) => { delivered.push({ tabId, value: clone(value), options: clone(options) }); } },
+    // A response is acknowledged the way the content relay does (#10): a
+    // connection grant activates only once the page's relay has accepted it.
+    tabs: { onRemoved: event('closedTab'), sendMessage: async (tabId, value, options) => {
+      delivered.push({ tabId, value: clone(value), options: clone(options) });
+      return value?.kind === 'response' ? { accepted: !value.error, acceptedAt: Date.now() } : undefined;
+    } },
     alarms: { onAlarm: event('alarm'), create() {} },
   };
   const environment = { chrome, navigator: { locks: locksApi }, crypto: crypto.webcrypto };
-  const load = loader(environment), queue = load('src/sections/Background/requests.js').default;
+  const plain = loader(environment), load = loader(environment, relaxedLimits(plain)), queue = load('src/sections/Background/requests.js').default;
   const identity = load('src/services/utils/approvalIdentity.js');
   load('src/sections/Background/index.js');
   const extensionSender = { id: 'fixture', url: 'chrome-extension://fixture/popup.html' };
@@ -127,7 +143,7 @@ const fixture = () => {
     return { settle, render, state, notices, closes: () => closes, button: text => flatten(tree).find(node => node.type === 'button' && node.props.children === text), markup: () => renderToStaticMarkup(tree), dispose: () => effects.forEach(effect => effect.cleanup?.()) };
   };
   const add = async value => { const request = await queue.add(value); await queue.attachWindow(identity.identityOf(request), 10); return queue.get(request.id); };
-  return { queue, identity, add, freshQueue: () => loader(environment)('src/sections/Background/requests.js').default, session, local, faults, counts, events, windows, delivered, listeners, chrome, internal, sender, provider, hold, ui,
+  return { queue, identity, add, freshQueue: () => loader(environment, relaxedLimits(plain))('src/sections/Background/requests.js').default, session, local, faults, counts, events, windows, delivered, listeners, chrome, internal, sender, provider, hold, ui,
     holdStorage: area => (storageGate = { area, started: deferred(), release: deferred() }),
     holdInternal: method => (internalGate = { method, started: deferred(), release: deferred() }) };
 };
@@ -136,10 +152,13 @@ const watchdog = setTimeout(() => { console.error('Request identity checks timed
   // Opaque identities, immutable snapshots, correlation domains and durable claims.
   {
     const f = fixture(), original = entry('__proto__');
-    const a = await f.add(original), b = await f.add(entry('__proto__', 'doc-b'));
+    // The duplicate is offered before the second request: with the queue
+    // limits (#10) a third request from one origin is refused as busy first.
+    const a = await f.add(original);
+    await assert.rejects(f.queue.add(entry('__proto__')), /already pending/);
+    const b = await f.add(entry('__proto__', 'doc-b'));
     assert.notEqual(a.id, a.responseId); assert.notEqual(a.id, b.id);
     original.params.message = 'changed after admission'; assert.equal((await f.queue.get(a.id)).params.message, message);
-    await assert.rejects(f.queue.add(entry('__proto__')), /already pending/);
     assert.equal((await f.queue.list()).length, 2);
     const frozen = f.identity.freezeApproval(a); assert(Object.isFrozen(frozen.params));
     const expected = f.identity.identityOf(a);
@@ -207,7 +226,8 @@ const watchdog = setTimeout(() => { console.error('Request identity checks timed
     const f = fixture(); f.faults.windowCreate = true; await f.provider('znn_connect', {}, 'window-failure');
     assert.equal((await f.queue.list()).length, 0); assert.equal(f.delivered[0].value.error.code, -32603);
     f.faults.windowCreate = false; await f.provider('znn_connect', {}, 'first', f.sender('doc-one'));
-    await f.provider('znn_connect', {}, 'second', f.sender('doc-two'));
+    // A second origin: one origin may have only one pending connect (#10).
+    await f.provider('znn_connect', {}, 'second', { ...f.sender('doc-two'), origin: 'https://second.invalid', url: 'https://second.invalid/app' });
     assert.equal(f.counts.created, 1); const rows = await f.queue.list();
     const unstamped = await f.queue.add(entry('arrival', 'doc-three'));
     await f.listeners.closedWindow(rows[0].windowId);
@@ -233,7 +253,7 @@ const watchdog = setTimeout(() => { console.error('Request identity checks timed
     f.session['znn.publicState'] = { address: address.toString(), leaseId: 'lease' };
     await f.provider('znn_connect', {}, 'connected'); assert.deepEqual(f.delivered[3].value.result, [address.toString()]);
     assert.equal(f.counts.created, 0); assert.equal((await f.queue.list()).length, 0);
-    await assert.rejects(f.queue.add({ ...entry(), documentId: undefined }), error => error.code === -32602);
+    await assert.rejects(async () => f.queue.add({ ...entry(), documentId: undefined }), error => error.code === -32602);
     const row = await f.add({ ...entry('only-correlation'), origin: 'https://unapproved.invalid' });
     const identity = await f.queue.claim(f.identity.identityOf(row), 10);
     await f.internal('approvals.resolve', { identity, result: {}, grantOrigin: true });

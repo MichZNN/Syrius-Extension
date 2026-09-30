@@ -3,6 +3,7 @@ import permissions from './permissions';
 import requests from './requests';
 import sessionLease from '../../services/wallet/sessionLease';
 import { identityOf } from '../../services/utils/approvalIdentity';
+import { limits, validateEnvelope, busy } from '../../services/utils/approvalLimits';
 
 // The service worker.
 //
@@ -12,12 +13,9 @@ import { identityOf } from '../../services/utils/approvalIdentity';
 // needs to answer a site is published by the popup into `chrome.storage.session`
 // as plain, non-secret state.
 //
-// Nothing here keeps state in a module-level variable. Under manifest v3 this
-// file runs as a worker that Chrome unloads whenever it feels like it, and an
-// approval that takes a person thirty seconds outlives that easily. The
-// previous version cached the wallet password in a `const` up here, which both
-// evaporated at random and answered `internal.getCredentialsFromBackgroundScript`
-// for any sender at all.
+// Pending authority lives in session storage. A synchronous handler count
+// bounds transient worker work before its first await; it contains no secrets.
+let activeProviderHandlers = 0;
 
 // Kept in step with `services/wallet/signMessage.js`, and duplicated rather
 // than imported: this file is a service worker that deliberately does not link
@@ -35,6 +33,8 @@ const errors = {
   unsupportedMethod: { code: 4200, message: 'Unsupported method' },
   disconnected: { code: 4900, message: 'The wallet is locked' },
   internal: { code: -32603, message: 'Internal error' },
+  expired: { code: -32006, message: 'The approval expired. Submit a new request.' },
+  expiredClaim: { code: -32603, message: 'The approval expired after processing began. The outcome is unknown; verify the result before retrying.' },
 };
 
 // A malformed call, said in the caller's own terms. `-32602` is JSON-RPC's
@@ -76,25 +76,30 @@ const getPublicState = () => sessionLease.getPublicState();
 //
 const sendToTab = async (tabId, message, frameId, documentId) => {
   // Bounded: a frame that never acknowledges must not hold up a broadcast, or
-  // the lease transaction a caller is waiting in, indefinitely.
-  let timer;
+  // the lease transaction a caller is waiting in, indefinitely. The relay's
+  // reply is returned: a connection grant waits on the relay accepting it.
   try {
-    await Promise.race([
-      chrome.tabs.sendMessage(tabId, message, { ...(frameId === undefined ? {} : { frameId }), ...(documentId ? { documentId } : {}) }),
-      new Promise((resolve) => { timer = setTimeout(resolve, 5000); }),
-    ]);
+    let timer;
+    try {
+      return await Promise.race([
+        chrome.tabs.sendMessage(tabId, message, { ...(frameId === undefined ? {} : { frameId }), ...(documentId ? { documentId } : {}) }),
+        new Promise(resolve => { timer = setTimeout(resolve, 5000); }),
+      ]);
+    } finally { clearTimeout(timer); }
   } catch (err) {
     // The tab navigated away or closed. Nothing to deliver to and nothing to
     // do about it.
-  } finally {
-    clearTimeout(timer);
   }
+  return undefined;
 };
 
 const respond = (target, id, result, error) => {
   if (typeof target.documentId !== 'string' || !target.documentId) return false;
-  return sendToTab(target.tabId, { channel: 'znn', kind: 'response', id, result, error }, target.frameId, target.documentId);
+  return sendToTab(target.tabId, { channel: 'znn', kind: 'response', id, result, error, expiresAt: target.expiresAt }, target.frameId, target.documentId);
 };
+
+requests.onExpired(removed => Promise.all(removed.map(request =>
+  respond(request, request.responseId, undefined, request.claimId ? errors.expiredClaim : errors.expired))));
 
 // Fans an event out to every frame whose origin is connected, so a site sees
 // an address or chain change without polling.
@@ -233,7 +238,7 @@ const handleProviderRequest = async (request, sender) => {
     return;
   }
 
-  const handler = providerMethods[method];
+  const handler = Object.hasOwn(providerMethods, method) ? providerMethods[method] : null;
 
   if (!handler) {
     await respond(target, id, undefined, errors.unsupportedMethod);
@@ -253,7 +258,8 @@ const handleProviderRequest = async (request, sender) => {
     }
     await respond(target, id, outcome);
   } catch (err) {
-    const error = err && err.code ? err : { ...errors.internal, message: err?.message || 'Internal error' };
+    const error = { code: Number.isFinite(err?.code) ? err.code : errors.internal.code,
+      message: err?.message || 'Internal error' };
     await respond(target, id, undefined, error);
   }
 };
@@ -282,18 +288,29 @@ const internalMethods = {
   'approvals.resolve': async ({ identity, result }) => {
     const request = await requests.resolve(identity);
     if (!request) return false;
-    if (request.type === 'connect') {
-      try {
-        if (!(await permissions.grant(request.origin, { title: request.title, favicon: request.favicon }))) {
-          throw new Error('The connection permission could not be saved.');
-        }
-      } catch (error) {
-        await respond(request, request.responseId, undefined, { ...errors.internal, message: error.message });
-        return false;
-      }
+    const checkDeadline = () => {
+      if (Date.now() >= request.expiresAt) throw new Error('Approval expired during finalization.');
+    };
+    let delivery;
+    const complete = () => { checkDeadline(); delivery = respond(request, request.responseId, result); return delivery; };
+    try {
+      checkDeadline();
+      // Save this optional convenience before permission activation. A held
+      // window lock or storage write must not leave a new grant behind.
+      try { await requests.allowFollowup(request.origin, request.expiresAt); }
+      catch (error) { console.error('Unable to save approval follow-up allowance', error); }
+      checkDeadline();
+      if (request.type === 'connect') {
+        if (!(await permissions.grant(request.origin, { title: request.title, favicon: request.favicon },
+          { expiresAt: request.expiresAt, confirm: complete }))) throw new Error('The connection permission could not be saved.');
+      } else complete();
+      await delivery;
+      return true;
+    } catch (error) {
+      await respond(request, request.responseId, undefined, Date.now() >= request.expiresAt
+        ? errors.expiredClaim : { ...errors.internal, message: error.message });
+      return false;
     }
-    await respond(request, request.responseId, result);
-    return true;
   },
   'approvals.reject': async ({ identity, error }) => {
     const request = await requests.reject(identity);
@@ -363,7 +380,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!isFromContentScript(sender)) {
       return false;
     }
-    handleProviderRequest(message, sender);
+    try {
+      if (activeProviderHandlers >= limits.activeHandlers) throw busy();
+      validateEnvelope(message);
+    } catch (error) {
+      // Reply through this bounded transport callback; do not enqueue another
+      // asynchronous tabs message for rejected admission. The relay translates it.
+      sendResponse({ error: { code: error.code || -32602, message: error.message } });
+      return false;
+    }
+    activeProviderHandlers++;
+    handleProviderRequest(message, sender)
+      .catch(error => console.error('Unable to handle wallet request', error))
+      .finally(() => { activeProviderHandlers--; });
     // Answered later over `chrome.tabs.sendMessage`, not through this callback:
     // an approval outlives the message channel and, often, the worker itself.
     sendResponse({ accepted: true });
@@ -421,6 +450,7 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
 // A closed tab has no frames left to deliver to.
 chrome.tabs.onRemoved.addListener((tabId) => {
   frames.forgetTab(tabId);
+  requests.forgetTab(tabId).catch(error => console.error('Unable to clear closed-tab approvals', error));
 });
 
 // The popup enforces the auto-lock whenever it opens, but the popup is usually
@@ -439,6 +469,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== autoLockAlarm) {
     return;
   }
+  try { await requests.prune(); }
+  catch (error) { console.error('Unable to expire wallet approvals', error); }
   const generation = await sessionLease.expire();
   if (generation && await sessionLease.isLockedGeneration(generation)) {
     await broadcast('accountsChanged', []);
