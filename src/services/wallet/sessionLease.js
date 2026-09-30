@@ -141,8 +141,16 @@ const load = () => transaction(async (stored) => {
   if (!live(record)) { await revoke(); return null; }
   return record;
 });
-const clear = (expected) => transaction((stored) =>
-  expected !== undefined && !matchesExpected(stored[sessionKey], expected) ? null : revoke());
+// `afterRevoke` runs synchronously inside the same transaction, after the
+// revocation is written: nothing can unlock between the two. Wallet removal
+// deletes the keyfile there, so it is never deleted while any window can still
+// sign with it, and never left deletable by a lock that did not happen.
+const clear = (expected, afterRevoke) => transaction(async (stored) => {
+  if (expected !== undefined && !matchesExpected(stored[sessionKey], expected)) return null;
+  const id = await revoke();
+  afterRevoke?.();
+  return id;
+});
 // Only a timed session advertises public state. The worker cannot tell whether
 // an On close owner is still open, so it never answers a site out of one.
 const publish = (id, ownerId, value) => use(id, ownerId, async (record) => {

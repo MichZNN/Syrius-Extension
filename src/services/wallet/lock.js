@@ -17,13 +17,20 @@ import vault from './vault';
 // lock that never reached the other windows.
 let unconfirmed = null;
 
-const lockWallet = async () => {
+// `afterRevoke` is a synchronous step to run inside the revocation itself (see
+// sessionLease.clear). Its failure does not undo the lock: the wallet is locked
+// either way, and the error is thrown once the lock has been reported.
+const lockWallet = async ({ afterRevoke } = {}) => {
   // Revocation is queued on the shared lease lock before anything else, so no
   // key operation from this or any window can slip in ahead of it. It targets
   // this document's own lease: a window whose lease was already replaced must
   // not lock a newer unlock that another window made since.
   const leaseId = vault.getLeaseId() || unconfirmed;
-  const clearing = leaseId ? session.clear(leaseId) : Promise.resolve(null);
+  let afterError = null;
+  const after = afterRevoke && (() => {
+    try { afterRevoke(); } catch (error) { afterError = error; }
+  });
+  const clearing = leaseId ? session.clear(leaseId, after) : Promise.resolve(null);
   // This document's keys go now, whatever shared storage does next: a failed
   // revocation must never leave them usable here. The UI is told afterwards,
   // and only then, because the password screen claims a global lock that has
@@ -44,12 +51,20 @@ const lockWallet = async () => {
     announceLocked(error);
     throw error;
   }
-  if (unconfirmed === leaseId) unconfirmed = null;
+  // The shared record holds one lease: whichever this revoked, an older
+  // unconfirmed one is gone too.
+  unconfirmed = null;
   announceLocked();
   // Provider notification is best effort and generation-checked by the worker.
   // Do not let its timeout keep an old menu/removal continuation alive after
   // the password screen is already available for a new unlock.
   announceLock(generation);
+  if (leaseId && afterRevoke && !afterError && generation === null) {
+    // The lease was replaced before this lock ran; nothing was revoked, so the
+    // step that depended on revocation did not run either.
+    throw new Error('The wallet changed before it could be locked. Try again.');
+  }
+  if (afterError) throw afterError;
 };
 
 export default lockWallet;

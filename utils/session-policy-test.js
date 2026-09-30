@@ -131,7 +131,7 @@ const fixture = () => {
     await flush(); return messages.find(item => item.message.kind === 'response' && item.message.id === id)?.message;
   };
   const register = async () => { handlers.message({ channel: 'znn', kind: 'hello' }, sender, () => {}); await flush(); };
-  const ui = (file, context = first) => {
+  const ui = (file, context = first, extra = () => undefined) => {
     const states = [], notices = [], navigations = [], refs = [], effects = []; let cursor, refCursor, effectCursor, tree;
     const hooks = { ...React,
       useRef: initial => { const i = refCursor++; return refs[i] ||= { current: initial }; },
@@ -139,9 +139,11 @@ const fixture = () => {
       useCallback: fn => fn,
       useState: initial => { const i = cursor++; if (!(i in states)) states[i] = typeof initial === 'function' ? initial() : initial; return [states[i], value => { states[i] = typeof value === 'function' ? value(states[i]) : value; }]; } };
     const load = loader(env, (id, file) => {
+      const replaced = extra(id); if (replaced !== undefined) return replaced;
       if (id === 'react') return hooks;
       if (id === 'react-router-dom') return { Routes: 'div', Route: 'div', useLocation: () => ({ pathname: '/' }), useNavigate: () => (...args) => navigations.push(args) };
-      if (id === 'react-redux') return { useDispatch: () => action => events.push(action), useSelector: select => select({ wallet: { walletName: 'A' } }) };
+      if (id === 'react-redux') return { useDispatch: () => action => events.push(action), useSelector: select => select({ wallet: { walletName: 'A' } }),
+        useStore: () => ({ getState: () => ({ wallet: { walletName: 'A', maxAddressIndex: 1, selectedAddressIndex: 0 } }) }) };
       if (id === 'react-hook-form') return { useForm: () => ({ register: () => ({}), handleSubmit: fn => fn, formState: { errors: {} }, setError: (...args) => notices.push(args), setValue() {} }) };
       if (id === 'znn-ts-sdk') return sdk;
       if (id.endsWith('/utils/notify')) return { notify: { dismissAll() {}, success: value => notices.push({ success: value }), error: value => notices.push({ error: String(value?.message || value) }) } };
@@ -387,7 +389,12 @@ const watchdog = setTimeout(() => { console.error('Session policy checks timed o
   // The real removal screen keeps the saved wallet when the lock fails.
   {
     const f = fixture(); await f.unlock(); f.disk.set('znn.ts-wallet', JSON.stringify({ A: { encrypted: 'fixture' } }));
-    const ui = f.ui('src/pages/settings/reset-wallet/reset-wallet.js');
+    // Removal's inventory rules are wallet-deletion-test's; the stand-in
+    // deletes the saved wallet only when the revocation commits.
+    const ui = f.ui('src/pages/settings/reset-wallet/reset-wallet.js', undefined, id => id.endsWith('/wallet/removal') ? {
+      captureWalletRemoval: () => ({}), prepareWalletRemoval: async () => ({}), assertWalletRemovalCurrent() {},
+      commitRevokedWalletRemoval: () => f.disk.set('znn.ts-wallet', '{}'),
+    } : undefined);
     ui.find(node => node.type === 'input' && node.props.placeholder === 'Wallet password').props.onChange({ target: { value: 'fixture' } });
     ui.find(node => node.type === 'input' && node.props.placeholder === 'Type REMOVE to confirm').props.onChange({ target: { value: 'REMOVE' } }); ui.render();
     f.failWrites(2); await ui.find(node => node.type === 'button' && node.props.children === 'Remove').props.onClick();

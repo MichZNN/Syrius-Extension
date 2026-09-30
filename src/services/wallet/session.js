@@ -14,10 +14,12 @@ const load = () => lease.load();
 // Both explicit lock and startup recovery must observe a committed revocation.
 // Keep the expected identity (a lease id, or `{id, revision}`) on every retry
 // so recovery cannot clear a newer password unlock in another document.
-const clear = async (expected) => {
+// Only storage unavailability is retried; an `afterRevoke` failure is its own.
+const clear = async (expected, afterRevoke) => {
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    try { return await lease.clear(expected); }
+    try { return await lease.clear(expected, afterRevoke); }
     catch (error) {
+      if (error.code !== 'WALLET_SESSION_UNAVAILABLE') throw error;
       if (attempt === 1) {
         throw Object.assign(new Error('Could not lock all wallet windows. Try again or close the browser.'), {
           code: 'WALLET_LOCK_FAILED',

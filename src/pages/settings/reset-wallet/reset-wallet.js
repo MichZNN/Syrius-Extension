@@ -1,8 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector, useStore } from 'react-redux';
 
-import { removeStorageWallet, loadStorageWalletNames } from '../../../services/utils/utils';
+import { loadStorageWalletNames } from '../../../services/utils/utils';
+import {
+  assertWalletRemovalCurrent,
+  captureWalletRemoval,
+  commitRevokedWalletRemoval,
+  prepareWalletRemoval,
+} from '../../../services/wallet/removal';
 import { notify } from '../../../services/utils/notify';
 import { resetWalletState } from '../../../services/redux/walletSlice';
 import { resetPendingTransactions } from '../../../services/redux/pendingTransactionsSlice';
@@ -26,37 +32,59 @@ const confirmationWord = 'REMOVE';
 const ResetWallet = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const store = useStore();
   const walletName = useSelector((state) => state.wallet.walletName);
+  const operation = useRef(null);
+  useEffect(() => () => { operation.current = null; }, []);
 
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [isRemoving, setIsRemoving] = useState(false);
+  const [isCommitting, setIsCommitting] = useState(false);
 
   const canRemove = password.length > 0 && confirmation.trim().toUpperCase() === confirmationWord;
 
   const remove = async () => {
-    if (!canRemove) {
+    if (!canRemove || operation.current) {
       return;
     }
+    const active = { committing: false };
+    operation.current = active;
     setIsRemoving(true);
 
     try {
-      if (!(await vault.verifyPassword(password))) {
-        notify.error('Wrong password.');
+      const live = store.getState().wallet;
+      if (live.walletName !== walletName) throw new Error('The selected wallet changed. Try again.');
+      const current = { walletName: live.walletName, maxAddressIndex: live.maxAddressIndex,
+        selectedAddressIndex: live.selectedAddressIndex };
+      const isCurrent = () => {
+        const latest = store.getState().wallet;
+        return operation.current === active && latest.walletName === current.walletName &&
+          latest.maxAddressIndex === current.maxAddressIndex && latest.selectedAddressIndex === current.selectedAddressIndex;
+      };
+      const captured = captureWalletRemoval(current, isCurrent);
+      const verified = await vault.verifyPassword(password);
+      if (!isCurrent()) throw new Error('The wallet removal was canceled or the selected wallet changed.');
+      if (!verified) {
+        if (operation.current === active) notify.error('Wrong password.');
         return;
       }
-
-      // Keep the saved wallet intact if global revocation fails, so removal
-      // remains retryable and other windows are not left with live authority.
-      await lockWallet();
-      if (!removeStorageWallet(walletName)) {
-        notify.error('Could not remove that wallet.');
-        return;
-      }
-
+      const prepared = await prepareWalletRemoval(captured);
+      // Nothing is deleted until every window has lost this wallet: the last
+      // check against the unlocked vault runs here, synchronously, and the
+      // deletion itself runs inside the revocation of the lease just checked
+      // (see commitRevokedWalletRemoval). A failed lock deletes nothing and
+      // leaves removal retryable; a failed deletion leaves the wallet locked
+      // and still saved.
+      assertWalletRemovalCurrent(prepared);
+      active.committing = true;
+      setIsCommitting(true);
+      const locking = lockWallet({ afterRevoke: () => commitRevokedWalletRemoval(prepared) });
       invalidateAccountCache();
       dispatch(resetWalletState());
       dispatch(resetPendingTransactions());
+      await locking;
+      if (operation.current !== active) return;
 
       notify.success(`Removed ${walletName}`);
       navigate(
@@ -64,10 +92,20 @@ const ResetWallet = () => {
         { replace: true }
       );
     } catch (err) {
-      notify.error(err);
+      if (operation.current === active) notify.error(err);
     } finally {
-      setIsRemoving(false);
+      if (operation.current === active) {
+        operation.current = null;
+        setIsRemoving(false);
+        setIsCommitting(false);
+      }
     }
+  };
+
+  const cancel = () => {
+    if (operation.current?.committing) return;
+    operation.current = null;
+    navigate(-1);
   };
 
   return (
@@ -103,7 +141,7 @@ const ResetWallet = () => {
       </div>
 
       <div className="action-row">
-        <button type="button" className="button secondary w-100" onClick={() => navigate(-1)}>
+        <button type="button" className="button secondary w-100" disabled={isCommitting} onClick={cancel}>
           Cancel
         </button>
         <button

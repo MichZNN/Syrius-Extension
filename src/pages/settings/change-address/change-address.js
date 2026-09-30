@@ -72,7 +72,10 @@ const ChangeAddress = () => {
 
   const addAddress = () => {
     const next = maxAddressIndex + 1;
-    setAddressInfo(walletName, { selectedAddressIndex, maxAddressIndex: next });
+    if (!setAddressInfo(walletName, { selectedAddressIndex, maxAddressIndex: next })) {
+      notify.error('Could not save the new address. Try again.');
+      return;
+    }
     dispatch(storeMaxAddressIndex(next));
   };
 

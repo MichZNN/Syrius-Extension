@@ -349,13 +349,18 @@ const fixture = () => {
   // Removal cannot erase the saved keystore before its lock commit succeeds.
   {
     const f = fixture(); const errors = []; const routes = []; let deletes = 0; let stateIndex = 0;
+    const wallet = { walletName: 'A', maxAddressIndex: 3, selectedAddressIndex: 0 };
     const a = f.realm('remove', id => {
-      if (id === 'react') return { ...React, useState: () => [[ 'ok', 'REMOVE', false ][stateIndex++], () => {}] };
+      if (id === 'react') return { ...React, useState: () => [[ 'ok', 'REMOVE', false, false ][stateIndex++ % 4], () => {}], useRef: current => ({ current }), useEffect() {} };
       if (id === 'react-router-dom') return { useNavigate: () => (...args) => routes.push(args) };
-      if (id === 'react-redux') return { useDispatch: () => () => {}, useSelector: fn => fn({ wallet: { walletName: 'A' } }) };
+      if (id === 'react-redux') return { useDispatch: () => () => {}, useSelector: fn => fn({ wallet }), useStore: () => ({ getState: () => ({ wallet }) }) };
+      // Removal's own inventory rules are wallet-deletion-test's; here only
+      // the order against the lock matters, so the commit just counts.
+      if (id.endsWith('/wallet/removal')) return { captureWalletRemoval: () => ({}), prepareWalletRemoval: async () => ({}),
+        assertWalletRemovalCurrent() {}, commitRevokedWalletRemoval: () => { deletes++; } };
       if (id.endsWith('/hooks/useAccount')) return { invalidateAccountCache() {} };
       if (id.endsWith('/redux/pendingTransactionsSlice')) return { resetPendingTransactions: () => ({ type: 'resetPendingTransactions' }) };
-      if (id.endsWith('/utils/utils')) return { removeStorageWallet: () => { deletes++; return true; }, loadStorageWalletNames: () => [] };
+      if (id.endsWith('/utils/utils')) return { loadStorageWalletNames: () => [] };
       if (id.endsWith('/utils/notify')) return { notify: { dismissAll() {}, success() {}, error: error => errors.push(error) } };
     });
     await a.vault.unlockWithPassword('A', 'ok'); await f.flush();
