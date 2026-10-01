@@ -101,8 +101,14 @@ const announceToSites = async (stored, event, expectedId, clearOrigins = []) => 
     const data = event === 'accountsChanged' ? (allowed ? [value.address] : []) :
       allowed ? (event === 'chainChanged' ? value.chainId : publicNodeUrl(value.nodeUrl)) : undefined;
     if (data === undefined) return;
+    // An event is not an answer to a request, so it is bound to the document
+    // and relay that said hello, not to the navigation generation of that
+    // moment: a navigation that starts and never commits (a 204, a download)
+    // leaves the same document in place, and it must keep getting events.
+    // Re-capturing checks the frame still holds that document, and is active.
+    const bound = await nativeNavigation.capture(frame).catch(() => null);
     // A frame whose relay does not take the event has gone; forget it.
-    if (!(await deliver(frame, { channel: 'znn', kind: 'event', event, data }))?.accepted) await frames.forgetTarget(frame);
+    if (!bound || !(await deliver(bound, { channel: 'znn', kind: 'event', event, data }))?.accepted) await frames.forgetTarget(frame);
   }));
   return true;
 };
@@ -459,10 +465,15 @@ chrome.windows.onRemoved.addListener(async (windowId) => {
 // outstanding approvals, even if it is later aborted; a fresh request can then
 // be made. Same-document history and fragment changes do not. Chrome reports
 // this even when the page has removed its own listeners.
+//
+// The frame's event registration is left alone: if the navigation never
+// commits, the document is still there and still connected, and forgetting it
+// here silenced its events until a reload. A replacement document's hello
+// takes the same tab-and-frame slot, and delivery to a document that has gone
+// fails and forgets it (announceToSites).
 chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   if (details.tabId < 0 || details.frameId < 0) return;
-  nativeNavigation.invalidate(details).then(stale =>
-    Promise.all([requests.cancelWhere(stale), frames.forget(stale)])).catch(() => {
+  nativeNavigation.invalidate(details).then(stale => requests.cancelWhere(stale)).catch(() => {
     // If the generation cannot be saved, discard affected approvals as a second
     // independent fence; the navigation helper also refuses use in this worker.
     const affected = request => request.tabId === details.tabId && (details.frameId === 0 || request.frameId === details.frameId);

@@ -73,8 +73,16 @@ globalThis.target=async (record,payload)=>{try{return await chrome.tabs.sendMess
 let browser, socket, cdp, server;
 const watchdog = setTimeout(() => { console.error('Native document fixture timed out'); browser?.kill(); server?.close(); process.exit(1); }, 90000);
 (async () => {
+  // A launching page that prerenders /prerendered and opens it a moment later,
+  // and that page, which reads and listens at load like a dApp does.
+  const prerenderPages = {
+    '/launch': '<!doctype html><title>Inert prerender launcher</title><script type="speculationrules">{"prerender":[{"source":"list","urls":["/prerendered"],"eagerness":"immediate"}]}</script><a id="go" href="/prerendered">Open</a><script>setTimeout(()=>document.getElementById("go").click(),1500)</script>',
+    '/prerendered': '<!doctype html><title>Inert prerendered page</title><script>window.prerenderLog=[{prerendering:document.prerendering}];zenon.getAccounts().then(value=>prerenderLog.push({accounts:value}),error=>prerenderLog.push({error:error.code}));zenon.on("accountsChanged",value=>prerenderLog.push({event:value}));</script>',
+  };
   server = http.createServer((request, response) => {
+    if (request.url === '/nocontent') { response.writeHead(204); response.end(); return; }
     response.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'max-age=300' });
+    if (Object.hasOwn(prerenderPages, request.url)) { response.end(prerenderPages[request.url]); return; }
     response.end('<!doctype html><title>Inert lifecycle page</title><p>Local regression fixture</p><script>window.shows=[];addEventListener("pageshow",e=>shows.push(e.persisted),true);for(const type of ["pagehide","pageshow"])addEventListener(type,e=>e.stopImmediatePropagation(),true);</script>' + (request.url === '/frames' ? '<iframe id="child" src="/child-a"></iframe>' : ''));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -160,6 +168,12 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
   await internal('events.accountsChanged', { selectionId: binding.id });
   await eventually(() => evaluate(page, 'accountEvents'), value => value.length === 1, 'fresh activation event');
   assert.deepEqual(await evaluate(page, 'accountEvents'), [['inert-approved-account']]);
+  // A navigation that starts and never commits (a 204 here; a download is the
+  // same) leaves the document in place, connected, and still getting events.
+  await evaluate(page, "(location.href='/nocontent',true)");
+  await eventually(() => evaluate(control, "records('znn.navigation')"), nav => Boolean(nav?.[fresh.tabId]?.epoch) && nav[fresh.tabId].epoch !== fresh.navigationTab, 'aborted navigation seen');
+  await internal('events.accountsChanged', { selectionId: binding.id });
+  await eventually(() => evaluate(page, 'accountEvents'), value => value.length === 2, 'event after aborted navigation');
   // A transfer's params come back from chrome.storage with their keys sorted.
   // Its identity must still match the stored record, or the request can be
   // neither shown nor rejected (a regression the fixtures could not see).
@@ -263,12 +277,31 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
   assert.equal((await internal('permissions.list')).length, 1);
   await cdp('Page.navigate', { url: bOrigin + '/after-accepted-grant' }, second.sessionId); await ready(second, bOrigin + '/after-accepted-grant');
   assert.equal((await internal('permissions.list')).length, 1, 'completed consent survives later navigation');
+  // A page Chrome prerenders runs its scripts before it is shown, when the
+  // worker answers no document. Its load-time read and its hello wait for
+  // activation, so once opened it reads the connected account and gets events.
+  // Chrome does not prerender under DevTools: the tab stays unattached until
+  // it has moved to the prerendered page.
+  const launch = await cdp('Target.createTarget', { url: bOrigin + '/launch' });
+  await eventually(async () => (await cdp('Target.getTargets')).targetInfos.find(t => t.targetId === launch.targetId)?.url,
+    url => url === bOrigin + '/prerendered', 'prerendered page opened');
+  const prerendered = { ...launch, ...await cdp('Target.attachToTarget', { targetId: launch.targetId, flatten: true }) };
+  assert(await evaluate(prerendered, 'performance.getEntriesByType("navigation")[0].activationStart') > 0, 'This browser must exercise prerendering');
+  await eventually(() => evaluate(prerendered, 'prerenderLog'), log => log?.length === 2, 'prerendered read');
+  assert.deepEqual(await evaluate(prerendered, 'prerenderLog'), [{ prerendering: true }, { accounts: ['inert-approved-account'] }]);
+  // Its hello after activation is asynchronous: announce until it arrives.
+  const prerenderEvents = await eventually(async () => {
+    await internal('events.accountsChanged', { selectionId: binding.id });
+    return (await evaluate(prerendered, 'prerenderLog')).slice(2);
+  }, events => events.length > 0, 'prerendered page event');
+  assert.deepEqual([...new Set(prerenderEvents.map(JSON.stringify))], [JSON.stringify({ event: ['inert-approved-account'] })]);
+  await cdp('Target.closeTarget', { targetId: launch.targetId });
   await internal('permissions.revokeAll');
   await begin(second); const closing = await waitRequest();
   await cdp('Target.closeTarget', { targetId: second.targetId });
   await eventually(() => evaluate(control, "records('znn.pendingRequests')"), value => !Object.values(value || {}).some(r => r.tabId === closing.tabId), 'tab close cleanup');
   const result = { browser: version.Browser, actualModules: [...new Set([...files, ...closure('src/sections/Content/index.js'), ...closure('src/sections/Inpage/index.js')])], nonSecureHttp: true, lifecycleCaptureOrdering: true, nativeNavigationFence: true, documentRewriteRecovery: true, subframeRewriteRecovery: true, emptyRewriteRecovery: true, ordinaryBodyEdits: true, sameOriginNavigation: true,
-    crossOriginNavigation: true, nativeSubframeNavigation: true, bfcacheRestored: restored, oldApprovalsCancelled: true, freshRequestsAndEvents: true, multiKeyParamsIdentity: true, independentLegacyTabs: true, provisionalGrantCancellation: true, completedConsentSurvivesNavigation: true, tabCloseCleanup: true };
+    crossOriginNavigation: true, nativeSubframeNavigation: true, bfcacheRestored: restored, oldApprovalsCancelled: true, freshRequestsAndEvents: true, multiKeyParamsIdentity: true, independentLegacyTabs: true, provisionalGrantCancellation: true, completedConsentSurvivesNavigation: true, abortedNavigationKeepsEvents: true, prerenderedPageReadsAndEvents: true, tabCloseCleanup: true };
   fs.writeFileSync(path.join(dir, 'result.json'), JSON.stringify(result, null, 2));
   console.log(JSON.stringify({ ...result, artifact: path.join(dir, 'result.json') }));
 })().catch(error => { console.error(error.stack || String(error)); process.exitCode = 1; }).finally(async () => {

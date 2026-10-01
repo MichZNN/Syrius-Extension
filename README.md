@@ -358,6 +358,8 @@ Approval preparation and submission use at most two operation slots per popup. E
 
 Permission finalization first saves a durably inactive pending record, preserving prior consent. The exact isolated relay must accept the connection response before the fixed deadline; its timestamp marks completion of that consent decision. Durable promotion may finish after the acknowledgement, while immediate follow-up reads wait on the permission lock. A failed promotion leaves the pending record inactive and requires reconnecting, even if the reply already reached the page. Pending records remain inactive after a browser restart even if rollback fails and all session state is lost. The relay timestamp also distinguishes an accepted response from a late response when the page event queue runs later.
 
+Requests are bound to the document that made them, and any cross-document navigation cancels them, even one that never commits. Provider events are bound to the document alone: a page whose navigation is aborted (a 204 response, a download) keeps receiving them. A page Chrome prerenders (address-bar prediction, speculation rules) sends nothing until it is shown, and its load-time reads are answered then. The `webNavigation` permission behind the navigation fence is shown on the install prompt as "Read your browsing history".
+
 ### Wallet and account consent
 
 Site connections are stored per origin, exact wallet import, and exact derived

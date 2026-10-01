@@ -33,6 +33,14 @@ const privateToken = () => {
   const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
+// A prerendered page (an address-bar prediction, a site's speculation rules)
+// runs this relay before anyone has seen it, and the worker answers only an
+// active document (nativeNavigation.capture). Sent at once, its first read
+// failed with "the requesting document has left", and its hello, which is
+// sent at load and not again, never registered it for events. So both wait
+// for activation. Callers re-check `document.prerendering`: the page can
+// dispatch a `prerenderingchange` of its own.
+const afterActivation = run => document.addEventListener('prerenderingchange', run, { once: true });
 let active = Boolean(document.documentElement);
 let activation = privateToken();
 let legacyCounter = 0;
@@ -89,6 +97,7 @@ const sendToBackground = (message, requestToken) => {
   }
 };
 const begin = (entry) => {
+  if (document.prerendering) { afterActivation(() => begin(entry)); return; }
   lifetime.check();
   if (!active || (entry.activation && entry.activation !== activation)) {
     entry.resolve?.(null);
@@ -205,11 +214,15 @@ const leave = () => {
   outstanding.clear();
   sendToBackground({ channel: 'znn', kind: 'bye', activation: departed });
 };
+const hello = () => {
+  if (document.prerendering) { afterActivation(hello); return; }
+  sendToBackground({ channel: 'znn', kind: 'hello', activation });
+};
 const enter = event => {
   if (!document.documentElement) return;
   if (event.persisted || !active) activation = privateToken();
   active = true;
-  sendToBackground({ channel: 'znn', kind: 'hello', activation });
+  hello();
 };
 const listen = window.addEventListener.bind(window);
 const lifetime = observeDocumentLifetime({
@@ -217,7 +230,6 @@ const lifetime = observeDocumentLifetime({
   onReset: () => { leave(); enter({ persisted: true }); },
   install: () => listen('message', receivePageMessage),
 });
-// Announce this frame so the worker can deliver events to it later. Doing it
-// this way is what keeps the `tabs` permission — "Read your browsing history"
-// on the install prompt — off this extension.
-sendToBackground({ channel: 'znn', kind: 'hello', activation });
+// Announce this frame so the worker can deliver events to it later, without
+// the worker reading tab URLs (see Background/frames.js).
+hello();

@@ -47,14 +47,23 @@ import observeDocumentLifetime from '../../services/utils/documentLifetime';
       const id = nextId();
       const needsApproval = method !== 'znn_accounts' && method !== 'znn_chainId' && method !== 'znn_nodeUrl';
 
-      const timer = setTimeout(() => {
-            pending.delete(id);
-            reject({ code: 4900, message: needsApproval
-              ? 'The wallet did not finish. Verify the outcome before retrying.' : 'The wallet did not respond' });
-          }, needsApproval ? 31 * 60 * 1000 : transportTimeoutMs);
+      pending.set(id, { resolve, reject, timer: null });
 
-      pending.set(id, { resolve, reject, timer });
-      window.postMessage({ target: outboundTarget, kind: 'request', id, method, params }, window.location.origin);
+      // A prerendered page's request waits for the page to be shown: the relay
+      // holds it until then (Content/index.js), so its clock starts then too,
+      // rather than running out while nobody has opened the page yet.
+      const send = () => {
+        const waiting = pending.get(id);
+        if (!waiting) return;
+        if (document.prerendering) { document.addEventListener('prerenderingchange', send, { once: true }); return; }
+        waiting.timer = setTimeout(() => {
+          pending.delete(id);
+          reject({ code: 4900, message: needsApproval
+            ? 'The wallet did not finish. Verify the outcome before retrying.' : 'The wallet did not respond' });
+        }, needsApproval ? 31 * 60 * 1000 : transportTimeoutMs);
+        window.postMessage({ target: outboundTarget, kind: 'request', id, method, params }, window.location.origin);
+      };
+      send();
     });
 
   const emit = (event, data) => {
