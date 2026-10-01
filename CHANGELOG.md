@@ -17,6 +17,26 @@
   node's host, and a disconnect holds even if the browser restarts.
 - The approval window no longer opens repeatedly for one site, and connection
   requests are bounded per site and in total.
+- New passwords need at least 8 characters with a lowercase letter, an
+  uppercase letter, a digit and one of `!@#$%^&*`. Existing passwords still
+  unlock.
+- A custom token's amount is entered and confirmed in exact base units: its
+  decimals come from the node, which cannot vouch for them. The send dropdown
+  still shows its symbol and balance.
+- A page Chrome prerenders (an address-bar prediction, a site's speculation
+  rules) now reads its account once it is shown and receives events, instead
+  of failing its first read with "the requesting document has left".
+- A page whose navigation never completes (a 204 response, a download) keeps
+  receiving account and chain events; they used to stop until a reload.
+- **New permission: `webNavigation`.** Approvals are cancelled when their page
+  navigates, even if the page blocks its own unload events, and Chrome only
+  reports that to an extension holding this permission. Chrome describes it
+  on the install prompt as "Read your browsing history", and asks anyone
+  updating from 0.3.3 to accept it before the extension runs again.
+- Locked dependencies updated for npm audit advisories (brace-expansion,
+  fast-uri, serialize-javascript).
+
+## 0.3.3
 
 - Fixed a receive-history bug where an incoming transfer's "From" address and
   explorer link pointed at the account's own receive block instead of the
