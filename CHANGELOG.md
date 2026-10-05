@@ -1,5 +1,104 @@
 # Changelog
 
+## 0.3.4
+
+- Locking, expiry and wallet removal now revoke every open wallet window's
+  keys, not just the one that locked. Lock durations are 5, 15 or 60 minutes,
+  or On close, and a change applies to the running session.
+- A site's connection is to one wallet and account. Switching accounts hides
+  the address from sites that were not approved for the new one, and every
+  approval is bound to the account it was shown for.
+- Every dApp approval is single use, expires, and is tied to the page that
+  asked: navigating away, going back or rewriting the page cancels it, and an
+  answer can never reach a different page.
+- The approval screen signs exactly the block it showed, and embedded
+  contract calls list every decoded argument.
+- Sites see no address, chain or node until they are approved, see only the
+  node's host, and a disconnect holds even if the browser restarts.
+- The approval window no longer opens repeatedly for one site, and connection
+  requests are bounded per site and in total.
+- New passwords need at least 8 characters with a lowercase letter, an
+  uppercase letter, a digit and one of `!@#$%^&*`. Existing passwords still
+  unlock.
+- A custom token's amount is entered and confirmed in exact base units: its
+  decimals come from the node, which cannot vouch for them. The send dropdown
+  still shows its symbol and balance.
+- A page Chrome prerenders (an address-bar prediction, a site's speculation
+  rules) now reads its account once it is shown and receives events, instead
+  of failing its first read with "the requesting document has left".
+- A page whose navigation never completes (a 204 response, a download) keeps
+  receiving account and chain events; they used to stop until a reload.
+- **New permission: `webNavigation`.** Approvals are cancelled when their page
+  navigates, even if the page blocks its own unload events, and Chrome only
+  reports that to an extension holding this permission. Chrome describes it
+  on the install prompt as "Read your browsing history", and asks anyone
+  updating from 0.3.3 to accept it before the extension runs again.
+- Locked dependencies updated for npm audit advisories (brace-expansion,
+  fast-uri, serialize-javascript).
+
+## 0.3.3
+
+- Fixed a receive-history bug where an incoming transfer's "From" address and
+  explorer link pointed at the account's own receive block instead of the
+  sender and the origin send block.
+- Added `wss://node.zenonhub.io:35998` to the default node list, and made the
+  wallet's own `wss://my.hc1node.com:35998` the fallback node when none has
+  been chosen yet, instead of the SDK's compiled-in `127.0.0.1`.
+- The "sign this block" dApp approval screen now shows a human-readable
+  summary — a plain transfer, a recognized embedded-contract call, or an
+  unrecognized one (rendered as a warning) — above the raw block data, which
+  is now collapsed behind a toggle.
+- Success alerts (address changed, wallet imported, transaction sent, copied
+  to clipboard, etc.) now show as a bottom-center card, like every other
+  alert, with a green bar that fills across its top edge over two seconds and
+  a small close button.
+- Fixed creating or importing a wallet whose name contained a space failing
+  right after it was saved with "Given keyFile does not exist": the SDK's own
+  save path only replaces the *first* space in the name, so the wallet was
+  written under one key and the immediate unlock afterward looked it up under
+  another. Wallet names are now fully sanitized before either happens.
+- Fixed every toast — not just success — closing almost the instant it opened
+  for anyone with reduced motion turned on: react-toastify times a toast's
+  display by the progress bar's own CSS animation, and the wallet's
+  reduced-motion rule was flattening that animation to near-zero along with
+  everything else.
+- The "Loading…" label under an account's activity, plasma, delegation and
+  staking lists no longer flashes on and off between fast page loads and
+  pagination fetches — it now only appears once a fetch has been running for
+  three seconds.
+- Fixed the Fuse Plasma and Stake ZNN buttons jumping partway up the screen
+  once their page's list of entries finished loading: the amount form above
+  them was flex-stretching to fill the still-empty page, a layout rule meant
+  for screens where the submit button lives inside the form, not outside it.
+- Switching addresses repeatedly now reuses the same "Address changed" toast
+  instead of stacking a new one per click.
+- The unlock screen now defaults to whichever wallet was unlocked last,
+  instead of an empty picker, whenever more than one wallet is stored.
+- Locking the wallet now clears any toast still on screen instead of leaving
+  it over the password prompt, and no longer shows an alarming "The wallet is
+  locked" error toast for a background operation (an auto-receive, an
+  in-flight send) that was still running and lost the race against the lock
+  itself — which is not a failure, since the wallet is locked because it was
+  just asked to be.
+- The dashboard now polls CoinGecko for live ZNN/QSR prices, but only while
+  connected to mainnet (chain id 1) — a devnet or a private chain has no coin
+  for CoinGecko to have a price for. Each balance now shows its live USD
+  value beside it, and the address that used to sit under both — already
+  shown in the header's account pill — is now the two balances' combined
+  USD value instead.
+- A balance of four figures or more now shows as a whole number rather than
+  truncating with an ellipsis once its decimals no longer fit, and the USD
+  figures beside it are larger and lighter, especially the combined total.
+- Fixed the account balances and their USD figures not lining up with the
+  ZNN/QSR ticker text below them — a `<button>`'s own default padding, not
+  the flex layout, was the cause.
+- Fixed a pillar's weight, delegator cut and produced% sometimes wrapping
+  onto a second line depending on how long its numbers happened to be; a
+  touch smaller now keeps all three on the one line every time.
+- Plasma can now be fused for any address, not only this account's own — a
+  recipient field (defaulting to the current address) sits below the amount
+  on the Plasma screen.
+
 ## 0.3.2
 
 - GitHub Actions now creates the matching version tag and publishes the
@@ -137,7 +236,7 @@ contract pair rendered as the same word, and anything else rendered as "Sent 0".
 ### Security
 
 Against the security audit of 0.1.10 (kept outside this repo, as
-`../syrius-extension-security-audit.md`):
+`../zenon-docs/security/syrius-extension-audit.md`):
 
 - The unauthenticated plaintext-password oracle in the background script is gone
   with the credential cache itself. The wallet's control surface is gated on the

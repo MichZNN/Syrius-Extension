@@ -1,5 +1,4 @@
 import { KeyStoreManager } from 'znn-ts-sdk';
-import { forgetAddressInfo } from './storage';
 
 // `receiveAllBlocks` moved to services/wallet/account.js, where it is bounded
 // and reports progress. The address bookkeeping moved to services/utils/storage.js,
@@ -15,6 +14,16 @@ const arrayShuffle = (array) => {
   }
   return result;
 };
+
+// The SDK's own `KeyStoreManager.saveKeyStore` mangles the name it is given —
+// `name.replace(" ", "-")` swaps only the *first* space, not every one —
+// before using it as the storage key. A wallet name typed with a space then
+// saves under one key and gets looked up under another the moment the wallet
+// tries to unlock itself right after creating or importing it, which fails
+// with "Given keyFile does not exist" on a perfectly valid wallet. Doing the
+// full replacement ourselves before the name ever reaches the SDK leaves its
+// own replace with nothing to do, so save and lookup agree on the same key.
+const sanitizeWalletName = (name) => (name || '').trim().replace(/\s+/g, '-');
 
 const loadStorageWalletNames = () => {
   try {
@@ -32,20 +41,9 @@ const loadStorageWalletNames = () => {
 // Syrius has had this since the beginning.
 const walletStorageKey = 'znn.ts-wallet';
 
-const removeStorageWallet = (walletName) => {
-  try {
-    const wallets = JSON.parse(localStorage.getItem(walletStorageKey) || '{}');
-
-    if (!wallets[walletName]) {
-      return false;
-    }
-    delete wallets[walletName];
-    localStorage.setItem(walletStorageKey, JSON.stringify(wallets));
-    forgetAddressInfo(walletName);
-    return true;
-  } catch (err) {
-    return false;
-  }
+export {
+  arrayShuffle,
+  loadStorageWalletNames,
+  sanitizeWalletName,
+  walletStorageKey,
 };
-
-export { arrayShuffle, loadStorageWalletNames, removeStorageWallet, walletStorageKey };
