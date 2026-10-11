@@ -130,7 +130,7 @@ test('src: every fail() names a catalogue number and fills its braces', () => {
 test('src: no entry is dead', () => {
   // Read by describe() itself: the fallback, the wrong password, what a node
   // said, and the node messages it recognises.
-  const byDescribe = [100, 200, 300, 302, 303, 304, 305, 306];
+  const byDescribe = [100, 200, 300, 302, 303, 304, 305, 306, 321];
   const errorsSource = read('src/services/utils/errors.js');
   for (const id of byDescribe) assert.ok(new RegExp(`\\b${id}\\b`).test(errorsSource), `errors.js no longer uses ${id}`);
   for (const { id } of entries) {
@@ -189,6 +189,7 @@ test('src: the factories behind those throws return catalogue errors', () => {
     'src/services/wallet/sessionLease.js': ["const ended = () => Object.assign(fail(201), { code: 'WALLET_LOCKED' });", 'const unavailable = () => Object.assign(fail(202), {', 'const changed = () => Object.assign(fail(203), {'],
     'src/services/wallet/removal.js': ['const changed = () => fail(213);', 'const invalid = () => fail(214);'],
     'src/services/wallet/blockApproval.js': ['const changed = () => fail(820);'],
+    'src/services/wallet/journal.js': ["const unavailable = () => fail(322, undefined, { code: 'JOURNAL_UNAVAILABLE' });"],
     'src/services/wallet/approvalOperation.js': ['const ended = () => fail(814);'],
     'src/services/utils/approvalLimits.js': ['const invalid = () => Object.assign(fail(810), { code: -32602 });', 'const busy = () => Object.assign(fail(811), { code: -32005 });'],
     'src/services/utils/approvalIdentity.js': ['const approvalEnded = () => fail(809);'],

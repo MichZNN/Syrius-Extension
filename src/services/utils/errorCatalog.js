@@ -80,6 +80,14 @@ const catalog = {
   318: 'Enter a positive integer number of base units',
   319: '{done} of {total} fuses were cancelled. The rest were not: try them again.',
   320: 'Select a fuse to cancel.',
+  321: 'Another transaction from this account landed first. Nothing was sent. Check the account, then send again.',
+  322: 'This wallet\'s transaction records could not be read. Nothing was sent.',
+  323: 'An earlier transaction from this account has an unknown outcome. The wallet is checking it. Nothing new was signed.',
+  324: 'This account has {count} transactions on record that are not settled yet. Wait for them to confirm.',
+  325: 'Another transaction from this account is still being sent. Try again in a moment.',
+  326: 'This account\'s turn to send passed to another window. Nothing was sent.',
+  327: 'The transaction was sent but the node did not answer. The wallet will check its outcome. Do not send it again.',
+  328: 'The node did not identify its network.',
 
   // Pillars, Accelerator-Z, tokens, sporks
   400: 'Choose Yes, No or Abstain.',

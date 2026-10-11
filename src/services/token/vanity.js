@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import { sha3_256 } from 'js-sha3';
 
 import vault from '../wallet/vault';
+import journal from '../wallet/journal';
 import { headOf } from './blockHead';
 import { createSearch, expectedTries } from './ztsSearch';
 import { fail } from '../utils/errors';
@@ -109,19 +110,23 @@ const search = ({ head, prefix, suffix, onProgress, signal }) =>
   });
 
 // Signs the searched block with the found nonce and sends it. Used as the
-// background sender's `send`.
+// background sender's `send`. The frontier is checked inside the account's
+// turn (../wallet/journal.js), so no other send of this wallet can land
+// between the check and the publish.
 const publish = async (block, { nonce, zts }, addressIndex) => {
   const zenon = Zenon.getSingleton();
-  const frontier = await zenon.ledger.getFrontierBlock(block.address);
-  if ((frontier?.hash?.toString() || '') !== (block.height > 1 ? block.previousHash.toString() : '')) {
-    throw fail(414);
-  }
-  block.nonce = nonce;
-  const key = await vault.getSigningKeyPair(addressIndex);
-  const signed = await BlockUtils._setHashAndSignature(block, key);
-  if (idOf(signed.hash.getBytes()) !== zts) throw fail(415);
-  await zenon.ledger.publishRawTransaction(signed);
-  return signed;
+  return journal.run(zenon, block.address.toString(), {}, async (entry) => {
+    const frontier = await zenon.ledger.getFrontierBlock(block.address);
+    if ((frontier?.hash?.toString() || '') !== (block.height > 1 ? block.previousHash.toString() : '')) {
+      throw fail(414);
+    }
+    block.nonce = nonce;
+    const key = await vault.getSigningKeyPair(addressIndex);
+    const signed = await BlockUtils._setHashAndSignature(block, key);
+    if (idOf(signed.hash.getBytes()) !== zts) throw fail(415);
+    await entry.publish(signed, () => zenon.ledger.publishRawTransaction(signed));
+    return signed;
+  });
 };
 
 export { prepare, search, publish, idOf };

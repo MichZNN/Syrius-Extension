@@ -11,6 +11,7 @@ import usePagedList from '../../services/hooks/usePagedList';
 import useChainChange from '../../services/hooks/useChainChange';
 import { cancelMany, cancellable, picked, prune, selectAll, toggle, totalOf } from '../../services/plasma/batchCancel';
 import vault from '../../services/wallet/vault';
+import sendJournaled from '../../services/wallet/publisher';
 import { qsrZts } from '../../services/wallet/account';
 import {
   formatAmount,
@@ -314,7 +315,7 @@ const Plasma = () => {
         row: { owner: address, type: 'plasma', icon: 'plasma', counterpartyName: 'Plasma', label: `Cancelling ${list.length} fuses` },
         send: async () => {
           const keyPair = await vault.getSigningKeyPair(index);
-          return cancelMany(list.map((entry) => entry.id), async (id) => Zenon.getSingleton().send(await plasma.cancel(id), keyPair));
+          return cancelMany(list.map((entry) => entry.id), async (id) => sendJournaled(Zenon.getSingleton(), await plasma.cancel(id), keyPair));
         },
       });
       setSelected([]);

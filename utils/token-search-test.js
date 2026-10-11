@@ -2,6 +2,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const babel = require('@babel/core');
+const { journalStubs } = require('./fixtures/journal-stub');
 
 // Exercise the actual search coordinator with inert workers. No SDK, vault,
 // browser, signing or network operation is used by these lifecycle checks.
@@ -45,6 +46,9 @@ const fixture = ({ constructFailure, postFailure, randomFailure, alreadyAborted 
     const resolve = id => {
       if (id === 'znn-ts-sdk') return { utils: {}, Zenon: {}, Primitives: {} };
       if (id === '../wallet/vault') return {};
+      // Publishing is not under test here (utils/transaction-journal-test.js).
+      const stub = journalStubs(id);
+      if (stub) return stub;
       if (id.startsWith('.')) {
         const target = path.resolve(path.dirname(filename), id);
         return load(target.endsWith('.js') ? target : target + '.js');

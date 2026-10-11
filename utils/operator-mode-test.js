@@ -498,7 +498,8 @@ test('fuses: the page sends what is in the list, after one confirmation, in one 
   const page = require('node:fs').readFileSync(path.join(root, 'src/pages/plasma/plasma.js'), 'utf8').replace(/\r\n/g, '\n').replace(/\s+/g, ' ');
   // Read against the list at the moment of sending, not from what was ticked.
   assert.ok(page.includes('const list = picked(entries.items, selected, momentumHeight); if (!list.length) return;'));
-  assert.ok(page.includes('return cancelMany(list.map((entry) => entry.id), async (id) => Zenon.getSingleton().send(await plasma.cancel(id), keyPair));'));
+  // Each cancel takes its account's turn (wallet/journal.js).
+  assert.ok(page.includes('return cancelMany(list.map((entry) => entry.id), async (id) => sendJournaled(Zenon.getSingleton(), await plasma.cancel(id), keyPair));'));
   assert.equal(page.split('cancelMany(').length - 1, 1, 'one place sends a batch');
   // The key is the one selected when the batch was confirmed.
   assert.ok(page.includes('const index = vault.getSelectedIndex();') && page.includes('const keyPair = await vault.getSigningKeyPair(index);'));
