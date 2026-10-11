@@ -13,9 +13,14 @@ import { contractDisplayName } from './contractCalls';
 // exactly what happened, the icon only has to say what kind of thing it was.
 const iconForContract = {
   plasma: 'plasma',
-  pillar: 'delegate',
+  pillar: 'pillar',
   stake: 'stake',
+  accelerator: 'vote',
+  spork: 'spork',
 };
+
+// A send to an ordinary address.
+const describePlainSend = () => ({ type: 'sent', label: 'Sent', icon: 'send', counterpartyName: null });
 
 // The type, glyph and counterparty for an outgoing template, from the template
 // itself — so a call site only has to supply what it alone knows, which is the
@@ -25,7 +30,8 @@ const describeOutgoingTemplate = (template) => {
   const contract = embeddedContractName(to);
 
   if (!contract) {
-    return { type: 'sent', icon: 'send', counterpartyName: null, address: to };
+    const { type, icon, counterpartyName } = describePlainSend(to);
+    return { type, icon, counterpartyName, address: to };
   }
 
   // Deliberately no method name. `decodeCall` reads the base64 string a block
@@ -41,4 +47,4 @@ const describeOutgoingTemplate = (template) => {
   };
 };
 
-export { iconForContract, describeOutgoingTemplate };
+export { iconForContract, describeOutgoingTemplate, describePlainSend };

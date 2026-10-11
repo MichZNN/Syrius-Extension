@@ -1,5 +1,4 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { Primitives, Zenon } from 'znn-ts-sdk';
 
@@ -9,6 +8,8 @@ import { ModalContext } from '../../services/hooks/modal/modalContext';
 import useAccount from '../../services/hooks/useAccount';
 import useBackgroundSender from '../../services/hooks/useBackgroundSender';
 import usePagedList from '../../services/hooks/usePagedList';
+import useChainChange from '../../services/hooks/useChainChange';
+import { cancelMany, cancellable, picked, prune, selectAll, toggle, totalOf } from '../../services/plasma/batchCancel';
 import vault from '../../services/wallet/vault';
 import { qsrZts } from '../../services/wallet/account';
 import {
@@ -19,6 +20,8 @@ import {
   toDecimals,
 } from '../../services/utils/format';
 import { notify } from '../../services/utils/notify';
+import Icon from '../../components/icon/icon';
+import { fail } from '../../services/utils/errors';
 
 // Plasma.
 //
@@ -30,14 +33,17 @@ import { notify } from '../../services/utils/notify';
 // drops the decimals off anything fractional without saying so.
 
 const plasmaTiers = [
-  { upTo: 10, key: 'no-plasma', label: 'No plasma' },
-  { upTo: 50, key: 'low-plasma', label: 'Low plasma' },
-  { upTo: 120, key: 'average-plasma', label: 'Average plasma' },
-  { upTo: Infinity, key: 'high-plasma', label: 'High plasma' },
+  { upTo: 10, key: 'no-plasma', icon: 'plasma-none', label: 'No plasma' },
+  { upTo: 50, key: 'low-plasma', icon: 'plasma-low', label: 'Low plasma' },
+  { upTo: 120, key: 'average-plasma', icon: 'plasma-average', label: 'Average plasma' },
+  { upTo: Infinity, key: 'high-plasma', icon: 'plasma-high', label: 'High plasma' },
 ];
 
+// How many characters of an address fit beside the "Me" chip. A Zenon address
+// is 40.
+const chipRoom = 30;
+
 const Plasma = () => {
-  const navigate = useNavigate();
   const { address, balanceMap } = useAccount();
   const { openModal } = useContext(ModalContext);
   const { sendInBackground } = useBackgroundSender();
@@ -136,6 +142,15 @@ const Plasma = () => {
 
   const entries = usePagedList(fetchPage, { pageSize: 10, enabled: Boolean(addressObject) });
 
+  // A fuse or a cancel confirms while this screen is open: the list and the
+  // fused total are read again then, not when the screen is next opened.
+  useChainChange(() => {
+    entries.refresh();
+    if (addressObject) {
+      Zenon.getSingleton().embedded.plasma.get(addressObject).then(setPlasmaInfo).catch(() => {});
+    }
+  });
+
   // `get` reports the effective plasma for this address, including plasma
   // fused by another wallet for it. The entries endpoint is still used for
   // the detail list and remains the fallback for older nodes.
@@ -207,11 +222,11 @@ const Plasma = () => {
     const problem = validateAmount(amount);
 
     if (problem !== true) {
-      notify.error(problem);
+      notify.error(fail(110, { text: problem }));
       return;
     }
     if (validateRecipient(recipient) !== true) {
-      notify.error('That is not a valid Zenon address');
+      notify.error(fail(311));
       return;
     }
 
@@ -234,7 +249,6 @@ const Plasma = () => {
       setAmount('');
       setRecipient(address);
       resetForm();
-      navigate('/tabs/dashboard');
     } catch (err) {
       notify.error(err);
     }
@@ -248,8 +262,6 @@ const Plasma = () => {
         successMessage: 'Fuse cancelled',
         row: { owner: address, label: 'Cancelling fuse' },
       });
-
-      navigate('/tabs/dashboard');
     } catch (err) {
       notify.error(err);
     }
@@ -260,7 +272,7 @@ const Plasma = () => {
     const isSelf = trimmedRecipient === address;
 
     openModal(
-      <AlertModal transaction type="confirm" title="Fuse plasma" confirmLabel="Fuse" onSuccess={fuse}>
+      <AlertModal type="confirm" title="Fuse plasma" confirmLabel="Fuse" onSuccess={fuse}>
         <p>
           Fuse <b>{amount} QSR</b> for plasma
           {isSelf ? (
@@ -276,18 +288,75 @@ const Plasma = () => {
     );
   };
 
+  // Several at once. What is selected is kept as ids and read against the
+  // list each time, so a fuse that has gone from the list cannot be sent.
+  const [selected, setSelected] = useState([]);
+  const pickable = cancellable(entries.items, momentumHeight);
+  const chosen = picked(entries.items, selected, momentumHeight);
+  const chosenTotal = formatAmount(totalOf(chosen), decimals);
+  const allPicked = pickable.length > 0 && chosen.length === pickable.length;
+
+  useEffect(() => {
+    setSelected((previous) => {
+      const next = prune(previous, entries.items, momentumHeight);
+      return next.length === previous.length ? previous : next;
+    });
+  }, [entries.items, momentumHeight]);
+
+  const cancelSelected = () => {
+    const list = picked(entries.items, selected, momentumHeight);
+    if (!list.length) return;
+    try {
+      const plasma = Zenon.getSingleton().embedded.plasma;
+      const index = vault.getSelectedIndex();
+      sendInBackground(null, {
+        successMessage: `${list.length} fuses cancelled`,
+        row: { owner: address, type: 'plasma', icon: 'plasma', counterpartyName: 'Plasma', label: `Cancelling ${list.length} fuses` },
+        send: async () => {
+          const keyPair = await vault.getSigningKeyPair(index);
+          return cancelMany(list.map((entry) => entry.id), async (id) => Zenon.getSingleton().send(await plasma.cancel(id), keyPair));
+        },
+      });
+      setSelected([]);
+    } catch (err) {
+      notify.error(err);
+    }
+  };
+
+  const confirmCancelSelected = () =>
+    openModal(
+      <AlertModal
+        type="warning"
+        title={`Cancel ${chosen.length} fuses`}
+        confirmLabel="Cancel fuses"
+        dismissLabel="Keep"
+        onSuccess={cancelSelected}
+      >
+        <p>
+          <b>{chosenTotal} QSR</b> returns to your balance, one block per fuse. This cannot be undone.
+        </p>
+      </AlertModal>
+    );
+
   const confirmCancel = (id) =>
     openModal(
       <AlertModal
-        transaction
         type="warning"
         title="Cancel fuse"
         confirmLabel="Cancel fuse"
+        dismissLabel="Keep"
         onSuccess={() => cancelFuse(id)}
       >
         <p>The QSR returns to your balance. This cannot be undone.</p>
       </AlertModal>
     );
+
+  // The chip sits inside the field while what is typed leaves it room.
+  const chipFits = recipient.trim().length <= chipRoom;
+  const useOwnAddress = () => {
+    setRecipient(address);
+    setValue('recipientAddressField', address, { shouldValidate: true });
+  };
 
   return (
     <div className="page">
@@ -298,8 +367,9 @@ const Plasma = () => {
           </div>
           <div className="stat-label">Fused</div>
         </div>
-        <div className="plasma-tier" title={tier.label}>
-          <img alt="" src={require(`./../../assets/${tier.key}.svg`)} />
+        <div className={`status is-${tier.key}`}>
+          <Icon name={tier.icon} size={16} />
+          {tier.label}
         </div>
       </div>
 
@@ -338,13 +408,17 @@ const Plasma = () => {
         </div>
 
         <div className="custom-control">
-          <div className="input-with-button w-100">
+          {/* A whole address has to be readable here without scrolling the
+              field, so it is set in the data face at a size that fits, and
+              the "Me" chip gives its room back once the field is nearly
+              full. */}
+          <div className={`input-with-button w-100 ${chipFits ? '' : 'is-full'}`}>
             <input
               {...register('recipientAddressField', {
                 required: true,
                 validate: validateRecipient,
               })}
-              className={`w-100 custom-label pr-3 ${
+              className={`w-100 custom-label address-input ${
                 errors.recipientAddressField ? 'custom-label-error' : ''
               }`}
               placeholder="Recipient address"
@@ -359,17 +433,17 @@ const Plasma = () => {
             />
             {/* Fusing for yourself is the common case; this is the way back to
                 it after typing someone else's address. */}
-            <button
-              type="button"
-              className="input-chip-button"
-              onClick={() => {
-                setRecipient(address);
-                setValue('recipientAddressField', address, { shouldValidate: true });
-              }}
-            >
-              Me
-            </button>
+            {chipFits && (
+              <button type="button" className="input-chip-button" onClick={useOwnAddress}>
+                Me
+              </button>
+            )}
           </div>
+          {!chipFits && recipient.trim() !== address && (
+            <button type="button" className="text-link field-link" onClick={useOwnAddress}>
+              Use my address
+            </button>
+          )}
           <div className={`input-error ${errors.recipientAddressField ? '' : 'invisible'}`}>
             {errors.recipientAddressField?.message || 'Address is required'}
           </div>
@@ -383,6 +457,19 @@ const Plasma = () => {
       </button>
 
       <div className="list mt-3">
+        {pickable.length > 1 && (
+          <div className="list-head">
+            <span className="ledger-label">Fuses</span>
+            <button
+              type="button"
+              className="text-link"
+              onClick={() => setSelected(allPicked ? [] : selectAll(entries.items, momentumHeight))}
+            >
+              {allPicked ? 'Clear' : 'Select all'}
+            </button>
+          </div>
+        )}
+
         {entries.items.map((entry) => (
           <FuseItem
             key={entry.id.toString()}
@@ -394,6 +481,8 @@ const Plasma = () => {
             momentumHeight={momentumHeight}
             isRevocable={entry.isRevocable}
             cancelFuse={confirmCancel}
+            onSelect={pickable.length > 1 ? (id) => setSelected((previous) => toggle(previous, id)) : undefined}
+            selected={selected.includes(entry.id.toString())}
           />
         ))}
 
@@ -409,6 +498,21 @@ const Plasma = () => {
           {entries.showLoading && <span className="text-gray">Loading…</span>}
         </div>
       </div>
+
+      {chosen.length > 0 && (
+        <div className="page-footer batch-bar">
+          <div className="batch-bar-summary" role="status">
+            <span>{chosen.length} selected</span>
+            <b>{chosenTotal} QSR</b>
+          </div>
+          <button type="button" className="thin-button secondary" onClick={() => setSelected([])}>
+            Clear
+          </button>
+          <button type="button" className="thin-button danger-text" onClick={confirmCancelSelected}>
+            Cancel fuses
+          </button>
+        </div>
+      )}
     </div>
   );
 };

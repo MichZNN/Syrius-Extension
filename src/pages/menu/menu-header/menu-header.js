@@ -9,6 +9,7 @@ import { copyToClipboard } from '../../../services/utils/notify';
 import { truncateAddress } from '../../../services/utils/format';
 import { getLabel } from '../../../services/utils/storage';
 import { mainnetChainId } from '../../../services/utils/chainId';
+import Icon from '../../../components/icon/icon';
 
 // The header.
 //
@@ -68,7 +69,7 @@ const MenuHeader = ({ backButton = false, changeNodeButton = false, title = '' }
             title="Node settings"
             onClick={() => navigate('/initial-node-selection')}
           >
-            <img alt="" src={require('./../../../assets/change-network.svg')} width="18" />
+            <Icon name="node" size={18} />
           </button>
         )}
 

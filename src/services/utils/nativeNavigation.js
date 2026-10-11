@@ -1,3 +1,4 @@
+import { fail } from './errors';
 // Chrome navigation events survive page-side removal of DOM listeners. Keep
 // their generation in session storage so pending approvals survive worker sleep
 // but cannot survive a browser navigation, even if a relay misses pagehide.
@@ -13,7 +14,7 @@ const activeDocument = async target => {
   return frame?.documentId === target.documentId && frame.documentLifecycle === 'active';
 };
 const capture = target => serialized(async () => {
-  if (failed || !target || !(await activeDocument(target))) throw Error('The requesting document has left');
+  if (failed || !target || !(await activeDocument(target))) throw fail(105);
   return { ...target, ...stamp(await read(), target) };
 });
 const matches = target => serialized(async () => {

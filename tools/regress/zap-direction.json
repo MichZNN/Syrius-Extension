@@ -1,0 +1,4 @@
+[
+  ["a sent zap reads From", "src/components/modals/zap-modal.js", "{sent ? 'To' : 'From'} {truncateAddress(counterparty)}", "From {truncateAddress(counterparty)}"],
+  ["every zap is treated as received", "src/pages/dashboard/dashboard/dashboard.js", "sent={row.type !== 'received'}", "sent={false}"]
+]

@@ -68,6 +68,44 @@ const usePagedList = (fetchPage, { pageSize = 10, enabled = true } = {}) => {
     }
   }, [enabled, fetchPage, hasMore, pageSize]);
 
+  // The pages already shown, read again and swapped in at once. For a list
+  // whose rows just changed (a fuse cancelled, a stake ended): `reset` would
+  // blink it empty and lose the place. A failed read leaves it as it was.
+  const refresh = useCallback(async () => {
+    if (!enabled || loading.current) {
+      return;
+    }
+    loading.current = true;
+
+    try {
+      const wanted = Math.max(page.current, 1);
+      const fresh = [];
+      let response = null;
+      let read = 0;
+      let full = true;
+
+      while (read < wanted && full) {
+        response = await fetchPage(read, pageSize);
+        const list = response?.list || [];
+        fresh.push(...list);
+        full = list.length === pageSize;
+        read += 1;
+      }
+      if (!mounted.current) {
+        return;
+      }
+      setMeta(response ?? null);
+      setItems(fresh);
+      setError(null);
+      page.current = read;
+      setHasMore(full);
+    } catch (err) {
+      // Whatever is on screen is still the last good answer.
+    } finally {
+      loading.current = false;
+    }
+  }, [enabled, fetchPage, pageSize]);
+
   const reset = useCallback(() => {
     page.current = 0;
     loading.current = false;
@@ -111,6 +149,7 @@ const usePagedList = (fetchPage, { pageSize = 10, enabled = true } = {}) => {
     error,
     sentinelRef,
     loadMore,
+    refresh,
     reset,
     isEmpty: !items.length && !hasMore,
   };

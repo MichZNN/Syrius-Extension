@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import MenuHeader from '../../menu/menu-header/menu-header';
+import Icon from '../../../components/icon/icon';
 import ControlledDropdown from '../../../components/custom-dropdown/controlled-dropdown';
 import { useForm } from 'react-hook-form';
 
@@ -10,7 +11,9 @@ import { completeUnlock } from '../../../services/wallet/bootstrap';
 import { loadStorageWalletNames } from '../../../services/utils/utils';
 import { getLastWalletName } from '../../../services/utils/storage';
 import { readDevWalletConfig } from '../../../services/utils/devWallet';
-import { readableError } from '../../../services/utils/errors';
+import NodeStall from '../../../components/node-stall/node-stall';
+import { ringInPhase, spinOnce } from '../../../services/utils/edgeLight';
+import { describe, fail, wrongPassword as wrongPasswordId } from '../../../services/utils/errors';
 import { notify } from '../../../services/utils/notify';
 
 // The unlock screen.
@@ -20,6 +23,14 @@ import { notify } from '../../../services/utils/notify';
 // `mousemove` listener that made it follow the pointer. That is 1.13 MiB of
 // the bundle and a WebGL context, on the screen whose entire job is to accept a
 // password quickly. It is gone.
+
+// How long the opened mark is shown before the wallet takes the screen.
+const openedFor = 420;
+
+// The ring's light is one animation that is never restarted and never changes
+// pace while the password is being checked: a wrong password leaves it exactly
+// as it was. Only a successful unlock moves it, by one extra eased turn from
+// wherever it is (services/utils/edgeLight.js).
 
 const DashboardPassword = () => {
   const navigate = useNavigate();
@@ -31,7 +42,14 @@ const DashboardPassword = () => {
   const [password, setPassword] = useState('');
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [wrongPassword, setWrongPassword] = useState(false);
+  // The password was right and the wallet is open: the mark says so, briefly.
+  const [isOpen, setIsOpen] = useState(false);
   const passwordInput = useRef(null);
+  const ring = useRef(null);
+  const setRing = useCallback((element) => {
+    ring.current = element;
+    ringInPhase(element);
+  }, []);
 
   const {
     register,
@@ -49,7 +67,7 @@ const DashboardPassword = () => {
 
   const unlock = async (walletPassword, walletName) => {
     if (!walletName) {
-      notify.error('Choose a wallet first.');
+      notify.error(fail(218));
       return;
     }
     setIsUnlocking(true);
@@ -57,13 +75,15 @@ const DashboardPassword = () => {
 
     try {
       await completeUnlock({ walletName, password: walletPassword, dispatch });
+      setIsOpen(true);
+      await new Promise((resolve) => { setTimeout(resolve, openedFor); });
       navigate(returnTo, { replace: true });
     } catch (err) {
-      const message = readableError(err);
+      const { id } = describe(err);
 
       // A wrong password is the expected outcome here, not an incident. It gets
       // inline treatment on the field; anything else is a real error.
-      if (message === 'Wrong password.') {
+      if (id === wrongPasswordId) {
         setWrongPassword(true);
         setPassword('');
         setValue('passwordField', '', { shouldValidate: false });
@@ -104,6 +124,10 @@ const DashboardPassword = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (isOpen) spinOnce(ring.current, openedFor);
+  }, [isOpen]);
+
   const onSelectWallet = (index, value) => {
     setSelectedWallet(value);
     setValue('selectedWalletField', value, { shouldValidate: true });
@@ -113,9 +137,14 @@ const DashboardPassword = () => {
     <div className="black-bg screen">
       <MenuHeader changeNodeButton />
 
-      <div className="screen-body unlock-screen">
-        <div className="unlock-mark">
-          <img alt="" src={require('../../../assets/logo.svg')} width="52" />
+      <div className={`screen-body unlock-screen ${isOpen ? 'is-open' : ''}`}>
+        {/* The mark, alive: light turning round it, a pulse leaving it, the
+            logo drifting a little. The logo shakes its head at a wrong
+            password; the light is left alone until the wallet opens. */}
+        <div className={`brand-mark ${isOpen ? 'is-open' : wrongPassword ? 'is-refused' : ''}`}>
+          <span className="brand-mark-ring" aria-hidden="true" ref={setRing} />
+          <span className="brand-mark-pulse" aria-hidden="true" />
+          <img alt="" src={require('../../../assets/logo.svg')} width="40" />
         </div>
         <h2 className="unlock-title">Welcome back</h2>
 
@@ -139,7 +168,7 @@ const DashboardPassword = () => {
             </div>
           )}
 
-          <div className="custom-control">
+          <div className={`custom-control ${wrongPassword ? 'is-refused' : ''}`}>
             <input
               {...passwordField}
               ref={(element) => {
@@ -170,11 +199,14 @@ const DashboardPassword = () => {
 
           <button
             type="submit"
-            className="button primary w-100 text-white"
+            className={`button primary w-100 text-white ${isOpen ? 'is-unlocked' : ''}`}
             disabled={isUnlocking}
           >
-            {isUnlocking ? 'Unlocking…' : 'Unlock'}
+            {isOpen && <Icon name="check" size={16} className="unlock-check" />}
+            {isOpen ? 'Unlocked' : isUnlocking ? 'Unlocking…' : 'Unlock'}
           </button>
+          {/* The unlock waits on the node; after 3 s this says so and offers a way on. */}
+          {isUnlocking && <NodeStall />}
         </form>
 
         <div className="unlock-alternative text-gray">

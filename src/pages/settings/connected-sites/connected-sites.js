@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { sendInternal } from '../../../services/utils/messaging';
 import selection from '../../../services/wallet/selection';
 import { notify } from '../../../services/utils/notify';
+import { fail } from '../../../services/utils/errors';
 
 // Which sites can see this wallet.
 //
@@ -45,7 +46,7 @@ const ConnectedSites = () => {
 
   const revoke = async ({ origin, scope }) => {
     try {
-      if (!(await sendInternal('permissions.revoke', { origin, scope }))) throw new Error('Could not disconnect this account. Try again.');
+      if (!(await sendInternal('permissions.revoke', { origin, scope }))) throw fail(821);
       setSites((current) => current.filter((site) => site.origin !== origin || !selection.sameScope(site.scope, scope)));
       notify.success(`Disconnected ${hostOf(origin)}`);
     } catch (err) {
@@ -57,7 +58,7 @@ const ConnectedSites = () => {
 
   const revokeAll = async () => {
     try {
-      if (!(await sendInternal('permissions.revokeAll'))) throw new Error('Could not disconnect all accounts. Try again.');
+      if (!(await sendInternal('permissions.revokeAll'))) throw fail(822);
       setSites([]);
       notify.success('Disconnected every site');
     } catch (err) {

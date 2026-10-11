@@ -18,13 +18,10 @@ const files = [
   'src/services/hooks/modal/modalContext.js',
   'src/services/hooks/modal/useModal.js',
   'src/components/modals/alert-modal.js',
-  'src/assets/close-icon.svg',
+  // The alert's close button draws its glyph from the vendored icon set.
+  'src/components/icon/icon.js',
+  'src/components/icon/lucide.js',
 ];
-// Combined candidates can add transaction context to the alert. Keep those
-// actual presentation imports intact while retaining the base-checkout test.
-const transactionNetwork = 'src/components/transaction-network/transaction-network.js';
-const hasTransactionNetwork = fs.existsSync(path.join(root, transactionNetwork));
-if (hasTransactionNetwork) files.push(transactionNetwork, 'src/services/utils/publicNodeUrl.js');
 for (const file of files) {
   const output = path.join(extension, file);
   fs.mkdirSync(path.dirname(output), { recursive: true });
@@ -47,7 +44,7 @@ import AlertModal from './src/components/modals/alert-modal';
 const counts={closed:0,dismissed:0,confirmed:0,background:0};
 const fixtureState={connectionParameters:{chainIdentifier:69,nodeUrl:'wss://fixture-user:fixture-value@node.fixture.invalid:35998/private-route?fixture=hidden#detail'}};
 const store={getState:()=>fixtureState,subscribe:()=>()=>{},dispatch:()=>{}};
-window.fixture={counts,hasTransactionNetwork:${hasTransactionNetwork}};
+window.fixture={counts};
 const Fixture=()=>{
   const model=useModal();
   const close=useCallback(()=>{counts.closed++;model.closeModal();},[model.closeModal]);
@@ -165,7 +162,7 @@ const watchdog = setTimeout(() => {
     finished = { baseline: true, node: process.version, browser: version.Browser, initialFocusOutsideDialog: true, tabEscapesToBackground: true, dialogNameAbsent: true };
     return;
   }
-  assert.equal(await active(), 'close-modal');
+  assert.equal(await active(), 'icon-button');
   assert.equal(await evaluate("document.querySelector('[role=dialog]').getAttribute('aria-label')"), 'Confirm this synthetic action');
   const fits = await evaluate("(()=>{const r=document.querySelector('[role=dialog]').getBoundingClientRect();return r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight;})()");
   assert.equal(fits, true);
@@ -176,9 +173,9 @@ const watchdog = setTimeout(() => {
   assert(nodes.some(node => node.role?.value === 'dialog' && node.name?.value === 'Confirm this synthetic action'));
   await key('Tab'); assert.equal(await evaluate('document.activeElement.textContent.trim()'), 'Cancel');
   await key('Tab'); assert.equal(await evaluate('document.activeElement.textContent.trim()'), 'Confirm');
-  await key('Tab'); assert.equal(await active(), 'close-modal');
+  await key('Tab'); assert.equal(await active(), 'icon-button');
   await key('Tab', true); assert.equal(await evaluate('document.activeElement.textContent.trim()'), 'Confirm');
-  await evaluate("document.querySelector('#background').focus()"); assert.equal(await active(), 'close-modal');
+  await evaluate("document.querySelector('#background').focus()"); assert.equal(await active(), 'icon-button');
   await key('Escape'); await closed(); assert.deepEqual(await counts(), { closed: 1, dismissed: 0, confirmed: 0, background: 0 });
   await show();
   await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x: 5, y: 5, button: 'left', clickCount: 1 }, sessionId);
@@ -192,7 +189,7 @@ const watchdog = setTimeout(() => {
   assert.deepEqual(await counts(), { closed: 5, dismissed: 2, confirmed: 1, background: 0 });
   await show(); await key('Tab'); await key('Tab'); await evaluate('fixture.replace()');
   await until("document.querySelector('[role=dialog]').getAttribute('aria-label') === 'Replacement synthetic action'");
-  assert.equal(await active(), 'close-modal'); await key('Escape'); await closed();
+  assert.equal(await active(), 'icon-button'); await key('Escape'); await closed();
   await show('generic'); assert.equal(await active(), 'modal-container text-white');
   assert.equal(await evaluate("document.querySelector('[role=dialog]').getAttribute('aria-label')"), 'Wallet dialog');
   await key('Tab'); assert.equal(await active(), 'modal-container text-white');
@@ -210,35 +207,31 @@ const watchdog = setTimeout(() => {
   await key('Tab', true); assert.equal(await active(), 'modal-container text-white');
   await key('Escape'); await closed();
   await show();
-  await evaluate("document.querySelector('.close-modal').disabled=true;document.querySelector('#background').focus()");
+  await evaluate("document.querySelector('.icon-button').disabled=true;document.querySelector('#background').focus()");
   assert.equal(await evaluate('document.activeElement.textContent.trim()'), 'Cancel');
   await key('Tab', true); assert.equal(await evaluate('document.activeElement.textContent.trim()'), 'Confirm');
   await key('Escape'); await closed();
-  if (hasTransactionNetwork) {
-    await show('transaction', 'Synthetic transaction context');
-    await until("Boolean(document.querySelector('.transaction-network'))");
-    const details = await evaluate("document.querySelector('.transaction-network').textContent");
-    assert(details.includes('Selected signing chain69'));
-    assert(details.includes('wss://node.fixture.invalid:35998'));
-    for (const privatePart of ['fixture-user', 'fixture-value', '/private-route', 'fixture=hidden', '#detail']) assert(!details.includes(privatePart));
-    assert.equal(await active(), 'close-modal');
-    await key('Tab'); await key('Tab'); await key('Tab'); assert.equal(await active(), 'close-modal');
-    await key('Escape'); await closed();
-  }
+  // The wallet's own confirmation shows no signing chain and no node host.
+  await show('transaction', 'Synthetic transaction context');
+  assert.equal(await evaluate("Boolean(document.querySelector('.transaction-network'))"), false);
+  assert(!(await evaluate("document.querySelector('[role=dialog]').textContent")).includes('node.fixture.invalid'));
+  assert.equal(await active(), 'icon-button');
+  await key('Tab'); await key('Tab'); await key('Tab'); assert.equal(await active(), 'icon-button');
+  await key('Escape'); await closed();
   const visibleControl = selector => evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)}),r=el.getBoundingClientRect();return r.width>0&&r.height>0&&r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight;})()`);
   for (const [width, height] of [[360, 400], [320, 184]]) {
     await cdp('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false }, sessionId);
     const before = await counts();
     await show('long', 'Long synthetic review');
     assert.equal(await evaluate("(()=>{const r=document.querySelector('[role=dialog]').getBoundingClientRect();return r.top>=11&&r.bottom<=innerHeight-11;})()"), true);
-    assert.equal(await active(), 'close-modal'); assert.equal(await visibleControl('.close-modal'), true);
+    assert.equal(await active(), 'icon-button'); assert.equal(await visibleControl('.icon-button'), true);
     assert.equal(await evaluate("(()=>{const el=document.querySelector('.modal-content');return el.scrollHeight>el.clientHeight&&getComputedStyle(el).overflowY==='auto';})()"), true);
     await key('Tab', true);
     assert.equal(await evaluate("document.activeElement===document.querySelector('.modal-action-area button:last-child')"), true);
     assert.equal(await visibleControl('.modal-action-area button:last-child'), true);
     assert.equal(await evaluate("document.querySelector('.modal-content').scrollTop>0"), true);
-    await key('Tab'); assert.equal(await active(), 'close-modal');
-    assert.equal(await visibleControl('.close-modal'), true);
+    await key('Tab'); assert.equal(await active(), 'icon-button');
+    assert.equal(await visibleControl('.icon-button'), true);
     await key('Tab'); assert.equal(await evaluate('document.activeElement.textContent.trim()'), 'Cancel');
     assert.equal(await visibleControl('.modal-action-area button'), true);
     await key('Escape'); await closed();
@@ -260,7 +253,7 @@ const watchdog = setTimeout(() => {
     initialEnterDoesNotConfirmSingleAction: true, detachedTriggerHandled: true, unmountRestoresConnectedTrigger: true,
     simpleDialogFits360x400: true, longDialogsContainedAt360x400And320x184: true,
     closeRemainsVisibleWhileBodyScrolls: true, nativeTabScrollsFocusedCancelAndConfirmIntoView: true,
-    emulatedViewportNotBrowserZoom: true, transactionDisplayFromCurrentSource: hasTransactionNetwork, runtimeErrors };
+    emulatedViewportNotBrowserZoom: true, nativeDialogOmitsNetworkDetails: true, runtimeErrors };
 })().catch(error => { console.error(error.message || 'Native modal focus checks failed.'); process.exitCode = 1; }).finally(async () => {
   if (cdp) await cdp('Browser.close').catch(() => {});
   socket?.close(); browser?.kill();

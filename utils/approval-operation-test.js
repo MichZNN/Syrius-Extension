@@ -6,10 +6,17 @@ const path = require('node:path');
 const babel = require('@babel/core');
 const { WebSocketServer } = require('ws');
 const root = path.join(__dirname, '..');
+// The modules under test import one thing, the error catalogue; it is loaded
+// for real, beside them.
 const load = (file, environment = {}) => {
   const module = { exports: {} };
   const code = babel.transformFileSync(path.join(root, file), { presets: [['@babel/preset-env', { targets: { node: 'current' } }]], configFile: false, babelrc: false }).code;
-  new Function('module', 'exports', ...Object.keys(environment), code)(module, module.exports, ...Object.values(environment));
+  const resolve = name => {
+    const target = path.join(path.dirname(file), name).replace(/\\/g, '/');
+    assert.ok(['src/services/utils/errors', 'src/services/utils/errorCatalog'].includes(target), 'unexpected import ' + name);
+    return load(target + '.js');
+  };
+  new Function('module', 'exports', 'require', ...Object.keys(environment), code)(module, module.exports, resolve, ...Object.values(environment));
   return module.exports;
 };
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));

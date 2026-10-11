@@ -58,6 +58,8 @@ const hookRuntime = () => {
     useCallback: (callback) => callback,
     useMemo: (callback) => callback(),
     useEffect: (callback, dependencies) => effects.push({ callback, dependencies }),
+    // The dashboard's one context is the modal host (a received zap opens one).
+    useContext: () => ({ openModal: () => {}, closeModal: () => {} }),
   };
   return { react, effects, render: (callback) => {
     stateCursor = 0; refCursor = 0; effects.length = 0;
@@ -95,7 +97,9 @@ const historyFixture = () => {
     if (name === 'react') return hooks.react;
     if (name.endsWith('/utils/contracts')) return { embeddedContractName: () => null };
     if (name.endsWith('/utils/contractCalls')) return { decodeCall: () => null, describeCall: () => '', contractDisplayName: () => '' };
-    if (name.endsWith('/utils/outgoingBlock')) return { iconForContract: {} };
+    if (name.endsWith('/utils/outgoingBlock')) return { iconForContract: {},
+      describePlainSend: () => ({ type: 'sent', label: 'Sent', icon: 'send', counterpartyName: null }) };
+    if (name.endsWith('/zap/zap')) return { decodeZap: () => null };
   });
   const useTransactions = load('src/services/hooks/useTransactions.js').default;
   const render = () => hooks.render(() => useTransactions(address, address));

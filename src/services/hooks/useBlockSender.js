@@ -7,6 +7,7 @@ import { runApprovalOperation } from '../wallet/approvalOperation';
 import sendApprovalBlock from '../wallet/approvalBlock';
 import { beginPreparedSend } from '../wallet/blockApproval';
 import { invalidateAccountCache } from './useAccount';
+import { fail } from '../utils/errors';
 
 // Signing and broadcasting one account block, for the one caller that has to
 // wait for it.
@@ -45,7 +46,7 @@ const useBlockSender = () => {
     let submitted = false;
     const startPublication = binding ? async (block, publish) => {
       const started = await vault.whileBound(binding, () => {
-        if (block.address?.toString() !== binding.scope.address) throw new Error('The signing account changed.');
+        if (block.address?.toString() !== binding.scope.address) throw fail(307);
         // Begin the RPC while the selection is locked; never hold the lock
         // waiting on a remote node. A submitted block cannot be undone.
         submitted = true;
@@ -81,7 +82,7 @@ const useBlockSender = () => {
       await assertRequest?.();
       return signed;
     } catch (error) {
-      if (submitted) throw new Error('The transaction may have been submitted. Its outcome is unknown. Check the original account before retrying.');
+      if (submitted) throw fail(308);
       throw error;
     } finally {
       // In `finally`, so an error cannot leave the screen saying it is working.

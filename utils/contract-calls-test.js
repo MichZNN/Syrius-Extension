@@ -83,7 +83,7 @@ const blockDataFor = (signature) =>
 if (!fs.existsSync(definitionDir)) {
   throw new Error(
     'go-zenon ABI definitions are required. Set GO_ZENON_ABI_DIR to ' +
-    'vm/embedded/definition in a pinned go-zenon checkout (see SETUP.md).'
+    'vm/embedded/definition in a pinned go-zenon checkout (see docs/SETUP.md).'
   );
 }
 

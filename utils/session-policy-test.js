@@ -328,7 +328,7 @@ const watchdog = setTimeout(() => { console.error('Session policy checks timed o
     const renewal = f.api.touch(); gate.release.resolve();
     await reduction; assert.equal(await renewal, true); assert.equal(f.record().expiresAt, f.now() + 300000);
     await Promise.all([f.api.updateSetting('hideBalances', true), f.api.updateSetting('autoLockMinutes', 0)]);
-    assert.deepEqual(JSON.parse(f.disk.get('syrius.settings')), { autoLockMinutes: 0, hideBalances: true, autoReceive: true, explorer: 'zenonhub' });
+    assert.deepEqual(JSON.parse(f.disk.get('syrius.settings')), { autoLockMinutes: 0, hideBalances: true, autoReceive: true, explorer: 'zenonhub', pillarMode: false, sentinelMode: false, sporkMode: false, theme: 'dark' });
   }
   // A renewal that reaches the lock after expiry revokes rather than extends;
   // the alarm then leaves a newer unlock alone.

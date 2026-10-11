@@ -1,0 +1,14 @@
+[
+  ["another account's block is followed", "src/services/wallet/outgoingWatch.js", "Boolean(address) && item.owner === address &&", "Boolean(address) &&"],
+  ["another node's block is followed", "src/services/wallet/outgoingWatch.js", "  sameHistoryNetwork(item.network, network));", "  true);"],
+  ["a block in the pool counts as confirmed", "src/services/wallet/outgoingWatch.js", "const isConfirmed = (block) => Boolean(block && block.confirmationDetail);", "const isConfirmed = (block) => Boolean(block);"],
+  ["confirmed is said on every poll", "src/services/wallet/outgoingWatch.js", "if (!entry || entry.confirmedAt !== null || !isConfirmed(block)) continue;", "if (!entry || !isConfirmed(block)) continue;"],
+  ["a halted chain is asked for ever", "src/services/wallet/outgoingWatch.js", ".filter(([, entry]) => entry.confirmedAt === null && now() - entry.since < giveUpMs)", ".filter(([, entry]) => entry.confirmedAt === null)"],
+  ["two receives run at once", "src/services/wallet/outgoingWatch.js", "  if (!receiving) {\n    receiving = ", "  {\n    receiving = "],
+  ["another account's block shows in the strip", "src/services/wallet/outgoingWatch.js", "  .filter((item) => !item.owner || item.owner === address)\n", ""],
+  ["the strip draws on Home", "src/components/outgoing-watch/outgoing-watch.js", "  if (onHome) return null;\n", ""],
+  ["the watcher receives on Home too", "src/components/outgoing-watch/outgoing-watch.js", "if (home.current || !getSettings().autoReceive) return;", "if (!getSettings().autoReceive) return;"],
+  ["Home does not receive what arrives", "src/pages/dashboard/dashboard/dashboard.js", "      if (getSettings().autoReceive) receive();\n", ""],
+  ["Plasma does not read again", "src/pages/plasma/plasma.js", "  useChainChange(() => {\n    entries.refresh();", "  (() => {\n    entries.refresh();"],
+  ["the watcher is left out of the layout", "src/layouts/tabsLayout/tabsLayout.js", "      <OutgoingWatch />\n", ""]
+]

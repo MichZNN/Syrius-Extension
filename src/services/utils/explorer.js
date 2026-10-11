@@ -10,12 +10,14 @@ import { getSettings } from './storage';
 const explorers = {
   zenonhub: {
     label: 'zenonhub.io',
+    short: 'Zenon Hub',
     base: 'https://zenonhub.io/explorer',
     transaction: (base, hash) => `${base}/transaction/${hash}`,
     account: (base, address) => `${base}/account/${address}`,
   },
   zenonNetwork: {
     label: 'explorer.zenon.network',
+    short: 'Zenon Network',
     base: 'https://explorer.zenon.network',
     transaction: (base, hash) => `${base}/transaction/${hash}`,
     account: (base, address) => `${base}/account/${address}`,
@@ -24,9 +26,12 @@ const explorers = {
 
 const defaultExplorer = 'zenonhub';
 
+// `short` is the name for a control with little room (Settings); `label` is
+// the host, said wherever a link is about to leave for it.
 const explorerChoices = Object.entries(explorers).map(([key, entry]) => ({
   key,
   label: entry.label,
+  short: entry.short,
 }));
 
 const current = () => explorers[getSettings().explorer] || explorers[defaultExplorer];

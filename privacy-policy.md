@@ -42,6 +42,10 @@ metadata and permissions; browser extension removal clears its local storage.
 - **CoinGecko:** USD price requests identify the supported ZNN and QSR tokens.
   The price URL does not include a wallet address or balance. CoinGecko still
   receives the connection's network metadata, including the IP address.
+- **GitHub:** opening Settings, About asks GitHub's public API for this
+  repository's newest release tag, at most once in six hours. The request
+  carries no wallet data. GitHub receives the connection's network metadata,
+  including the IP address.
 - **Requesting-site icons:** an approval screen can load a site's favicon URL.
   The icon server receives the browser request and its network metadata.
 - **Block explorers:** opening an explorer link sends the linked public address

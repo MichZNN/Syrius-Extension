@@ -7,7 +7,7 @@ import Onboarding from '../../pages/onboarding/onboarding';
 
 const AuthLayout = () => {
   return (
-    <div>
+    <div className="auth-layout">
       <Routes>
         <Route index element={<Navigate to="/auth/onboarding" replace />} />
         <Route path="onboarding" element={<Onboarding />} />

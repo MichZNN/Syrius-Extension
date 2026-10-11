@@ -36,7 +36,10 @@ const useBackgroundSender = () => {
   const dispatch = useDispatch();
 
   const sendInBackground = useCallback(
-    (template, { row, addressIndex, successMessage } = {}) => {
+    // `send`, when given, replaces the SDK's fill-in-and-send: a block that
+    // was filled in and searched ahead (services/token/vanity.js) is signed
+    // as it is.
+    (template, { row, addressIndex, successMessage, send } = {}) => {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const owner = row?.owner;
       const zenon = Zenon.getSingleton();
@@ -60,9 +63,9 @@ const useBackgroundSender = () => {
       // returns to the dashboard while this runs.
       (async () => {
         try {
-          const keyPair = await vault.getSigningKeyPair(addressIndex);
+          const keyPair = send ? null : await vault.getSigningKeyPair(addressIndex);
 
-          const signed = await zenon.send(template, keyPair, (status) => {
+          const signed = send ? await send() : await zenon.send(template, keyPair, (status) => {
             // `PowStatus.generating` is 0, so this has to compare rather than
             // test for truth — the obvious `if (status)` reads it as "done".
             if (status === Enums.PowStatus.generating) {

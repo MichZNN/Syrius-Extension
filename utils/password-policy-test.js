@@ -42,7 +42,15 @@ const load = (file, resolve) => {
   new Function('module', 'exports', 'require', 'localStorage', code)(mod, mod.exports, resolve, storage);
   return mod.exports;
 };
+// Besides the SDK, the policy imports only the error catalogue, loaded for real.
+const errorModules = (name) => {
+  if (name === '../utils/errors') return load('src/services/utils/errors.js', errorModules);
+  if (name === './errorCatalog') return load('src/services/utils/errorCatalog.js', errorModules);
+  return null;
+};
 const policy = load('src/services/wallet/password.js', (name) => {
+  const errors = errorModules(name);
+  if (errors) return errors;
   assert.equal(name, 'znn-ts-sdk');
   return sdk;
 });

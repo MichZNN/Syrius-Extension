@@ -1,3 +1,4 @@
+import { fail, relay } from './errors';
 // Talking to the service worker from the popup.
 //
 // `chrome.runtime.sendMessage` is callback-shaped and reports failure through
@@ -22,7 +23,7 @@ const sendInternal = (method, params = {}, { timeoutMs = defaultTimeoutMs } = {}
     const timer = setTimeout(() => {
       if (!settled) {
         settled = true;
-        reject(new Error(`The extension background did not answer ${method}`));
+        reject(fail(104, { method }));
       }
     }, timeoutMs);
 
@@ -40,15 +41,15 @@ const sendInternal = (method, params = {}, { timeoutMs = defaultTimeoutMs } = {}
         // The worker was still starting, or is gone. Either way there is no
         // answer coming.
         if (chrome.runtime.lastError) {
-          settle(reject, new Error(chrome.runtime.lastError.message));
+          settle(reject, relay(chrome.runtime.lastError.message, 103));
           return;
         }
         if (!response) {
-          settle(reject, new Error('No response from the extension background'));
+          settle(reject, fail(103));
           return;
         }
         if (response.error) {
-          settle(reject, new Error(response.error));
+          settle(reject, relay(response.error, response.errorId));
           return;
         }
         settle(resolve, response.result);

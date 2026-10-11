@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { isCancellable } from '../../services/plasma/batchCancel';
 import { formatAmount, momentumsToDuration, truncateAddress } from '../../services/utils/format';
 
 // One plasma fusion.
@@ -17,12 +18,26 @@ const FuseItem = ({
   momentumHeight,
   isRevocable = true,
   cancelFuse,
+  // Set when fuses can be picked for a batch (services/plasma/batchCancel.js).
+  onSelect,
+  selected = false,
 }) => {
   const remaining = Number(expirationHeight) - Number(momentumHeight);
   const isUnlocked = !momentumHeight || remaining <= 0;
+  const canCancel = isCancellable({ expirationHeight, isRevocable }, momentumHeight);
 
   return (
-    <div className="list-row">
+    <div className={`list-row ${selected ? 'is-selected' : ''}`}>
+      {onSelect && canCancel && (
+        <label className="row-check">
+          <input
+            type="checkbox"
+            checked={selected}
+            aria-label={`Select the fuse of ${formatAmount(amount, decimals)} QSR`}
+            onChange={() => onSelect(id)}
+          />
+        </label>
+      )}
       <div className="list-row-main">
         <div className="list-row-title">{formatAmount(amount, decimals)} QSR</div>
         <div className="list-row-note" title={beneficiary}>
@@ -30,7 +45,7 @@ const FuseItem = ({
         </div>
       </div>
 
-      {isUnlocked && isRevocable ? (
+      {canCancel ? (
         <button type="button" className="thin-button secondary" onClick={() => cancelFuse(id)}>
           Cancel
         </button>

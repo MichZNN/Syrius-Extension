@@ -1,6 +1,7 @@
 import { Enums, Primitives } from 'znn-ts-sdk';
 import { toDecimals } from '../utils/format';
 import { nativeTokens, normalizeTokenStandard, znnZts, qsrZts } from './tokenMetadata';
+import { fail } from '../utils/errors';
 
 // Reading an account, once, in a shape the screens can use.
 //
@@ -46,15 +47,15 @@ const withBaseTokens = (balanceInfoMap) => {
   for (const [key, entry] of Object.entries(balanceInfoMap || {})) {
     const zts = normalizeTokenStandard(key);
     if (Object.prototype.hasOwnProperty.call(balances, zts)) {
-      throw new Error('The node returned duplicate token identities');
+      throw fail(313);
     }
     const native = nativeTokens[zts];
     if (!native && normalizeTokenStandard(entry?.token?.tokenStandard) !== zts) {
-      throw new Error('The node returned conflicting token identities');
+      throw fail(314);
     }
     if (!native && entry.token.decimals != null &&
         !['string', 'number'].includes(typeof entry.token.decimals)) {
-      throw new Error('The node returned invalid token decimals');
+      throw fail(315);
     }
     balances[zts] = {
       balance: entry?.balance ?? 0,

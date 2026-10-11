@@ -31,6 +31,9 @@ const TransactionItem = ({
   isFailed = false,
   error = '',
   onDismiss,
+  // A zap's message can be opened again from its row.
+  onMessage,
+  isZap = false,
 }) => {
   const chainId = useSelector((state) => state.connectionParameters.chainIdentifier);
   const explorerLink = transactionUrl(hash, chainId);
@@ -61,7 +64,7 @@ const TransactionItem = ({
       {/* The halo is on the icon rather than beside it: while proof of work is
           running this row is the only thing happening, and a 6px dot said that
           too quietly to be read as "still working". */}
-      <div className={`transaction-icon is-${type}`}>
+      <div className={`transaction-icon is-${isZap ? 'zap' : type}`}>
         <Icon name={icon} size={15} />
       </div>
 
@@ -119,6 +122,12 @@ const TransactionItem = ({
       {onDismiss && (
         <button type="button" className="transaction-dismiss" onClick={onDismiss} title="Dismiss">
           <Icon name="close" size={13} />
+        </button>
+      )}
+
+      {onMessage && (
+        <button type="button" className="transaction-message" onClick={onMessage} aria-label="Message" data-tooltip="Message">
+          <Icon name="message" size={14} />
         </button>
       )}
 

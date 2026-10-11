@@ -1,5 +1,6 @@
 import { Enums, Primitives, utils as sdkUtils } from 'znn-ts-sdk';
 import approvalPow from './approvalPow';
+import { fail } from '../utils/errors';
 
 // Keep the pinned SDK's typed preparation and hash/signature logic. This is its
 // send sequence with operation-owned RPC timeouts and a cancellable PoW worker.
@@ -54,7 +55,7 @@ const sendApprovalBlock = async (zenon, template, key, operation, onPow,
     await operation.assertActive();
   } catch (error) {
     if (!started) throw error;
-    throw new Error('The submitted transaction outcome is unknown. Verify it before retrying.');
+    throw fail(813);
   }
   return block;
 };

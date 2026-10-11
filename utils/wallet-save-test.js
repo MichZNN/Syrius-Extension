@@ -61,7 +61,10 @@ const fixture = () => {
     if (state.writeError) throw state.writeError;
     state.commits += 1;
   } };
+  // Besides the SDK, the policy imports only the error catalogue, loaded for real.
+  const errorModules = (name) => load(`src/services/utils/${name.split('/').pop()}.js`, errorModules, storage);
   const policy = load('src/services/wallet/password.js', (name) => {
+    if (name === '../utils/errors') return errorModules(name);
     assert.equal(name, 'znn-ts-sdk'); return sdk;
   }, storage);
   return { state, store, sdk, storage, policy };

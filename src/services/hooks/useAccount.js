@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux';
 import { fetchBalances } from '../wallet/account';
 import vault from '../wallet/vault';
 import useReadContext from './useReadContext';
+import { fail } from '../utils/errors';
 
 // One place for "who am I and what do I hold".
 //
@@ -85,7 +86,7 @@ const useAccount = ({ balances: wantBalances = true, refreshMs = 0 } = {}) => {
         const addressObject = await vault.getAddressObject(selectedAddressIndex);
         if (!isCurrent()) return null;
         if (addressObject?.toString() !== address) {
-          throw new Error('The selected account changed. Refresh the wallet and try again.');
+          throw fail(224);
         }
         const result = await fetchBalances(context.zenon, addressObject);
 

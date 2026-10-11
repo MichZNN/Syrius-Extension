@@ -1,5 +1,6 @@
+import React from 'react';
 import { toast } from 'react-toastify';
-import { readableError } from './errors';
+import { describe, fail, rawMessage } from './errors';
 
 // Every toast in this wallet used to carry its own nine-line options object,
 // and they had drifted: some closed after a second, some after five, some
@@ -43,13 +44,15 @@ const notify = {
 
   // Failures stay up longer than confirmations: one is read on the way past,
   // the other has to be acted on.
+  //
+  // The text is the catalogue entry, with its number after it (./errors.js).
   error: (error, options = {}) => {
-    const message = readableError(error);
-
-    if (error?.code === 'WALLET_LOCKED' || isExpectedLockError(message)) {
+    if (error?.code === 'WALLET_LOCKED' || isExpectedLockError(rawMessage(error))) {
       return null;
     }
-    return toast(message, { ...base, type: 'error', autoClose: 5000, ...options });
+    const { text, code } = describe(error);
+    const content = React.createElement('span', null, text, ' ', React.createElement('span', { className: 'error-code' }, code));
+    return toast(content, { ...base, type: 'error', autoClose: 5000, ...options });
   },
 
   info: (message, options = {}) =>
@@ -76,7 +79,7 @@ const copyToClipboard = async (text, label = 'Copied') => {
     notify.copied(label);
     return true;
   } catch (err) {
-    notify.error('Could not copy to the clipboard.');
+    notify.error(fail(101));
     return false;
   }
 };

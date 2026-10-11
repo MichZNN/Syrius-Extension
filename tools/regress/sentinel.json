@@ -1,0 +1,9 @@
+[
+  ["the stake is the pillar's", "src/services/sentinel/sentinel.js", "const stakeZnn = 5000n * unit;", "const stakeZnn = 15000n * unit;"],
+  ["the deposit is sent as ZNN", "src/services/sentinel/sentinel.js", "depositQsr: (amount) => call(Constants.qsrZts, amount, 'DepositQsr'),", "depositQsr: (amount) => call(Constants.znnZts, amount, 'DepositQsr'),"],
+  ["a revoked sentinel reads as none", "src/services/sentinel/sentinel.js", "  return info.active ? 'active' : 'revoked';", "  return info.active ? 'active' : 'none';"],
+  ["a revoked sentinel can be revoked", "src/services/sentinel/sentinel.js", "  revocable: Boolean(info?.active && info?.isRevocable),", "  revocable: Boolean(info?.isRevocable),"],
+  ["the window is the pillar's", "src/services/sentinel/sentinel.js", "const lockDays = 27;", "const lockDays = 83;"],
+  ["revoke skips the guard", "src/pages/sentinel/sentinel.js", "                if (step('confirmed') !== steps.send) return;\n", ""],
+  ["register is offered to a revoked address", "src/pages/sentinel/sentinel.js", "        <Deposit qsrDeposited={qsrDeposited} qsrShort={0n} canAdd={false} onWithdraw={onWithdraw} />", "        <Deposit qsrDeposited={qsrDeposited} qsrShort={0n} canAdd onWithdraw={onWithdraw} />"]
+]
