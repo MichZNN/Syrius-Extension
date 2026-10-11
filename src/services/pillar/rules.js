@@ -187,6 +187,21 @@ const currentPhase = (project) => {
   return phases.length ? phases[phases.length - 1] : null;
 };
 
+// The most a phase may ask for, as { znn, qsr } in base units. The contract
+// sums every phase of the project after adding or replacing one and refuses
+// a total over the project's own amounts (checkPhaseFunds). Adding counts all
+// the phases there are; updating replaces the last, so that one is left out.
+const phaseFundsLeft = (project, mode) => {
+  const phases = (project?.phases || []).filter((entry) => entry && entry.phase);
+  const counted = mode === 'update' ? phases.slice(0, -1) : phases;
+  const left = (key) => {
+    const spent = counted.reduce((sum, entry) => sum + toBase(entry.phase[key]), 0n);
+    const rest = toBase(project?.[key]) - spent;
+    return rest > 0n ? rest : 0n;
+  };
+  return { znn: left('znnFundsNeeded'), qsr: left('qsrFundsNeeded') };
+};
+
 // Everything a pillar can vote on now: projects in voting, and the current
 // phase of an active project while that phase is in voting.
 const votables = (projects) => {
@@ -267,6 +282,7 @@ export {
   projectError,
   projectLink,
   currentPhase,
+  phaseFundsLeft,
   votables,
   votePasses,
   canAddPhase,
