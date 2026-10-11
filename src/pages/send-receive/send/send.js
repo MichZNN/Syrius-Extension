@@ -4,7 +4,7 @@ import { Primitives } from 'znn-ts-sdk';
 import { useForm } from 'react-hook-form';
 
 import TokenAmount from '../../../components/token-amount/token-amount';
-import { authorizationMetadata, parseTransferAmount, prepareTransfer } from '../../../services/wallet/tokenMetadata';
+import { authorizationMetadata, displayMetadata, parseTransferAmount, prepareTransfer } from '../../../services/wallet/tokenMetadata';
 import AlertModal from '../../../components/modals/alert-modal';
 import ControlledDropdown from '../../../components/custom-dropdown/controlled-dropdown';
 import { ModalContext } from '../../../services/hooks/modal/modalContext';
@@ -142,8 +142,13 @@ const Send = () => {
         parsed
       );
 
+      // The row and the notice label the token as its history row will once
+      // it lands, by the node's symbol and decimals, rather than in the
+      // confirmation's unverified base units.
+      const shown = displayMetadata(current.current.balanceMap[review.tokenStandard]?.token ||
+        { tokenStandard: review.tokenStandard });
       sendInBackground(template, {
-        successMessage: `Sent ${formatExact(review.amount, review.decimals)} ${review.symbol}`,
+        successMessage: `Sent ${formatExact(review.amount, shown.decimals)} ${shown.symbol}`,
         // What the dashboard needs to draw the row, since the block will not be
         // in the account's history until this finishes.
         row: {
@@ -153,8 +158,8 @@ const Send = () => {
           owner: review.owner,
           label: 'Sending',
           amount: parsed.toString(),
-          decimals: review.decimals,
-          tokenSymbol: review.symbol,
+          decimals: shown.decimals,
+          tokenSymbol: shown.symbol,
         },
       });
 
