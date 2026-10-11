@@ -1,7 +1,7 @@
 # Privacy Policy for Syrius Extension
 
 **Effective Date:** July 28, 2025
-**Last Updated:** October 5, 2026
+**Last Updated:** October 11, 2026
 
 ## Scope
 
@@ -43,9 +43,11 @@ metadata and permissions; browser extension removal clears its local storage.
   The price URL does not include a wallet address or balance. CoinGecko still
   receives the connection's network metadata, including the IP address.
 - **GitHub:** opening Settings, About asks GitHub's public API for this
-  repository's newest release tag, at most once in six hours. The request
-  carries no wallet data. GitHub receives the connection's network metadata,
-  including the IP address.
+  repository's newest release tag. A valid release-version response is cached
+  locally for six hours when storage succeeds; an unsuccessful check or failed
+  cache write can be retried the next time About opens. The request carries no
+  wallet data. GitHub receives the connection's network metadata, including the
+  IP address.
 - **Requesting-site icons:** an approval screen can load a site's favicon URL.
   The icon server receives the browser request and its network metadata.
 - **Block explorers:** opening an explorer link sends the linked public address

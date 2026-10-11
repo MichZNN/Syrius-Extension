@@ -13,7 +13,7 @@
 
 const repositoryUrl = 'https://github.com/sol-znn/syrius-extension';
 const releasesUrl = `${repositoryUrl}/releases`;
-const privacyUrl = `${repositoryUrl}/blob/main/privacy-policy.md`;
+const privacyUrl = `${repositoryUrl}/blob/HEAD/privacy-policy.md`;
 const latestUrl = 'https://api.github.com/repos/sol-znn/syrius-extension/releases/latest';
 
 // GitHub allows an address 60 unauthenticated requests an hour; one answer is
