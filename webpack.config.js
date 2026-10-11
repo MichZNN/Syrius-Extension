@@ -188,6 +188,7 @@ module.exports = {
           transform: () => require('./utils/third-party-readme-notices')(),
         },
         { from: path.join(__dirname, 'utils/approval-pow-worker.js'), to: 'approval-pow-worker.js', transform: () => require('./utils/approval-pow-worker')() },
+        { from: path.join(__dirname, 'utils/zts-search-worker.js'), to: 'zts-search-worker.js', transform: () => require('./utils/zts-search-worker')() },
         {
           from: './src/manifest.json',
           to: path.resolve(__dirname, 'build'),

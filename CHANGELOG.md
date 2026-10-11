@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.3.5
+
+Redesign
+- New look in dark and light: vendored Space Grotesk and JetBrains Mono, Lucide
+  icons, accent colours and small animations. Pages load without a scrollbar
+  unless they need one.
+- Home shows an approximate value in dollars. The receive QR code is Zenon green.
+- The lock and welcome screens have an animated mark: a green and a blue
+  light chase each other round the logo, and they run one extra turn and go
+  green when the wallet unlocks. The welcome screen keeps the node button.
+- Settings is three sections that fold: Extension (Node with node stats,
+  Explorer, Connected sites, Zap, Sign message, Theme, About), open by
+  default, then Modes and Wallet.
+
+Operator modes (Settings, Modes)
+- Pillar mode puts Pillar, Rewards and AZ on the tab bar: register, update and
+  revoke a pillar, deposit and withdraw QSR, collect rewards, see the last
+  epochs' production, create Accelerator-Z projects and phases, and vote.
+  Revoke asks for the wallet password and then once more.
+- Sentinel mode: register, revoke, collect, deposit and withdraw QSR.
+- The bridge mode switch is gone until the orbital bridge pages exist.
+- Sporks mode: every spork and its state. A spork administrator can create and
+  activate; activating one znnd does not implement needs its name typed out,
+  because it stops every node that lacks it.
+
+New
+- Tokens: list the ZTS tokens an address owns, issue one (optionally searching
+  for a custom id prefix or suffix), mint, burn, and update owner and flags.
+- Delegate: estimated APR for each pillar, and sorting by weight, APR or
+  production.
+- Plasma: select several fuses and cancel them together.
+- Zap: send 1 ZNN and 10 QSR, or your own amounts, with a message to a random
+  address that received something in the last seven days. An incoming zap is
+  marked in the history and its message can be reopened.
+- About (Settings): the version, whether a newer release is out, and links
+  to the releases, the source and the privacy policy.
+- Node stats: sync state, peers, and a chain that has stopped is called
+  stalled whatever the node reports.
+
+Changed
+- A block sent from any page is followed to its momentum from that page, and
+  what a contract sends back is received without opening Home. Sending no
+  longer jumps to Home.
+- Every error shown has a number and a short description. Raw node output goes
+  to the console.
+- The wallet's own confirmation dialogs no longer show the signing chain and
+  node host. A site's request still does.
+
+Fixed
+- Plasma's recipient field cut the address off: the whole address now fits.
+- Delegate's sort buttons ran off the right edge: they now fit the row.
+- Delegate showed "0 weight" for a delegation: it now shows the ZNN delegated.
+- The message of a zap you sent said "From" the recipient: it now says "To".
+- The light round the balance card and the logo gathers and eases as it
+  turns instead of running at one pace.
+- The light round the Home balance card restarted from the top whenever Home
+  was opened again. It now keeps its place.
+- Sending to your own address showed two rows reading "Received": the send is
+  now "Sent" and only its receive is "Received".
+
+Repository
+- The long README sections and the loose root documents moved to `docs/`.
+- `tools/devnet/lab`: a local go-zenon devnet for test runs that send blocks.
+
 ## 0.3.4
 
 - Locking, expiry and wallet removal now revoke every open wallet window's

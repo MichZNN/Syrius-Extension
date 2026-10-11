@@ -1,5 +1,6 @@
 import { getSettings, setAddressInfo, setSetting } from '../utils/storage';
 import lease from './sessionLease';
+import { fail } from '../utils/errors';
 
 // The owner token never leaves this document except in its trusted session
 // marker. Other documents receive fresh tokens and cannot resume On close.
@@ -21,7 +22,7 @@ const clear = async (expected, afterRevoke) => {
     catch (error) {
       if (error.code !== 'WALLET_SESSION_UNAVAILABLE') throw error;
       if (attempt === 1) {
-        throw Object.assign(new Error('Could not lock all wallet windows. Try again or close the browser.'), {
+        throw Object.assign(fail(204), {
           code: 'WALLET_LOCK_FAILED',
         });
       }
@@ -38,7 +39,7 @@ const publish = (id, publicState) => lease.publish(id, ownerId, publicState);
 // The wallet's saved selection is written inside the same transaction, first.
 const select = (id, choice, walletName, maxAddressIndex) => lease.select(id, ownerId, choice, () => {
   if (!setAddressInfo(walletName, { selectedAddressIndex: choice.index, maxAddressIndex })) {
-    throw new Error('Could not save the selected address. Try again.');
+    throw fail(205);
   }
 });
 // The preference is saved between the stricter stage and the relaxed record;

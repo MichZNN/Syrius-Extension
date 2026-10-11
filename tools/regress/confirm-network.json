@@ -1,0 +1,4 @@
+[
+  ["the confirm dialog names the node again", "src/components/modals/alert-modal.js", "      <div className=\"modal-content\" style={{ minHeight: 0, overflowY: 'auto' }}>\n", "      <div className=\"modal-content\" style={{ minHeight: 0, overflowY: 'auto' }}>\n        <dl className=\"transaction-network\"><dt>Node host</dt></dl>\n"],
+  ["a page imports the network details", "src/pages/plasma/plasma.js", "import AlertModal from", "import '../../components/transaction-network/transaction-network';\nimport AlertModal from"]
+]

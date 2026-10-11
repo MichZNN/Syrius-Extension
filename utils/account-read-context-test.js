@@ -129,7 +129,9 @@ const fixture = () => {
     if (name.endsWith('/spinner/spinnerContext')) return { SpinnerContext: {} };
     if (name.endsWith('/utils/contracts')) return { embeddedContractName: () => null };
     if (name.endsWith('/utils/contractCalls')) return { decodeCall: () => null, describeCall: () => '', contractDisplayName: () => '' };
-    if (name.endsWith('/utils/outgoingBlock')) return { iconForContract: {} };
+    if (name.endsWith('/utils/outgoingBlock')) return { iconForContract: {},
+      describePlainSend: () => ({ type: 'sent', label: 'Sent', icon: 'send', counterpartyName: null }) };
+    if (name.endsWith('/zap/zap')) return { decodeZap: () => null };
     if (name.includes('/components/')) return () => null;
   }, { window: { addEventListener: (event, callback) => storageEvents.on(event, callback) },
     setTimeout: () => 1, clearTimeout() {} });

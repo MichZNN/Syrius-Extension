@@ -8,6 +8,7 @@ import { notify } from '../../../services/utils/notify';
 import { announceAddress } from '../../../services/wallet/announce';
 import { invalidateAccountCache } from '../../../services/hooks/useAccount';
 import vault from '../../../services/wallet/vault';
+import { fail } from '../../../services/utils/errors';
 
 // Choosing which derived address the wallet is using.
 //
@@ -70,7 +71,7 @@ const ChangeAddress = () => {
   const addAddress = () => {
     const next = maxAddressIndex + 1;
     if (!setAddressInfo(walletName, { selectedAddressIndex, maxAddressIndex: next })) {
-      notify.error('Could not save the new address. Try again.');
+      notify.error(fail(219));
       return;
     }
     dispatch(storeMaxAddressIndex(next));

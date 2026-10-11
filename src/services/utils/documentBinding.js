@@ -1,4 +1,5 @@
 import nativeNavigation from './nativeNavigation';
+import { fail } from './errors';
 
 // Browser-authenticated document identity plus an isolated-relay activation.
 // Keep this shared transport module independent of the wallet and SDK.
@@ -22,7 +23,7 @@ const sameRequest = (a, b) => sameDocument(a, b) && validRequest(a) && validRequ
 const bindingOf = request => request && Object.fromEntries(
   ['id', 'tabId', 'frameId', 'documentId', 'activation', 'requestToken', 'navigationTab', 'navigationFrame'].map(field => [field, request[field]])
 );
-const requestEnded = () => Object.assign(new Error('This page request is no longer active. Ask the site to request it again.'), { code: 4900 });
+const requestEnded = () => Object.assign(fail(812), { code: 4900 });
 
 // Never retry against just a frame: a new document can reuse that frame.
 // Resolves to the relay's receipt (`{accepted, acceptedAt}`), or null when it

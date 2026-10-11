@@ -5,6 +5,7 @@ import MnemonicWord from '../../../components/mnemonic-word/mnemonic-word';
 import vault from '../../../services/wallet/vault';
 import { copyToClipboard, notify } from '../../../services/utils/notify';
 import './export-mnemonic.scss';
+import { fail } from '../../../services/utils/errors';
 
 // Revealing the recovery phrase.
 //
@@ -35,7 +36,7 @@ const ExportMnemonic = () => {
       const mnemonic = await vault.getMnemonic();
 
       if (!mnemonic) {
-        notify.error('This wallet has no recovery phrase stored.');
+        notify.error(fail(220));
         return;
       }
       setWords(mnemonic.split(' '));

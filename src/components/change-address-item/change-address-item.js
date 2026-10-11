@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 
 import { truncateAddress } from '../../services/utils/format';
 import { copyToClipboard } from '../../services/utils/notify';
+import Icon from '../icon/icon';
 
 // One derived address.
 //
@@ -92,7 +93,7 @@ const ChangeAddressItem = ({ address, index, isSelected, label, onSelect, onRena
           title="Copy address"
           onClick={() => copyToClipboard(address, 'Address copied')}
         >
-          <img alt="" src={require('./../../assets/copy-icon.png')} width="11" />
+          <Icon name="copy" size={14} />
         </button>
       </div>
     </div>

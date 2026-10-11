@@ -11,6 +11,7 @@ import { validateWalletPassword, saveWalletWithPassword } from '../../services/w
 import { arrayShuffle, loadStorageWalletNames, sanitizeWalletName } from '../../services/utils/utils';
 import { copyToClipboard, notify } from '../../services/utils/notify';
 import { completeUnlock } from '../../services/wallet/bootstrap';
+import Icon from '../../components/icon/icon';
 
 // Creating a wallet.
 //
@@ -194,7 +195,7 @@ const GetStarted = () => {
               className="copy-button"
               onClick={() => copyToClipboard(mnemonic, 'Recovery phrase copied')}
             >
-              <img alt="" src={require('./../../assets/copy-icon.png')} width="14" />
+              <Icon name="copy" size={14} />
             </button>
           </div>
 

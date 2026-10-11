@@ -1,4 +1,5 @@
 import React from 'react';
+import Icon from '../icon/icon';
 
 // One node in the list.
 //
@@ -14,11 +15,7 @@ const ChangeNodeItem = ({ isSelected, onSelect, onRemove, url, disabled }) => (
       disabled={disabled}
       title={url}
     >
-      <img
-        alt=""
-        className="change-node-radio"
-        src={require(`./../../assets/radio-${isSelected ? 'checked' : 'unchecked'}.svg`)}
-      />
+      <Icon name={isSelected ? 'circle-dot' : 'circle'} size={16} className="change-node-radio" />
       <span className="change-node-url">{url}</span>
     </button>
 
@@ -29,7 +26,7 @@ const ChangeNodeItem = ({ isSelected, onSelect, onRemove, url, disabled }) => (
         aria-label={`Remove ${url}`}
         onClick={() => onRemove(url)}
       >
-        <img alt="" src={require('./../../assets/close-icon.svg')} width="10" />
+        <Icon name="close" size={14} />
       </button>
     )}
   </div>

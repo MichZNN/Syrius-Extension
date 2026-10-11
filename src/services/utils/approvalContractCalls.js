@@ -2,6 +2,7 @@
 import { Primitives } from 'znn-ts-sdk';
 import abi from './contractCallSchemas.json';
 import { selectorOf, contractDisplayName, describeCall } from './contractCalls';
+import { fail } from './errors';
 
 // This approval decoder is intentionally separate from the selector-only
 // transaction-history API. Known means every argument was decoded exactly.
@@ -14,7 +15,7 @@ const contracts = Object.fromEntries(Object.entries(abi.contracts).map(([name, c
 }]));
 const hex = bytes => Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
 const uint = bytes => BigInt('0x' + hex(bytes));
-const invalid = () => { throw new Error('Unsupported or noncanonical contract arguments'); };
+const invalid = () => { throw fail(806); };
 const labels = {
   address: 'Plasma beneficiary', id: 'Request ID', name: 'Name', description: 'Description', url: 'URL',
   producerAddress: 'Producer address', rewardAddress: 'Reward address',

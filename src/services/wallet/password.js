@@ -1,4 +1,5 @@
 import { KeyFile, KeyStoreManager } from 'znn-ts-sdk';
+import { fail } from '../utils/errors';
 
 const passwordCriteria =
   'Use at least 8 characters with a lowercase letter, an uppercase letter, a digit, and one of !@#$%^&*.';
@@ -13,7 +14,7 @@ const validateWalletPassword = (password) =>
 const saveWalletWithPassword = async (keyStore, password, walletName) => {
   const validation = validateWalletPassword(password);
   if (validation !== true) {
-    throw new Error(validation);
+    throw fail(110, { text: validation });
   }
   // The pinned manager's async Promise executor can leave encryption errors
   // unsettled. Await the same SDK encryption directly before any disk write.
@@ -23,11 +24,11 @@ const saveWalletWithPassword = async (keyStore, password, walletName) => {
     : (await keyStore.getKeyPair().getAddress()).toString();
   const encrypted = await KeyFile.encrypt(keyStore, password);
   if (!encrypted || typeof encrypted !== 'object' || Array.isArray(encrypted)) {
-    throw new Error('Encrypted wallet data could not be created safely. No wallet was saved.');
+    throw fail(222);
   }
   const wallets = manager.listAllKeyStores();
   if (!wallets || typeof wallets !== 'object' || Array.isArray(wallets)) {
-    throw new Error('Saved wallet data could not be read safely. No wallet was saved.');
+    throw fail(223);
   }
   // Match StorageController's raw KeyFile serialization and storage key. This
   // does not add a cross-window name-ownership or writer transaction protocol.

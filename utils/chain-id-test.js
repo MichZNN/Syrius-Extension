@@ -37,6 +37,8 @@ const elements = tree => !tree || typeof tree !== 'object' ? [] : Array.isArray(
 
 // Invoke the actual settings submit callback, replacing storage, browser and
 // node boundaries. Invalid input must not reach a chain write or announcement.
+// The error catalogue is loaded for real: a refusal is one of its entries.
+const errorModules = name => load(`src/services/utils/${name.split('/').pop()}.js`, errorModules);
 const submit = async input => {
   let stateIndex = 0;
   const states = [1, input, { isDetecting: false, chainId: null }];
@@ -52,11 +54,13 @@ const submit = async input => {
       getSingleton: () => { throw new Error('must not connect'); },
     } };
     if (name.endsWith('/node-list/node-list')) return () => null;
+    if (name.endsWith('/settings-item/settings-item')) return () => null;
     if (name.endsWith('/hooks/useNodeList')) return () => ({ nodes: [], currentNode: null });
     if (name.endsWith('/redux/connectionParametersSlice')) return {
       storeChainIdentifier: value => ({ type: 'chain', payload: value }),
     };
     if (name.endsWith('/utils/chainId')) return chain;
+    if (name.endsWith('/utils/errors')) return errorModules(name);
     if (name.endsWith('/wallet/readContext')) return { retireReadContext: () => {} };
     if (name.endsWith('/utils/notify')) return { notify: {
       error: value => errors.push(value), success: value => success.push(value),
@@ -79,6 +83,8 @@ const submit = async input => {
     assert.deepEqual(result.actions, []);
     assert.deepEqual(result.announcements, []);
     assert.equal(result.errors.length, 1);
+    assert.equal(result.errors[0].errorId, 312);
+    assert.equal(result.errors[0].message, 'Enter a whole number from 1 to 9007199254740991.');
     assert.equal(result.success.length, 0);
   }
   for (const input of ['69', String(maximum)]) {

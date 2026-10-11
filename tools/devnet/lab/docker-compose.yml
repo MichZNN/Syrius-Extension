@@ -1,0 +1,102 @@
+# The Syrius lab: a go-zenon devnet of this repo's own, for harnessed test runs.
+#
+# Same five nodes as go-zenon/docker-compose.yml, under other names so that it
+# shares nothing with the stack that file starts (which on this machine is the
+# stopped copy of chain 69): its own project, containers, network, volumes and
+# chain identifier, and RPC on loopback only. Driven by ./lab.sh; see README.md.
+name: syrius-lab
+
+x-node: &node
+  image: syrius-lab-znnd:${LAB_ZNND_TAG:?run lab.sh, which sets this}
+  # A lab is started for a test and stopped after it. It does not come back
+  # with Docker.
+  restart: "no"
+
+services:
+  pillar:
+    <<: *node
+    container_name: syrius-lab-pillar
+    environment:
+      ZNND_ROLE: pillar
+    volumes:
+      - pillar-data:/root/.znn
+      - ./assets:/devnet:ro
+    networks:
+      lab:
+        ipv4_address: 172.37.0.10
+
+  pillar2:
+    <<: *node
+    container_name: syrius-lab-pillar2
+    depends_on:
+      - pillar
+    environment:
+      ZNND_ROLE: pillar2
+    volumes:
+      - pillar2-data:/root/.znn
+      - ./assets:/devnet:ro
+    networks:
+      lab:
+        ipv4_address: 172.37.0.12
+
+  pillar3:
+    <<: *node
+    container_name: syrius-lab-pillar3
+    depends_on:
+      - pillar
+    environment:
+      ZNND_ROLE: pillar3
+    volumes:
+      - pillar3-data:/root/.znn
+      - ./assets:/devnet:ro
+    networks:
+      lab:
+        ipv4_address: 172.37.0.13
+
+  observer:
+    <<: *node
+    container_name: syrius-lab-observer
+    depends_on:
+      - pillar
+    environment:
+      ZNND_ROLE: observer
+    volumes:
+      - observer-data:/root/.znn
+      - ./assets:/devnet:ro
+    networks:
+      lab:
+        ipv4_address: 172.37.0.14
+
+  rpc:
+    <<: *node
+    container_name: syrius-lab-rpc
+    depends_on:
+      - pillar
+      - observer
+    environment:
+      ZNND_ROLE: rpc
+    ports:
+      - "127.0.0.1:45997:35997" # HTTP RPC
+      - "127.0.0.1:45998:35998" # WS RPC, what the wallet dials
+    volumes:
+      - rpc-data:/root/.znn
+      - ./assets:/devnet:ro
+    networks:
+      lab:
+        ipv4_address: 172.37.0.11
+
+networks:
+  lab:
+    name: syrius-lab
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.37.0.0/24
+
+volumes:
+  pillar-data:
+  pillar2-data:
+  pillar3-data:
+  observer-data:
+  rpc-data:

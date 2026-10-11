@@ -1,0 +1,6 @@
+[
+  ["a send to oneself reads as received","src/services/hooks/useTransactions.js","  (Number.isFinite(ownType) ? ownType === userReceive : block.toAddress?.toString() === myAddress);","  block.toAddress?.toString() === myAddress;"],
+  ["a receive of one's own send reads as sent","src/services/hooks/useTransactions.js","const userReceive = 3;","const userReceive = 4;"],
+  ["rows are merged by the hash a receive shares with its send","src/services/hooks/useTransactions.js","  const updated = shown.map((row) => fresh.find((candidate) => candidate.id === row.id) || row);","  const updated = shown.map((row) => fresh.find((candidate) => candidate.hash === row.hash) || row);"],
+  ["a row is identified by the block it links to","src/services/hooks/useTransactions.js","        id: rowId(own) || rowId(block),","        id: rowId(block),"]
+]

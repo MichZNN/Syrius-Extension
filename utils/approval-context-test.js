@@ -32,19 +32,24 @@ const TransactionNetwork = load('src/components/transaction-network/transaction-
 const AlertModal = load('src/components/modals/alert-modal.js').default;
 const render = (component, props) => renderToStaticMarkup(React.createElement(component, props));
 
-for (const type of ['confirm', 'warning']) {
+// The wallet's own confirmations name neither the signing chain nor the node
+// (owner, 2026-10-11): the header chip does. Only a site's request shows them.
+for (const type of ['confirm', 'warning', 'danger']) {
   const html = render(AlertModal, { type, transaction: true, title: 'Inert transaction confirmation', children: 'Reviewed action' });
-  assert.match(html, /Selected signing chain<\/dt><dd class="word-break-all">1<\/dd>/);
-  assert(html.includes('wss://node.fixture.invalid:35998'));
-  for (const privatePart of ['fixture-user', 'fixture-value', '/private-route', 'fixture=hidden', '#detail']) assert(!html.includes(privatePart));
-  assert(!html.includes('Effective block chain'), 'native selection is not presented as a prepared block');
+  for (const absent of ['Selected signing chain', 'Node host', 'transaction-network', 'node.fixture.invalid']) assert(!html.includes(absent), absent);
   assert(html.includes('Reviewed action'));
 }
-assert(!render(AlertModal, { title: 'Nontransaction dialog' }).includes('Selected signing chain'));
+const fs = require('node:fs');
+const sources = dir => fs.readdirSync(path.join(root, dir), { withFileTypes: true }).flatMap(entry =>
+  entry.isDirectory() ? sources(dir + '/' + entry.name) : entry.name.endsWith('.js') ? [dir + '/' + entry.name] : []);
+assert.deepEqual(sources('src').filter(file => fs.readFileSync(path.join(root, file), 'utf8').includes('transaction-network/transaction-network')),
+  ['src/layouts/siteIntegrationLayout/siteIntegrationLayout.js'], 'only the approval window draws the network details');
+const selected = render(TransactionNetwork, { chainIdentifier: 1, nodeUrl: state.connectionParameters.nodeUrl });
+assert.match(selected, /Selected signing chain<\/dt><dd class="word-break-all">1<\/dd>/);
+assert(selected.includes('wss://node.fixture.invalid:35998'));
+for (const privatePart of ['fixture-user', 'fixture-value', '/private-route', 'fixture=hidden', '#detail']) assert(!selected.includes(privatePart));
+assert(!selected.includes('Effective block chain'));
 state.connectionParameters = { chainIdentifier: 69, nodeUrl: 'ws://node.fixture.invalid:1234' };
-const changed = render(AlertModal, { transaction: true, title: 'Changed selected settings' });
-assert.match(changed, /Selected signing chain<\/dt><dd class="word-break-all">69<\/dd>/);
-assert(changed.includes('ws://node.fixture.invalid:1234'));
 const matching = render(TransactionNetwork, { chainIdentifier: 69, nodeUrl: state.connectionParameters.nodeUrl, effectiveChainIdentifier: 69 });
 assert(matching.includes('Effective block chain')); assert(!matching.includes('different chain identifier'));
 const unavailable = render(TransactionNetwork, { chainIdentifier: undefined, nodeUrl: 'invalid' });
@@ -52,4 +57,4 @@ assert.match(unavailable, /Selected signing chain<\/dt><dd class="word-break-all
 assert.match(unavailable, /Node host<\/dt><dd class="word-break-all">Unavailable<\/dd>/);
 const invalid = render(TransactionNetwork, { chainIdentifier: 1, effectiveChainIdentifier: { unsupported: true } });
 assert(invalid.includes('Invalid chain identifier'), 'malformed raw chain metadata cannot crash rendering');
-console.log('Approval context: native confirmation settings, explicit prepared chain, endpoint redaction and unavailable states passed');
+console.log('Approval context: native confirmations without network details, explicit prepared chain, endpoint redaction and unavailable states passed');

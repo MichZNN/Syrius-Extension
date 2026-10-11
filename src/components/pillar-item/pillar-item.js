@@ -9,7 +9,8 @@ import { formatAmount } from '../../services/utils/format';
 // lines of statistics in 10px text, most of which do not bear on the one
 // decision this screen exists for. What is left is what a delegator chooses on:
 // the pillar's weight, what it pays out, and whether it is producing the
-// momentums it is expected to.
+// momentums it is expected to. The APR is an estimate from this epoch so far
+// (services/pillar/apr.js).
 
 const PillarItem = ({
   name,
@@ -19,6 +20,7 @@ const PillarItem = ({
   expectedMomentums,
   producerAddress,
   isDelegatedPillar,
+  apr,
   onDelegate,
   onUndelegate,
 }) => {
@@ -31,18 +33,19 @@ const PillarItem = ({
 
   return (
     <div className={`pillar-row ${isDelegatedPillar ? 'is-delegated' : ''}`}>
-      <div className="pillar-body">
-        <div className="pillar-name" title={`Producer ${producerAddress}`}>
-          {name}
-        </div>
-        <div className="pillar-stats">
-          <span>{formatAmount(weight, 8, { maxDecimals: 0 })} weight</span>
-          <span>{giveDelegateRewardPercentage}% to delegators</span>
-          {performance !== null && (
-            <span className={isUnderperforming ? 'is-warning' : ''}>{performance}% produced</span>
-          )}
-        </div>
+      {/* The rate sits on the name's line, beside the button, and the rest take
+          the row's full width underneath. All four on one line under the name
+          ran past the button at 360px and were cut mid-word. */}
+      <div className="pillar-name" title={`Producer ${producerAddress}`}>
+        {name}
       </div>
+
+      {apr ? (
+        <div className="pillar-apr" title="Estimated yearly rate for delegators">
+          {apr}
+          <span className="data-amount-symbol">APR</span>
+        </div>
+      ) : <span />}
 
       <button
         type="button"
@@ -51,6 +54,14 @@ const PillarItem = ({
       >
         {isDelegatedPillar ? 'Undelegate' : 'Delegate'}
       </button>
+
+      <div className="pillar-stats">
+        <span>{formatAmount(weight, 8, { maxDecimals: 0 })} ZNN</span>
+        <span>{giveDelegateRewardPercentage}% shared</span>
+        {performance !== null && (
+          <span className={isUnderperforming ? 'is-warning' : ''}>{performance}% produced</span>
+        )}
+      </div>
     </div>
   );
 };

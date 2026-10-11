@@ -8,6 +8,7 @@ import { limits, validateEnvelope, busy } from '../../services/utils/approvalLim
 import publicNodeUrl from '../../services/utils/publicNodeUrl';
 import nativeNavigation from '../../services/utils/nativeNavigation';
 import { targetFrom, validRequest, isLive, deliver, requestEnded } from '../../services/utils/documentBinding';
+import { fail } from '../../services/utils/errors';
 
 // The service worker.
 //
@@ -277,7 +278,7 @@ const internalMethods = {
     const request = await requests.resolve(identity);
     if (!request) return false;
     const checkDeadline = () => {
-      if (Date.now() >= request.expiresAt) throw new Error('Approval expired during finalization.');
+      if (Date.now() >= request.expiresAt) throw fail(801);
     };
     // A connection answers with the bound account, and a signature must be the
     // bound account's: never a value the popup chose.
@@ -298,7 +299,7 @@ const internalMethods = {
       checkDeadline();
       if (request.type === 'connect') {
         if (!(await permissions.grant(request.origin, request.binding.scope, { title: request.title, favicon: request.favicon },
-          { expiresAt: request.expiresAt, confirm: complete }))) throw new Error('The connection permission could not be saved.');
+          { expiresAt: request.expiresAt, confirm: complete }))) throw fail(802);
       } else complete();
       await delivery;
       return true;
@@ -427,7 +428,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     Promise.resolve(handler(message.params || {}))
       .then((result) => sendResponse({ result }))
-      .catch((err) => sendResponse({ error: err?.message || 'Internal error' }));
+      .catch((err) => sendResponse({ error: err?.message || 'Internal error', ...(Number.isInteger(err?.errorId) ? { errorId: err.errorId } : {}) }));
     return true;
   }
 

@@ -24,7 +24,7 @@ missing tag; the automatic path may create one. This preflight does not lock a
 tag against later changes. The publication regression runs the actual workflow
 shell and tag query with an inert GitHub boundary. It does not create a release
 or establish repository-enforced tag or release immutability.
-See `RELEASE-CHECKLIST.md` at the repository root for the proposed final-candidate,
+See `docs/RELEASE-CHECKLIST.md` for the proposed final-candidate,
 browser, distribution and maintainer-owned acceptance gates.
 
 The workflow artifact is the extension ZIP itself; it is uploaded with
@@ -37,7 +37,7 @@ in the workflow. Missing or empty definitions fail rather than skip the check;
 no Go compiler or running node is required. The native browser fixtures use the
 runner's Chrome/Chromium executable, disposable profiles and synthetic inputs.
 They qualify the exercised browser boundaries, not real wallet encryption or a
-live network transaction. See `SETUP.md` for local qualification commands.
+live network transaction. See `docs/SETUP.md` for local qualification commands.
 
 After the production build, `utils/keyfile-lifecycle-browser-test.js` drives
 that exact package in a disposable profile: create, unlock, backup, password
@@ -45,7 +45,7 @@ rotation, lock, expiry, restart, import and removal, on the packaged Argon2/AES
 path. It waits out a real five-minute session expiry, so it adds about seven
 minutes to a run. The fixtures above replace the SDK boundary and passed while
 wallet removal was broken in production builds; this check is what would have
-failed. See `KEYFILE-LIFECYCLE-TEST.md` for what it does and does not establish.
+failed. See `docs/testing/KEYFILE-LIFECYCLE-TEST.md` for what it does and does not establish.
 
 The pinned `znn-ts-sdk` commit is consumed as an HTTPS source archive rather
 than a Git dependency. The upstream Git package runs a non-deterministic

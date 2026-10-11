@@ -17,6 +17,8 @@ import { resetPendingTransactions } from '../../services/redux/pendingTransactio
 import { invalidateAccountCache } from '../../services/hooks/useAccount';
 import { notify } from '../../services/utils/notify';
 import { loadStorageWalletNames } from '../../services/utils/utils';
+import NodeStall from '../../components/node-stall/node-stall';
+import { describe, fail } from '../../services/utils/errors';
 import { getCurrentNodeUrl } from '../../services/utils/storage';
 import { isDevWalletBuild, prepareDevWallet } from '../../services/utils/devWallet';
 
@@ -51,7 +53,7 @@ const MainLayout = () => {
       // commit.
       // Retain its identity for the same conditional recovery used at startup.
       pendingRevocation.current = leaseId;
-      setBootError(error.message);
+      setBootError(describe(error).line);
       setIsBooting(false);
       return;
     }
@@ -172,8 +174,7 @@ const MainLayout = () => {
 
     boot().catch((error) => {
       if (!cancelled) {
-        setBootError(error?.code === 'WALLET_LOCK_FAILED' ? error.message :
-          'Could not read or restore the wallet session. Other wallet windows may still be unlocked. Try again or close the browser.');
+        setBootError(describe(error?.code === 'WALLET_LOCK_FAILED' ? error : fail(221)).line);
       }
     }).finally(() => {
       if (!cancelled) {
@@ -188,7 +189,7 @@ const MainLayout = () => {
   }, [bootAttempt]);
 
   if (isBooting) {
-    return <Splash />;
+    return <Splash><NodeStall /></Splash>;
   }
 
   if (bootError) {

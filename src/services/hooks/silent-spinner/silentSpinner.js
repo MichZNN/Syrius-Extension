@@ -1,6 +1,7 @@
 import React, { useContext } from 'react';
 import ReactDOM from 'react-dom';
 import { SilentSpinnerContext } from './silentSpinnerContext';
+import Icon from '../../../components/icon/icon';
 
 // Portalled into the header, so background work reads as the wallet being busy
 // rather than as a dialog demanding attention.
@@ -14,7 +15,7 @@ const SilentSpinner = () => {
 
   return ReactDOM.createPortal(
     <div className="pow-spinner-container" title={silentSpinnerContent}>
-      <img alt="" src={require('./../../../assets/spinner.svg')} className="pow-spinner" />
+      <Icon name="loader" size={16} className="pow-spinner" />
     </div>,
     root
   );

@@ -2,11 +2,12 @@ import { Primitives } from 'znn-ts-sdk';
 import { keys } from '../utils/storage';
 import { walletStorageKey } from '../utils/utils';
 import vault from './vault';
+import { fail } from '../utils/errors';
 
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
-const changed = () => new Error('The wallet or its saved data changed. Try removing it again.');
-const invalid = () => new Error('Wallet metadata could not be read safely. No wallet was removed.');
+const changed = () => fail(213);
+const invalid = () => fail(214);
 const readMap = (key) => {
   const raw = localStorage.getItem(key);
   if (raw === null) return {};

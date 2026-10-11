@@ -1,3 +1,4 @@
+import { fail } from './errors';
 // Everything this wallet keeps on disk, in one place.
 //
 // The keys were spread across a dozen files as bare `localStorage.getItem`
@@ -168,13 +169,23 @@ const defaultSettings = {
   hideBalances: false,
   // Which block explorer the history links to. See services/utils/explorer.js.
   explorer: 'zenonhub',
+  // Pillar mode: the menus make room for running a pillar and voting in
+  // Accelerator-Z (services/utils/menu.js). Off unless switched on, because
+  // nearly every wallet belongs to someone who does not run one.
+  pillarMode: false,
+  // The other operator modes: each adds its pages to the header menu.
+  sentinelMode: false,
+  sporkMode: false,
+  // 'dark', 'light', or 'system' to follow the OS. Dark is what the wallet
+  // has always been, so it stays the default (services/utils/theme.js).
+  theme: 'dark',
 };
 
 const getSettings = () => ({ ...defaultSettings, ...readJson(keys.settings, {}) });
 
 const setSetting = (key, value) => {
   const next = { ...getSettings(), [key]: value };
-  if (!writeJson(keys.settings, next)) throw new Error('Could not save settings. Try again.');
+  if (!writeJson(keys.settings, next)) throw fail(102);
   return next;
 };
 

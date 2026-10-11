@@ -9,9 +9,12 @@ import React from 'react';
 //
 // It renders the logo at rest. If the boot is quick, which it now is, nobody
 // sees it at all; if the node is slow, it does not pretend to be a progress bar.
-const Splash = () => (
+// What the boot passes in (components/node-stall) appears below the logo once
+// the wait is long enough to need explaining.
+const Splash = ({ children = null }) => (
   <div className="splash">
     <img alt="" className="splash-mark" src={require('../../assets/logo.svg')} width="44" />
+    {children}
   </div>
 );
 

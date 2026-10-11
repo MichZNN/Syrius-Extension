@@ -23,7 +23,7 @@ import {
   toBigNumber,
   truncateAddress,
 } from '../../services/utils/format';
-import { readableError } from '../../services/utils/errors';
+import { describe, fail, readableError } from '../../services/utils/errors';
 import { notify } from '../../services/utils/notify';
 import { decodeApprovalCall } from '../../services/utils/approvalContractCalls';
 
@@ -229,7 +229,7 @@ const SiteIntegrationLayout = () => {
       // A saved callback and a busy SDK operation lose local authority too.
       discarded.current = request;
       if (!operation.current) {
-        notify.error(new Error('This approval expired. Ask the site for a new request.'));
+        notify.error(fail(800));
         loadNext();
       }
     }, Math.max(0, request.expiresAt - Date.now()));
@@ -299,13 +299,13 @@ const SiteIntegrationLayout = () => {
       // Selection/permission may change after publication starts, including
       // between the SDK returning and the worker settling this request.
       const reported = active.submitted
-        ? new Error('The transaction may have been submitted. Its outcome is unknown. Check the original account before retrying.') : error;
+        ? fail(308) : error;
       notify.error(reported);
       // Unclaimed stale requests can be retired too. The queue refuses an
       // unclaimed identity if another popup owns it, preserving the winner.
       try {
         await sendInternal('approvals.reject', { identity: active.identity,
-          error: { code: -32603, message: readableError(reported) } });
+          error: { code: -32603, message: describe(reported).text } });
       } catch (cleanupError) { notify.error(cleanupError); }
     } finally {
       if (operation.current === active) {

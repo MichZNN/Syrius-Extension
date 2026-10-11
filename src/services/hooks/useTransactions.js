@@ -5,7 +5,8 @@ import { embeddedContractName } from '../utils/contracts';
 import { decodeCall, describeCall, contractDisplayName } from '../utils/contractCalls';
 // Shared with the in-flight rows on the dashboard, so a block looks the same
 // on its way out as it does once it has landed.
-import { iconForContract } from '../utils/outgoingBlock';
+import { iconForContract, describePlainSend } from '../utils/outgoingBlock';
+import { decodeZap } from '../zap/zap';
 
 // Account history, paged.
 //
@@ -22,11 +23,31 @@ const pageSize = 20;
 // The old version compared the destination against three address constants and
 // called everything else "sent", so a fuse and an unfuse were both "Fused", a
 // stake and an unstake were both "Staked", and a swap was "Sent 0".
-const identify = (block, myAddress) => {
+//
+// Whether a row is incoming is a fact about the account's own block, a receive
+// (type 3), not about where the coins went: a send to oneself is addressed to
+// this account too, and read as "Received from" itself, twice, once for the
+// send and once for its receive.
+const userReceive = 3;
+
+const isIncoming = (block, myAddress, ownType) =>
+  (Number.isFinite(ownType) ? ownType === userReceive : block.toAddress?.toString() === myAddress);
+
+const rowId = (block) => (block?.hash ? block.hash.toString() : '');
+
+// New rows first, then the rows already shown, each replaced by its fresh
+// reading. Rows are matched by `id`.
+const mergeRows = (shown, fresh) => {
+  const known = new Set(shown.map((row) => row.id));
+  const updated = shown.map((row) => fresh.find((candidate) => candidate.id === row.id) || row);
+  return [...fresh.filter((row) => !known.has(row.id)), ...updated];
+};
+
+const identify = (block, myAddress, ownType) => {
   const to = block.toAddress?.toString();
   const from = block.address?.toString();
 
-  if (to === myAddress) {
+  if (isIncoming(block, myAddress, ownType)) {
     // Incoming. A payout from a contract — a collected reward, a returned
     // stake, an unlocked swap — is named after the contract that sent it,
     // because the sending block carries no call data of its own.
@@ -43,7 +64,7 @@ const identify = (block, myAddress) => {
   const contract = embeddedContractName(to);
 
   if (!contract) {
-    return { type: 'sent', label: 'Sent', icon: 'send', counterpartyName: null };
+    return describePlainSend(to);
   }
 
   const method = decodeCall(contract, block.data);
@@ -95,12 +116,19 @@ const useTransactions = (addressObject, address) => {
 
   const transform = useCallback(
     (block, own) => {
-      const { type, label, icon, counterpartyName, method } = identify(block, address);
+      const ownType = Number(own?.blockType ?? own?.toJson?.().blockType);
+      const identified = identify(block, address, ownType);
+      const { type, counterpartyName, method } = identified;
+      // A plain transfer whose data is a zap's (services/zap/zap.js), in or out.
+      const zap = type === 'received' || type === 'sent' ? decodeZap(block.data) : null;
+      const label = zap ? 'Zap' : identified.label;
+      const icon = zap ? 'zap' : identified.icon;
 
       return {
         type,
         label,
         icon,
+        zap,
         method,
         counterpartyName,
         // A contract call moves no coins of its own; showing "0 ZNN" against a
@@ -121,6 +149,11 @@ const useTransactions = (addressObject, address) => {
         // block in my chain, and for a receive the referenced send block was
         // confirmed long before mine was.
         hash: block.hash,
+        // Which row this is: the account's own block. Not `hash`, which a
+        // receive shares with the send it took in, so that a send to oneself
+        // and its receive were one row to the merge below and the receive
+        // was drawn over the send.
+        id: rowId(own) || rowId(block),
         isUnconfirmed: !own.confirmationDetail,
         confirmations: own.confirmationDetail?.numConfirmations ?? 0,
       };
@@ -179,10 +212,7 @@ const useTransactions = (addressObject, address) => {
       setView((previous) => {
         if (!isCurrent()) return previous;
         const before = previous.selection === activeSelection ? previous : emptyView(activeSelection);
-        const known = new Set(before.items.map((row) => row.hash));
-        const updated = before.items.map((row) => rows.find((fresh) => fresh.hash === row.hash) || row);
-        const added = rows.filter((row) => !known.has(row.hash));
-        return { ...before, items: [...added, ...updated] };
+        return { ...before, items: mergeRows(before.items, rows) };
       });
       // Exact original own-account hashes, account and network tuple remain
       // mandatory. An expanded receive's send-reference hash is not observed.
@@ -207,4 +237,5 @@ const useTransactions = (addressObject, address) => {
   };
 };
 
+export { identify, mergeRows };
 export default useTransactions;

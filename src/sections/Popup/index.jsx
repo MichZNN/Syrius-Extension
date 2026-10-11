@@ -3,6 +3,11 @@ import { createRoot } from 'react-dom/client';
 
 import Popup from './Popup';
 import './index.scss';
+import { applyTheme } from '../../services/utils/theme';
+import { getSettings } from '../../services/utils/storage';
+
+// Before the first paint, so a light wallet never opens dark for a frame.
+applyTheme(getSettings().theme);
 
 // The approval flow opens `popup.html#/site-integration` in a window of its
 // own, and unlike the toolbar popup — which Chrome sizes to the body — that

@@ -17,6 +17,7 @@ import {
 } from '../../../services/utils/format';
 import { notify } from '../../../services/utils/notify';
 import { znnZts } from '../../../services/wallet/account';
+import { fail } from '../../../services/utils/errors';
 
 // Sending.
 //
@@ -126,14 +127,14 @@ const Send = () => {
     // A metadata refresh cannot reinterpret an already reviewed quantity.
     // An account or token selection change requires another confirmation.
     if (current.current.address !== review.owner || current.current.selectedToken !== review.tokenStandard) {
-      notify.error('The account or token changed. Review this transfer again.');
+      notify.error(fail(310));
       return;
     }
     try {
       const parsed = toBigNumber(review.amount);
       const latestBalance = current.current.balanceMap[review.tokenStandard]?.balance;
       if (parsed.gt(toBigNumber(latestBalance))) {
-        throw new Error('Not enough balance for this transfer');
+        throw fail(309);
       }
       const template = Primitives.AccountBlockTemplate.send(
         Primitives.Address.parse(review.recipient),
@@ -173,7 +174,6 @@ const Send = () => {
       const review = prepareTransfer({ tokenStandard: selectedToken, amount, recipient, owner: address, balance });
       openModal(
         <AlertModal
-          transaction
           type="confirm"
           title="Confirm send"
           confirmLabel="Send"

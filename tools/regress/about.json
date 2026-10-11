@@ -1,0 +1,6 @@
+[
+  ["versions are compared as text", "src/services/utils/release.js", "    if (a[index] !== b[index]) return a[index] > b[index];", "    if (a[index] !== b[index]) return String(a[index]) > String(b[index]);"],
+  ["any tag counts as a version", "src/services/utils/release.js", "  const match = /^v?(\\d{1,6})\\.(\\d{1,6})\\.(\\d{1,6})$/.exec(", "  const match = /^v?(\\d{1,6})\\.(\\d{1,6})\\.(\\d{1,6})/.exec("],
+  ["the answer is never kept", "src/services/utils/release.js", "  if (kept) return kept;\n", ""],
+  ["an older release reads as an update", "src/services/utils/release.js", "  return isNewer(latest, current) ? 'update' : 'current';", "  return latest !== current ? 'update' : 'current';"]
+]

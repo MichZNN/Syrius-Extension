@@ -83,6 +83,13 @@ const Tokens = () => {
           <p className="empty-note">{isLoading ? 'Loading…' : 'No tokens match that'}</p>
         )}
       </div>
+
+      {/* Issuing, minting, burning and updating (services/token/token.js). */}
+      <div className="sticky-actions">
+        <button type="button" className="button secondary w-100" onClick={() => navigate('/tabs/tokens/manage')}>
+          Your tokens
+        </button>
+      </div>
     </div>
   );
 };

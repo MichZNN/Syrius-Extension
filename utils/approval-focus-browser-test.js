@@ -36,7 +36,7 @@ const watchdog = setTimeout(interrupted, 120000);
     'src/services/wallet/tokenMetadata.js', 'src/services/utils/fallbackValues.js',
     'src/services/utils/format.js', 'src/services/utils/publicNodeUrl.js',
     'src/services/utils/approvalIdentity.js', 'src/services/utils/documentBinding.js',
-    'src/services/utils/nativeNavigation.js', 'src/services/utils/errors.js',
+    'src/services/utils/nativeNavigation.js', 'src/services/utils/errors.js', 'src/services/utils/errorCatalog.js',
     'src/services/utils/approvalDeadline.js',
   ];
   for (const file of files) write(file, fs.readFileSync(path.join(root, file)));

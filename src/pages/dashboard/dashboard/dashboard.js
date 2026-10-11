@@ -1,14 +1,20 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { Zenon } from 'znn-ts-sdk';
 
 import TransactionItem from '../../../components/transaction-item/transaction-item';
 import Icon from '../../../components/icon/icon';
+import ZapModal from '../../../components/modals/zap-modal';
+import { ModalContext } from '../../../services/hooks/modal/modalContext';
+import { takeNew } from '../../../services/zap/zap';
+import { inPhase } from '../../../services/utils/edgeLight';
 import useAccount from '../../../services/hooks/useAccount';
 import useTransactions from '../../../services/hooks/useTransactions';
 import useDelayedFlag from '../../../services/hooks/useDelayedFlag';
 import usePriceFeed from '../../../services/hooks/usePriceFeed';
+import useChainChange from '../../../services/hooks/useChainChange';
+import { receiveOnce } from '../../../services/wallet/outgoingWatch';
 import vault from '../../../services/wallet/vault';
 import {
   countPendingBlocks,
@@ -23,7 +29,6 @@ import { formatAmount, formatExact, formatUsd } from '../../../services/utils/fo
 import { notify } from '../../../services/utils/notify';
 import { updateSetting } from '../../../services/wallet/preferences';
 import { getSettings } from '../../../services/utils/storage';
-import { mainnetChainId } from '../../../services/utils/chainId';
 import {
   pendingStatus,
   clearPendingTransaction,
@@ -65,10 +70,10 @@ const Dashboard = () => {
   // Blocks this wallet has sent that are not in the account's chain yet. They
   // outlive the screen that started them, which is the whole point.
   const allOutgoing = useSelector((state) => state.pendingTransactions.items);
-  const { chainIdentifier, isConnected } = useSelector((state) => state.connectionParameters);
-  // A price is a fact about mainnet; nothing else has one to poll for.
-  const isMainnet = isConnected && chainIdentifier === mainnetChainId;
-  const prices = usePriceFeed(isMainnet);
+  const { isConnected } = useSelector((state) => state.connectionParameters);
+  // Prices are mainnet's. Every Zenon chain shows the balance at them, as a
+  // sense of scale (owner's request, 2026-10-11).
+  const prices = usePriceFeed(isConnected);
 
   const [addressObject, setAddressObject] = useState(null);
   const [pendingCount, setPendingCount] = useState(0);
@@ -98,6 +103,25 @@ const Dashboard = () => {
   } = transactions;
   const loadMoreRef = useRef(null);
   const hasAutoReceived = useRef(false);
+
+  // Zaps (services/zap/zap.js). One that has just arrived is celebrated once:
+  // a burst, and its message. Its row keeps a button that opens it again.
+  const { openModal } = useContext(ModalContext);
+  const [zapBurst, setZapBurst] = useState(0);
+  const showZap = useCallback(
+    (row) => openModal(
+      <ZapModal counterparty={row.address} sent={row.type !== 'received'} amount={row.amount} decimals={row.decimals} tokenSymbol={row.tokenSymbol} message={row.zap.message} />
+    ),
+    [openModal]
+  );
+  const transactionItems = transactions.items;
+  useEffect(() => {
+    const arrived = transactionItems.filter((row) => row.type === 'received' && row.zap?.message && !row.isUnconfirmed);
+    const fresh = takeNew(address, arrived.map((row) => String(row.hash)));
+    if (!fresh.length) return;
+    setZapBurst((count) => count + 1);
+    showZap(arrived.find((row) => String(row.hash) === fresh[0]));
+  }, [transactionItems, address, showZap]);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,8 +159,9 @@ const Dashboard = () => {
     setReceiveProgress('Receiving…');
 
     try {
-      const keyPair = await vault.getSigningKeyPair();
-      const received = await receivePendingBlocks(Zenon.getSingleton(), keyPair, addressObject, {
+      // One receive at a time across screens: the watcher may have started
+      // one on the screen just left, and this then waits for it.
+      const received = await receiveOnce(async () => receivePendingBlocks(Zenon.getSingleton(), await vault.getSigningKeyPair(), addressObject, {
         onProgress: (done, total) => setReceiveProgress(`Receiving ${done} of ${total}…`),
         onBlock: (block, phase) => {
           if (phase === receivePhase.done) {
@@ -148,7 +173,7 @@ const Dashboard = () => {
             isGeneratingPlasma: phase === receivePhase.generatingPlasma,
           });
         },
-      });
+      }));
 
       if (received > 0) {
         notify.success(`Received ${received} transaction${received === 1 ? '' : 's'}`);
@@ -181,6 +206,19 @@ const Dashboard = () => {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addressObject]);
+
+  // What the layout's watcher saw (components/outgoing-watch): a block of
+  // this wallet's confirmed, or something arrived for it. Both used to be
+  // found out only by opening Home again, since auto-receive runs once a mount.
+  useChainChange((kind) => {
+    if (kind === 'incoming') {
+      refreshPending();
+      if (getSettings().autoReceive) receive();
+      return;
+    }
+    refreshNewestTransactions();
+    refresh({ quiet: true });
+  });
 
   // Infinite scroll, observing a sentinel at the end of the list.
   useEffect(() => {
@@ -303,7 +341,26 @@ const Dashboard = () => {
 
   return (
     <div className="page">
-      <section className="balance-card">
+      {zapBurst > 0 && (
+        <div className="zap-burst" key={zapBurst} aria-hidden="true">
+          {Array.from({ length: 12 }, (_, spark) => <span key={spark} style={{ '--spark': spark }} />)}
+        </div>
+      )}
+
+      {/* In phase with the clock, so the light does not start again from the
+          top each time Home is opened (services/utils/edgeLight.js). */}
+      <section className="balance-card" ref={inPhase}>
+        {/* What the two balances below are worth together, on the card's
+            first line, where it is read first. */}
+        <div className="balance-head">
+          <span className="ledger-label">Balance</span>
+          {totalUsdValue !== null && (
+            <span className="balance-total" title="ZNN + QSR at CoinGecko's price">
+              ≈ {renderUsd(totalUsdValue)}
+            </span>
+          )}
+        </div>
+
         <div className="balance-row">
           <button
             type="button"
@@ -340,14 +397,6 @@ const Dashboard = () => {
           </button>
         </div>
 
-        {/* The address lives in the header's account pill too; down here it
-            only ever duplicated it. Replaced with what the header cannot
-            show: what the two balances above are worth together. */}
-        {totalUsdValue !== null && (
-          <div className="balance-total" title="ZNN + QSR, at the prices above">
-            {renderUsd(totalUsdValue)} total
-          </div>
-        )}
       </section>
 
       <div className="action-row">
@@ -427,7 +476,7 @@ const Dashboard = () => {
 
         {transactions.items.map((transaction, index) => (
           <TransactionItem
-            key={transaction.hash || `transaction-${index}`}
+            key={transaction.id || `transaction-${index}`}
             type={transaction.type}
             label={transaction.label}
             icon={transaction.icon}
@@ -439,6 +488,8 @@ const Dashboard = () => {
             hash={transaction.hash}
             isUnconfirmed={transaction.isUnconfirmed}
             confirmations={transaction.confirmations}
+            isZap={Boolean(transaction.zap)}
+            onMessage={transaction.zap?.message ? () => showZap(transaction) : undefined}
           />
         ))}
 

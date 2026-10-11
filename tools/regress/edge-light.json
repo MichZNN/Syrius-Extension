@@ -1,0 +1,10 @@
+[
+  ["the light starts from the top on every mount","src/services/utils/edgeLight.js","  if (element) element.style.animationDelay = `${-phaseAt(performance.now())}ms`;","  if (element) element.style.animationDelay = '0ms';"],
+  ["the extra turn stops short","src/services/utils/edgeLight.js","  return period * (1 - Math.cos(Math.PI * p)) / 2;","  return period * 0.8 * (1 - Math.cos(Math.PI * p)) / 2;"],
+  ["the extra turn starts at full speed","src/services/utils/edgeLight.js","  return period * (1 - Math.cos(Math.PI * p)) / 2;","  return period * p;"],
+  ["Home's card is not put in phase","src/pages/dashboard/dashboard/dashboard.js","      <section className=\"balance-card\" ref={inPhase}>","      <section className=\"balance-card\">"],
+  ["the light is sped up while the password is checked","src/pages/dashboard/dashboard-password/dashboard-password.js","  }, [isOpen]);","  }, [isOpen]);\n  useEffect(() => { ring.current?.getAnimations?.().forEach((a) => a.updatePlaybackRate(isUnlocking ? 10 : 1)); }, [isUnlocking]);"],
+  ["the ring is put in phase over the card's 12 s","src/services/utils/edgeLight.js","  if (element) element.style.animationDelay = `${-phaseAt(performance.now(), ringPeriod)}ms`;","  if (element) element.style.animationDelay = `${-phaseAt(performance.now())}ms`;"],
+  ["the two lights keep step","tools/pillar/edge-turn-keyframes.js","const blue = (p) => 360 * ring.turns * p + 180 + ring.lean * Math.sin(2 * Math.PI * p);","const blue = (p) => 360 * ring.turns * p + 180 - ring.lean * Math.sin(2 * Math.PI * p);"],
+  ["only one light is moved on unlocking","src/services/utils/edgeLight.js","const lights = ['edge-turn', 'ring-green', 'ring-blue'];","const lights = ['edge-turn', 'ring-green'];"]
+]

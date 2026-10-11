@@ -4,6 +4,7 @@ import { notify } from '../utils/notify';
 import session from './session';
 import vault from './vault';
 import { beginReadContextChange } from './readContext';
+import { fail } from '../utils/errors';
 
 // Locking, in one place.
 //
@@ -66,7 +67,7 @@ const lockWallet = async ({ afterRevoke } = {}) => {
   if (leaseId && afterRevoke && !afterError && generation === null) {
     // The lease was replaced before this lock ran; nothing was revoked, so the
     // step that depended on revocation did not run either.
-    throw new Error('The wallet changed before it could be locked. Try again.');
+    throw fail(206);
   }
   if (afterError) throw afterError;
 };

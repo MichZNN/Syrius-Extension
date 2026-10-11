@@ -1,5 +1,4 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { Zenon } from 'znn-ts-sdk';
 
@@ -10,11 +9,13 @@ import { ModalContext } from '../../../services/hooks/modal/modalContext';
 import useAccount from '../../../services/hooks/useAccount';
 import useBackgroundSender from '../../../services/hooks/useBackgroundSender';
 import usePagedList from '../../../services/hooks/usePagedList';
+import useChainChange from '../../../services/hooks/useChainChange';
 import vault from '../../../services/wallet/vault';
 import { znnZts } from '../../../services/wallet/account';
 import fallbackValues from '../../../services/utils/fallbackValues';
 import { formatAmount, formatExact, parseAmount, toBigNumber, toDecimals } from '../../../services/utils/format';
 import { notify } from '../../../services/utils/notify';
+import { fail } from '../../../services/utils/errors';
 
 // Staking.
 //
@@ -26,7 +27,6 @@ import { notify } from '../../../services/utils/notify';
 // total was therefore always zero however much was staked.
 
 const Stake = () => {
-  const navigate = useNavigate();
   const { address, balanceMap } = useAccount();
   const { openModal } = useContext(ModalContext);
   const { sendInBackground } = useBackgroundSender();
@@ -85,6 +85,14 @@ const Stake = () => {
 
   const entries = usePagedList(fetchPage, { pageSize: 10, enabled: Boolean(addressObject) });
 
+  // A stake, a cancel or a collect confirms while this screen is open.
+  useChainChange(() => {
+    entries.refresh();
+    if (addressObject) {
+      loadRewards(addressObject);
+    }
+  });
+
   // The total that was always zero. `StakeList` carries it on the same paged
   // response the entries come back on.
   const stakedTotal = entries.meta?.totalAmount;
@@ -133,7 +141,7 @@ const Stake = () => {
     const problem = validateAmount(amount);
 
     if (problem !== true) {
-      notify.error(problem);
+      notify.error(fail(110, { text: problem }));
       return;
     }
 
@@ -155,7 +163,6 @@ const Stake = () => {
       setAmount('');
       setDuration('');
       resetForm();
-      navigate('/tabs/dashboard');
     } catch (err) {
       notify.error(err);
     }
@@ -167,8 +174,6 @@ const Stake = () => {
         successMessage: 'Stake withdrawn',
         row: { owner: address, label: 'Withdrawing stake' },
       });
-
-      navigate('/tabs/dashboard');
     } catch (err) {
       notify.error(err);
     }
@@ -180,8 +185,6 @@ const Stake = () => {
         successMessage: 'Rewards collected',
         row: { owner: address, label: 'Collecting rewards' },
       });
-
-      navigate('/tabs/dashboard');
     } catch (err) {
       notify.error(err);
     }
@@ -191,7 +194,7 @@ const Stake = () => {
 
   const confirmStake = () =>
     openModal(
-      <AlertModal transaction type="confirm" title="Stake ZNN" confirmLabel="Stake" onSuccess={stake}>
+      <AlertModal type="confirm" title="Stake ZNN" confirmLabel="Stake" onSuccess={stake}>
         <p>
           Lock <b>{amount} ZNN</b> for <b>{months} month{months === 1 ? '' : 's'}</b>? It cannot be
           withdrawn before then.

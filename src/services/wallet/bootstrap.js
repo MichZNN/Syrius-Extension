@@ -25,25 +25,83 @@ import { beginReadContextChange } from './readContext';
 // open because a server was down, with no way to reach the node settings that
 // would have fixed it. Connecting is attempted here but is not allowed to fail
 // the unlock; the header reports the connection separately.
+//
+// Even not failing, it was still waited for: the SDK gives up on a dead node
+// only after 8 s, and the person watched a bare logo (or "Unlocking…") with no
+// way to do anything about it. So the wait is exposed (`waitingForNode`) and
+// can be ended from the screen showing it (components/node-stall): by moving
+// to another node, which then ends it with that node's outcome, or by carrying
+// on without one.
 
-const connectToNode = async (dispatch, isCurrent = () => true) => {
-  const nodeUrl = getCurrentNodeUrl() || defaultNodeUrl;
-  dispatch(storeNodeUrl(nodeUrl));
+// Each attempt is its own read-context change: reads stay unavailable while
+// any attempt is open, the first node's and a replacement's overlapping too.
+const attemptNode = async (nodeUrl) => {
   const finishReadChange = beginReadContextChange();
   try {
     // Inside the try: remembering the node is optional, and a storage failure
     // here must not undo an unlock that has already been adopted.
     setCurrentNodeUrl(nodeUrl);
     await Zenon.getSingleton().initialize(nodeUrl, false, 8000);
-    if (isCurrent()) dispatch(storeIsConnected(true));
     return true;
   } catch (err) {
-    if (isCurrent()) dispatch(storeIsConnected(false));
     return false;
   } finally {
     finishReadChange();
   }
 };
+
+// The connection an unlock is waiting on, or null.
+let pending = null;
+
+const connectToNode = (dispatch, isCurrent = () => true) => new Promise((resolve) => {
+  const nodeUrl = getCurrentNodeUrl() || defaultNodeUrl;
+  dispatch(storeNodeUrl(nodeUrl));
+  const wait = {
+    nodeUrl,
+    replaced: false,
+    done: false,
+    finish(ok) {
+      if (wait.done) return;
+      wait.done = true;
+      if (pending === wait) pending = null;
+      if (isCurrent()) dispatch(storeIsConnected(ok));
+      resolve(ok);
+    },
+  };
+  pending = wait;
+  attemptNode(nodeUrl).then((ok) => {
+    // A node someone moved away from has no say. One the unlock stopped
+    // waiting for may still come up, and the header should then say so.
+    if (wait.replaced) return;
+    if (wait.done) {
+      if (ok && isCurrent()) dispatch(storeIsConnected(true));
+      return;
+    }
+    wait.finish(ok);
+  });
+});
+
+// Which node an unlock is waiting on, or null when none is.
+const waitingForNode = () => (pending && !pending.done ? pending.nodeUrl : null);
+
+// Tries `nodeUrl` in place of the node the unlock is waiting on. On success
+// the unlock goes on, connected to it; on failure it keeps waiting, so the
+// screen can offer another node or `stopWaitingForNode`.
+const replaceWaitingNode = async (dispatch, nodeUrl) => {
+  const wait = pending;
+  if (!wait || wait.done) return false;
+  wait.replaced = true;
+  wait.nodeUrl = nodeUrl;
+  dispatch(storeNodeUrl(nodeUrl));
+  Zenon.getSingleton().clearSocketConnection();
+  const ok = await attemptNode(nodeUrl);
+  if (ok) wait.finish(true);
+  return ok;
+};
+
+// Carries on without a node. The header reports it, and Settings → Node is
+// then a tap away.
+const stopWaitingForNode = () => pending?.finish(false);
 
 // Restore carries the original lease identity; only a password creates a new
 // one. Slow address/node work cannot re-publish a revoked unlock.
@@ -74,4 +132,4 @@ const completeUnlock = async ({ walletName, password, sessionRecord, dispatch })
   return { address, isConnected };
 };
 
-export { completeUnlock, connectToNode };
+export { completeUnlock, connectToNode, waitingForNode, replaceWaitingNode, stopWaitingForNode };

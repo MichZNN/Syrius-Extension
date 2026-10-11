@@ -1,5 +1,4 @@
 import React from 'react';
-import { useSelector } from 'react-redux';
 
 import publicNodeUrl from '../../services/utils/publicNodeUrl';
 
@@ -36,12 +35,4 @@ const TransactionNetwork = ({ chainIdentifier, nodeUrl, effectiveChainIdentifier
   );
 };
 
-// Native confirmation dialogs show their current selection. This does not
-// replace operation ownership or connection-generation checks in the sender.
-const SelectedTransactionNetwork = () => {
-  const { chainIdentifier, nodeUrl } = useSelector(state => state.connectionParameters);
-  return <TransactionNetwork chainIdentifier={chainIdentifier} nodeUrl={nodeUrl} />;
-};
-
-export { SelectedTransactionNetwork };
 export default TransactionNetwork;

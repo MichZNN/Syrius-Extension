@@ -1,0 +1,9 @@
+[
+  ["a synced node is a producing chain", "src/services/node/stats.js", "  return age > stalledAfter ? { kind: 'warning', label: 'Stalled' } : { kind: 'success', label: 'Producing' };", "  return { kind: 'success', label: 'Producing' };"],
+  ["a fast node clock gives a negative age", "src/services/node/stats.js", "  return Math.max(0, Math.floor(now / 1000) - at);", "  return Math.floor(now / 1000) - at;"],
+  ["sync states are off by one", "src/services/node/stats.js", "  1: { kind: 'pending', label: 'Syncing' },\n  2: { kind: 'success', label: 'Synced' },", "  1: { kind: 'success', label: 'Synced' },\n  2: { kind: 'pending', label: 'Syncing' },"],
+  ["a refused read fails the page", "src/services/node/stats.js", "    optional(request('stats.osInfo')),", "    request('stats.osInfo'),"],
+  ["memory with nonsense figures is shown", "src/services/node/stats.js", " || free > total) return null;", ") return null;"],
+  ["one missed momentum rounds up to 100%", "src/services/pillar/rules.js", "  return expected > 0 ? Math.min(100, Math.floor((produced / expected) * 100)) : null;", "  return expected > 0 ? Math.min(100, Math.round((produced / expected) * 100)) : null;"],
+  ["the Pillar tab drops the history", "src/pages/pillar/pillar.js", "      <EpochHistory name={pillar.name} />\n", ""]
+]

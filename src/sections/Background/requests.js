@@ -2,6 +2,7 @@ import selection from '../../services/wallet/selection';
 import { isLive, sameDocument } from '../../services/utils/documentBinding';
 import { validApproval, identityOf, matchesApproval, copy } from '../../services/utils/approvalIdentity';
 import { limits, boundedJson, validResponseId, invalid, busy } from '../../services/utils/approvalLimits';
+import { fail } from '../../services/utils/errors';
 
 const pendingKey = 'znn.pendingRequests', windowKey = 'znn.approvalWindowId', attentionKey = 'znn.approvalAttention';
 const own = (pending, id) => Object.hasOwn(pending, id) ? pending[id] : null;
@@ -50,7 +51,7 @@ const add = request => {
     if (rows.length >= limits.pending || sameOrigin.length >= limits.perOrigin ||
         (saved.type === 'connect' && sameOrigin.some(other => other.type === 'connect'))) throw busy();
     if (own(pending, saved.id) || rows.some(other => correlationOf(other) === correlationOf(saved))) {
-      throw Object.assign(new Error('This response ID is already pending in this document.'), { code: -32602 });
+      throw Object.assign(fail(805), { code: -32602 });
     }
     if (saved.expiresAt <= Date.now()) throw busy();
     pending[saved.id] = saved;

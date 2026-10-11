@@ -2,6 +2,7 @@ import { KeyFile, KeyStore, KeyStoreManager, Primitives } from 'znn-ts-sdk';
 import session from './session';
 import { validateWalletPassword } from './password';
 import { sameScope, scopeKey } from './walletScope';
+import { fail } from '../utils/errors';
 
 // Raw keystores/keys never leave this module. Every exported key handle is a
 // revocable facade, including the public derivation handle used by previews.
@@ -121,7 +122,7 @@ const unlockWithPassword = async (walletName, password, selectedIndex = 0, prepa
   const expectedId = await session.begin();
   if (generation !== state.generation) throw session.ended();
   const keyStore = await new KeyStoreManager().readKeyStore(password, walletName);
-  if (!keyStore) throw new Error('Error decrypting');
+  if (!keyStore) throw fail(200);
   if (generation !== state.generation) throw session.ended();
   const scope = await scopeOf(keyStore, walletName, selectedIndex);
   if (generation !== state.generation) throw session.ended();
@@ -257,7 +258,7 @@ const changePassword = async (currentPassword, newPassword) => {
   // The strength policy belongs to the encrypted-wallet commit, not only the
   // form in front of it: a bypassed submit must not save a weak password.
   const validation = validateWalletPassword(newPassword);
-  if (validation !== true) throw new Error(validation);
+  if (validation !== true) throw fail(110, { text: validation });
   const scope = capture();
   const verified = await verifyPassword(currentPassword);
   await assertSession(scope);
