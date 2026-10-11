@@ -1148,6 +1148,25 @@ button:disabled {
   font-size: 12px;
 }
 
+// A newer release, said once and quietly, under everything else.
+.unlock-update {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--faint-foreground);
+  text-decoration: none;
+  transition: color var(--motion);
+
+  &:hover,
+  &:focus-visible {
+    color: var(--primary);
+  }
+}
+
 //
 // Onboarding
 //
@@ -2037,6 +2056,19 @@ button:disabled {
 
   &:hover {
     background: var(--popover);
+  }
+}
+
+// A row that acts rather than navigates (About's Update).
+button.settings-item {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+
+  &:disabled {
+    cursor: progress;
   }
 }
 

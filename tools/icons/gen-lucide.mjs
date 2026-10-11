@@ -16,6 +16,7 @@ const map = {
   'thumbs-up': 'thumbs-up', 'thumbs-down': 'thumbs-down', minus: 'minus', info: 'info',
   refresh: 'refresh-cw', circle: 'circle', 'circle-dot': 'circle-dot', loader: 'loader-circle',
   zap: 'sparkles', message: 'message-circle', dice: 'dices', party: 'party-popper',
+  download: 'download',
   'plasma-none': 'battery', 'plasma-low': 'battery-low', 'plasma-average': 'battery-medium', 'plasma-high': 'battery-full',
 };
 const icons = {};

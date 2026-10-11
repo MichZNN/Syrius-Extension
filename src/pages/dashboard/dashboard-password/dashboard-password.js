@@ -15,6 +15,7 @@ import NodeStall from '../../../components/node-stall/node-stall';
 import { ringInPhase, spinOnce } from '../../../services/utils/edgeLight';
 import { describe, fail, wrongPassword as wrongPasswordId } from '../../../services/utils/errors';
 import { notify } from '../../../services/utils/notify';
+import { currentVersion, latestVersion, releaseState, releasesUrl } from '../../../services/utils/release';
 
 // The unlock screen.
 //
@@ -44,6 +45,10 @@ const DashboardPassword = () => {
   const [wrongPassword, setWrongPassword] = useState(false);
   // The password was right and the wallet is open: the mark says so, briefly.
   const [isOpen, setIsOpen] = useState(false);
+  // The newest release, when it is newer than this one. Asked of GitHub at
+  // most once in six hours (services/utils/release.js); nothing shows
+  // otherwise.
+  const [update, setUpdate] = useState(null);
   const passwordInput = useRef(null);
   const ring = useRef(null);
   const setRing = useCallback((element) => {
@@ -127,6 +132,14 @@ const DashboardPassword = () => {
   useEffect(() => {
     if (isOpen) spinOnce(ring.current, openedFor);
   }, [isOpen]);
+
+  useEffect(() => {
+    let mounted = true;
+    latestVersion().then((latest) => {
+      if (mounted && releaseState(latest, currentVersion()) === 'update') setUpdate(latest);
+    });
+    return () => { mounted = false; };
+  }, []);
 
   const onSelectWallet = (index, value) => {
     setSelectedWallet(value);
@@ -217,6 +230,13 @@ const DashboardPassword = () => {
             Create or import a wallet
           </span>
         </div>
+
+        {update && (
+          <a className="unlock-update" href={releasesUrl} target="_blank" rel="noreferrer">
+            <Icon name="download" size={14} />
+            <span><span className="mono">{update}</span> available</span>
+          </a>
+        )}
       </div>
     </div>
   );

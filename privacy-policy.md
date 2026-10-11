@@ -50,8 +50,8 @@ known, and all of a wallet's records are deleted when the wallet is removed.
 - **CoinGecko:** USD price requests identify the supported ZNN and QSR tokens.
   The price URL does not include a wallet address or balance. CoinGecko still
   receives the connection's network metadata, including the IP address.
-- **GitHub:** opening Settings, About asks GitHub's public API for this
-  repository's newest release tag. A valid release-version response is cached
+- **GitHub:** the lock screen and Settings, About ask GitHub's public API for
+  this repository's newest release tag. A valid release-version response is cached
   locally for six hours when storage succeeds; an unsuccessful check or failed
   cache write can be retried the next time About opens. The request carries no
   wallet data. GitHub receives the connection's network metadata, including the

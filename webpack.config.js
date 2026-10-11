@@ -8,6 +8,10 @@ const TerserPlugin = require('terser-webpack-plugin');
 
 const ASSET_PATH = process.env.ASSET_PATH || '/';
 const isProduction = (process.env.NODE_ENV || 'development') === 'production';
+const platform = process.env.SYRIUS_PLATFORM || 'chrome';
+if (!['chrome', 'firefox', 'android', 'ios'].includes(platform)) {
+  throw new Error(`SYRIUS_PLATFORM must be chrome, firefox, android or ios, not ${platform}`);
+}
 
 const alias = {
   // Pinned to this project's copies: these are polyfills for node built-ins,
@@ -167,6 +171,11 @@ module.exports = {
     // it drives itself. Every other build compiles it to 'false', which leaves
     // the auto-unlock in src/services/utils/devWallet.js as dead code.
     new webpack.EnvironmentPlugin({ SYRIUS_DEV_WALLET: 'false' }),
+
+    // Which package this build is: chrome (Chrome, Brave), firefox, android or
+    // ios. It picks the manifest below and how About updates the wallet
+    // (src/services/utils/selfUpdate.js).
+    new webpack.EnvironmentPlugin({ SYRIUS_PLATFORM: platform }),
 
     new CopyWebpackPlugin({
       patterns: [

@@ -927,6 +927,76 @@ test('about: one request for the tag, kept six hours, and no answer is ever an e
   assert.ok(read('src/layouts/tabsLayout/tabsLayout.js').includes('<Route path="settings/about" element={<About />} />'));
   assert.ok(read('src/pages/settings/settings/settings.js').includes('<SettingsItem icon="info" title="About" url="about" />'));
   assert.ok(read('privacy-policy.md').includes('**GitHub:**'), 'the request is in the privacy policy');
+  // The lock screen says so only when there is something newer, and links
+  // the same constant page.
+  const lock = read('src/pages/dashboard/dashboard-password/dashboard-password.js');
+  assert.ok(lock.includes("releaseState(latest, currentVersion()) === 'update') setUpdate(latest)"));
+  assert.ok(lock.includes('{update && (') && lock.includes('href={releasesUrl}') && !/html_url|tag_name/.test(lock));
+});
+
+test('about: Update applies a browser-managed update and downloads otherwise, per platform', async () => {
+  const { updateNow, statusOf, downloadUrl } = load('src/services/utils/selfUpdate.js', cache);
+  assert.equal(statusOf('update_available'), 'update_available');
+  assert.equal(statusOf({ status: 'no_update', version: '' }), 'no_update');
+  assert.equal(statusOf(['throttled', {}]), 'throttled');
+  assert.equal(statusOf(undefined), 'failed');
+  // Built from the version and the repository constant, never from the answer.
+  const releases = 'https://github.com/sol-znn/syrius-extension/releases';
+  assert.equal(downloadUrl('v0.3.7', 'chrome'), `${releases}/download/v0.3.7/syrius-extension-0.3.7-chrome-brave.zip`);
+  assert.equal(downloadUrl('0.3.7', 'firefox'), `${releases}/download/v0.3.7/syrius-extension-0.3.7-firefox.xpi`);
+  assert.equal(downloadUrl('0.3.7', 'android'), `${releases}/download/v0.3.7/syrius-0.3.7-android.apk`);
+  assert.equal(downloadUrl('0.3.7', 'ios'), `${releases}/tag/v0.3.7`);
+  assert.equal(downloadUrl('0.3.7/../../evil', 'chrome'), `${releases}/latest`);
+  const browser = ({ installType = 'normal', status = 'update_available', ready = true, getSelfThrows = false }) => {
+    const listeners = new Set();
+    const calls = [];
+    global.chrome = {
+      management: { getSelf: (callback) => { if (getSelfThrows) throw new Error('no management'); callback({ installType }); } },
+      runtime: {
+        lastError: undefined,
+        requestUpdateCheck: (callback) => {
+          calls.push('check');
+          callback({ status });
+          if (ready && status === 'update_available') setImmediate(() => listeners.forEach((listener) => listener({ version: '9.9.9' })));
+        },
+        onUpdateAvailable: { addListener: (fn) => listeners.add(fn), removeListener: (fn) => listeners.delete(fn) },
+      },
+    };
+    return calls;
+  };
+  let reloaded = 0;
+  const reload = () => { reloaded += 1; };
+  // Unpacked from a ZIP, or a browser that will not say: never asks.
+  for (const options of [{ installType: 'development' }, { getSelfThrows: true }]) {
+    let calls = browser(options);
+    assert.deepEqual(await updateNow('0.3.7', { target: 'chrome', reload }), { result: 'unzip', url: downloadUrl('0.3.7', 'chrome') });
+    calls = browser(options);
+    assert.deepEqual(await updateNow('0.3.7', { target: 'firefox', reload }), { result: 'download', url: downloadUrl('0.3.7', 'firefox') });
+    assert.deepEqual(calls, []);
+  }
+  // Mobile never asks a browser.
+  for (const target of ['android', 'ios']) {
+    const calls = browser({});
+    assert.deepEqual(await updateNow('0.3.7', { target, reload }), { result: 'download', url: downloadUrl('0.3.7', target) });
+    assert.deepEqual(calls, []);
+  }
+  // Browser-managed: check, wait for it, reload.
+  for (const target of ['chrome', 'firefox']) {
+    browser({});
+    assert.deepEqual(await updateNow('0.3.7', { target, reload }), { result: 'reloading', url: null });
+  }
+  assert.equal(reloaded, 2);
+  for (const [status, expected] of [['no_update', 'not-yet'], ['throttled', 'throttled'], ['weird', 'failed']]) {
+    browser({ status });
+    assert.deepEqual(await updateNow('0.3.7', { target: 'chrome', reload }), { result: expected, url: null });
+  }
+  // Firefox falls back to opening the signed package, which installs over this one.
+  for (const status of ['no_update', 'weird']) {
+    browser({ status });
+    assert.deepEqual(await updateNow('0.3.7', { target: 'firefox', reload }), { result: 'download', url: downloadUrl('0.3.7', 'firefox') });
+  }
+  assert.equal(reloaded, 2, 'reloaded without an update in hand');
+  delete global.chrome;
 });
 
 //
