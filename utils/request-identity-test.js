@@ -194,6 +194,38 @@ const fixture = () => {
 };
 const watchdog = setTimeout(() => { console.error('Request identity checks timed out'); process.exit(1); }, 45000);
 (async () => {
+  // Unsupported origins never reach the consent queue or open its window.
+  for (const from of [
+    { origin: 'null', url: 'https://fixture.invalid/app' },
+    { origin: undefined, url: 'data:text/html,owned-fixture' },
+    { origin: undefined, url: 'about:blank' },
+  ]) {
+    const f = fixture();
+    await f.provider('znn_connect', {}, 'opaque-origin', { ...f.sender(), ...from });
+    assert.equal(f.delivered.length, 1);
+    assert.equal(f.delivered[0].value.error?.code, -32603);
+    assert.equal(f.delivered[0].value.result, undefined);
+    assert.equal((await f.queue.list()).length, 0);
+    assert.equal(f.counts.created, 0);
+    assert.equal(f.windows.size, 2);
+    assert.equal(f.local['syrius.permissions'], undefined);
+    assert.equal(f.counts.signs, 0);
+    assert.equal(f.counts.publishes, 0);
+  }
+  // Browser-reported inherited origins and the app's explicit callback origin
+  // remain distinct, usable identities; their URL need not serialize likewise.
+  for (const from of [
+    { origin: 'https://fixture.invalid', url: 'about:blank' },
+    { origin: undefined, url: 'https://fixture.invalid/app' },
+    { origin: 'http://fixture.invalid', url: 'http://fixture.invalid/app' },
+    { origin: 'myapp://return', url: 'myapp://return/callback' },
+  ]) {
+    const f = fixture();
+    await f.provider('znn_connect', {}, 'usable-origin', { ...f.sender(), ...from });
+    assert.equal((await f.queue.list()).length, 1);
+    assert.equal(f.counts.signs, 0);
+  }
+
   // Opaque identities, immutable snapshots, correlation domains and durable claims.
   {
     const f = fixture(), original = entry('__proto__');

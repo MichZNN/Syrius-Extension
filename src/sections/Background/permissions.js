@@ -56,7 +56,12 @@ const connected = async (raw, origin, scope) => Boolean(find(activeEntries(raw),
 // used for a permission decision is always the one Chrome reports for the
 // sender, never one the page supplied.
 const originOf = (sender) => {
-  try { return sender?.origin || (sender?.url ? new URL(sender.url).origin : null); }
+  try {
+    const origin = sender?.origin || (sender?.url ? new URL(sender.url).origin : null);
+    // Opaque browser origins share the serialized value "null"; it does not
+    // identify a site that can receive an account permission.
+    return typeof origin === 'string' && origin !== 'null' ? origin : null;
+  }
   catch (error) { return null; }
 };
 // Fails closed: an unreadable store is not consent.
