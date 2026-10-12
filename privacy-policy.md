@@ -1,7 +1,7 @@
 # Privacy Policy for Syrius Extension
 
 **Effective Date:** July 28, 2025
-**Last Updated:** October 11, 2026
+**Last Updated:** October 12, 2026
 
 ## Scope
 
@@ -32,6 +32,15 @@ are held in session storage until completion, cancellation or expiry.
 These records are not all encrypted. Removing a wallet cleans its associated
 metadata and permissions; browser extension removal clears its local storage.
 
+The extension also remembers navigation within the wallet and opted-in form
+drafts, including recipient addresses, amounts and message text, in
+`chrome.storage.session`. These drafts are not password-encrypted. They let
+the popup reopen where it closed during the same unlock. Locking or expiry
+invalidates that restore; the next unlock does not restore the previous
+lease's drafts, and a browser restart clears session storage. Password and
+recovery-phrase fields do not opt into draft storage. This does not guarantee
+secure erasure from browser or operating-system memory.
+
 The wallet also keeps a record of the account blocks it has signed and sent:
 the signed block, the account, an identifier of the network and whether the
 node has confirmed it. It exists so that an interrupted send can be checked
@@ -53,7 +62,7 @@ known, and all of a wallet's records are deleted when the wallet is removed.
 - **GitHub:** the lock screen and Settings, About ask GitHub's public API for
   this repository's newest release tag. A valid release-version response is cached
   locally for six hours when storage succeeds; an unsuccessful check or failed
-  cache write can be retried the next time About opens. The request carries no
+  cache write can be retried on a later lock-screen or About visit. The request carries no
   wallet data. GitHub receives the connection's network metadata, including the
   IP address.
 - **Updating an unpacked install:** pressing Update now downloads the release
