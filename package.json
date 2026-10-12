@@ -119,6 +119,9 @@
     "qs": "^6.16.0",
     "@ethersproject/providers": {
       "ws": "^8.21.3"
+    },
+    "xcode": {
+      "uuid": "^11.1.1"
     }
   }
 }
