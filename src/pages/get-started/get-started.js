@@ -5,10 +5,10 @@ import { useForm } from 'react-hook-form';
 import { KeyStoreManager } from 'znn-ts-sdk';
 
 import NavBack from '../../components/nav-back/nav-back';
-import OrderWords from '../../components/order-words/order-words';
 import ProgressSteps from '../../components/progress-steps/progress-steps';
 import { validateWalletPassword, saveWalletWithPassword } from '../../services/wallet/password';
-import { arrayShuffle, loadStorageWalletNames, sanitizeWalletName } from '../../services/utils/utils';
+import { isQuizAnswered, makePhraseQuiz, ordinal } from '../../services/wallet/phraseQuiz';
+import { loadStorageWalletNames, sanitizeWalletName } from '../../services/utils/utils';
 import { copyToClipboard, notify } from '../../services/utils/notify';
 import { completeUnlock } from '../../services/wallet/bootstrap';
 import Icon from '../../components/icon/icon';
@@ -35,8 +35,8 @@ const GetStarted = () => {
 
   const [keyStore, setKeyStore] = useState(null);
   const [mnemonic, setMnemonic] = useState('');
-  const [shuffled, setShuffled] = useState([]);
-  const [ordered, setOrdered] = useState([]);
+  const [quiz, setQuiz] = useState([]);
+  const [chosen, setChosen] = useState([]);
   const [hasSavedPhrase, setHasSavedPhrase] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
 
@@ -64,7 +64,8 @@ const GetStarted = () => {
       const store = await new KeyStoreManager().getNewKeystore();
       setKeyStore(store);
       setMnemonic(store.mnemonic);
-      setShuffled(arrayShuffle(store.mnemonic.split(' ')));
+      setQuiz(makePhraseQuiz(store.mnemonic.split(' ')));
+      setChosen([]);
       setStep(1);
     } catch (err) {
       notify.error(err);
@@ -73,9 +74,12 @@ const GetStarted = () => {
     }
   };
 
-  const isPhraseCorrect =
-    ordered.length === mnemonic.split(' ').length &&
-    ordered.every((word, index) => word === mnemonic.split(' ')[index]);
+  const words = mnemonic.split(' ');
+  const isPhraseCorrect = isQuizAnswered(quiz, words, chosen);
+  const isQuizComplete = quiz.length > 0 && quiz.every((_, index) => chosen[index]);
+
+  const choose = (question, word) =>
+    setChosen((current) => Object.assign([...current], { [question]: word }));
 
   const finish = async () => {
     if (!isPhraseCorrect) {
@@ -184,8 +188,8 @@ const GetStarted = () => {
       {step === 1 && (
         <>
           <p className="text-gray">
-            These twelve words are the only way back into this wallet. Write them down and keep
-            them offline.
+            These {words.length} words are the only way back into this wallet. Write them down and
+            keep them offline.
           </p>
 
           <div className="secret-phrase-container">
@@ -226,12 +230,27 @@ const GetStarted = () => {
 
       {step === 2 && (
         <>
-          <p className="text-gray">Tap the words in the right order.</p>
+          {quiz.map(({ position, options }, question) => (
+            <fieldset className="phrase-quiz" key={position}>
+              <legend>Choose the {ordinal(position + 1)} word</legend>
+              <div className="phrase-quiz-options">
+                {options.map((word) => (
+                  <button
+                    type="button"
+                    key={word}
+                    className={`phrase-quiz-option ${chosen[question] === word ? 'is-selected' : ''}`}
+                    aria-pressed={chosen[question] === word}
+                    onClick={() => choose(question, word)}
+                  >
+                    {word}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          ))}
 
-          <OrderWords ordered={ordered} setOrder={setOrdered} shuffled={shuffled} />
-
-          <div className={`input-error ${ordered.length && !isPhraseCorrect ? '' : 'invisible'}`}>
-            That is not the right order
+          <div className={`input-error ${isQuizComplete && !isPhraseCorrect ? '' : 'invisible'}`}>
+            Not all three match your phrase
           </div>
 
           <button

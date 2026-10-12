@@ -79,7 +79,7 @@ const page = (kind, f) => {
   // than constructing or rendering a phrase. Only the final save callback runs.
   const sentinel = Object.freeze({});
   const values = kind === 'create'
-    ? [2, 'test-wallet', password, password, f.store, { split: () => [sentinel] }, [], [sentinel], true, false]
+    ? [2, 'test-wallet', password, password, f.store, { split: () => [sentinel] }, [{ position: 0, options: [sentinel] }], [sentinel], true, false]
     : [1, '', 'test-wallet', password, password, false];
   const busyIndex = kind === 'create' ? 9 : 5;
   let cursor = 0;
@@ -95,6 +95,7 @@ const page = (kind, f) => {
     if (name === 'znn-ts-sdk') return f.sdk;
     if (name.endsWith('/wallet/password')) return f.policy;
     if (name.endsWith('/wallet/bootstrap')) return { completeUnlock: async () => { f.state.unlocks += 1; } };
+    if (name.endsWith('/wallet/phraseQuiz')) return load('src/services/wallet/phraseQuiz.js', () => null);
     if (name.endsWith('/utils/utils')) return { sanitizeWalletName: (name) => name, loadStorageWalletNames: () => [] };
     if (name.endsWith('/utils/notify')) return { notify: {
       error: (error) => f.state.notices.push({ error }), success: (success) => f.state.notices.push({ success }),
@@ -103,7 +104,7 @@ const page = (kind, f) => {
   }, f.storage).default;
   const render = () => { cursor = 0; return Component(); };
   const submit = () => kind === 'create'
-    ? elements(render()).find((element) => element.type === 'button' && element.props.onClick).props.onClick()
+    ? elements(render()).filter((element) => element.type === 'button' && element.props.onClick).at(-1).props.onClick()
     : elements(render()).find((element) => element.type === 'form').props.onSubmit();
   return { submit, isBusy: () => values[busyIndex] };
 };

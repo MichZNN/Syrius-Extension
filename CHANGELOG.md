@@ -23,6 +23,9 @@ Changed
   stays there with its reason until dismissed.
 - Sends, receives and every other block report there and on Home, not in
   toasts. Other actions keep their toasts.
+- Confirming a new wallet's recovery phrase asks for three of its words, by
+  position, from four choices each, instead of all 24 in order. The three are
+  different words and no word is offered twice.
 
 Fixed
 - Two sends started one after the other, each paying with proof of work: the

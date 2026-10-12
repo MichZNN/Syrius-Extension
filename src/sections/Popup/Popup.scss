@@ -1269,28 +1269,45 @@ button:disabled {
   bottom: 4px;
 }
 
-.secret-words,
-.secret-phrase-input {
-  display: flex;
-  flex-wrap: wrap;
+.phrase-quiz {
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+
+  legend {
+    padding: 0;
+    margin-bottom: 6px;
+    color: var(--muted-foreground);
+  }
+}
+
+// One row of four equal cells: a wrapped row would stretch one option to the
+// full width and make it look like the answer.
+.phrase-quiz-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
-  min-height: 40px;
 }
 
-.secret-phrase-input {
-  border-radius: var(--radius);
-  border: 1px dashed var(--border);
-  padding: 8px;
-}
-
-.secret-word {
-  padding: 5px 10px;
+.phrase-quiz-option {
+  min-height: 44px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--popover);
-  cursor: pointer;
+  color: var(--foreground);
+  font-family: var(--font-mono);
   font-size: 12px;
+  cursor: pointer;
+  transition: background 150ms cubic-bezier(.4, 0, .2, 1), border-color 150ms cubic-bezier(.4, 0, .2, 1);
 
   &:hover {
+    background: var(--hover);
+  }
+
+  &.is-selected {
+    border-color: var(--ring);
     background: var(--hover);
   }
 }
