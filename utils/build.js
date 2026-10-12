@@ -25,6 +25,19 @@ webpack(config, function (err, stats) {
     return;
   }
   
+  if (process.env.SYRIUS_PLATFORM === 'firefox') {
+    // AMO's JavaScript parser refuses files at 5 MiB. SplitChunks.maxSize
+    // cannot split a single prebundled dependency, so inspect final assets.
+    const oversized = stats.compilation.getAssets().filter(asset =>
+      /\.js$/i.test(asset.name) && asset.source.size() >= 5 * 1024 * 1024);
+    if (oversized.length) {
+      console.error('Firefox JavaScript reaches or exceeds the 5 MiB parse limit:',
+        oversized.map(asset => `${asset.name} (${asset.source.size()} bytes)`).join(', '));
+      process.exitCode = 1;
+      return;
+    }
+  }
+
   if (stats.hasWarnings()) {
     console.warn('Build warnings:');
     console.warn(stats.toString({ colors: true }));

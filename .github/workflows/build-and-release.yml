@@ -118,6 +118,9 @@ jobs:
       - name: Check third-party notice generation
         run: node utils/third-party-readme-notices-test.js
 
+      - name: Test Firefox asset-size failure reporting
+        run: node utils/firefox-build-test.js
+
       - name: Run dependency security regression tests
         run: npm run test:security
 
