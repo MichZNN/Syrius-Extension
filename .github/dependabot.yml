@@ -1,0 +1,43 @@
+# Version updates, as pull requests against master. Security updates arrive
+# regardless of this file (the repository's Dependabot security setting).
+#
+# Grouped so a week of minor and patch bumps is one pull request to review and
+# test, not twenty. Capacitor's packages move together: its plugins are built
+# against one major, and a new major also means regenerating android/.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      capacitor:
+        patterns:
+          - "@capacitor/*"
+          - "@capgo/*"
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # The workflow pins every action by commit, with its version in a comment;
+  # Dependabot updates both.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # Only the app's own native dependency (QrScannerPlugin's scanner). The
+  # androidx versions in android/variables.gradle are Capacitor's and change
+  # with it, through the npm group above.
+  - package-ecosystem: gradle
+    directory: /android
+    schedule:
+      interval: weekly
+    allow:
+      - dependency-name: "com.google.android.gms:*"
