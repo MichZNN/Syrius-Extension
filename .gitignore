@@ -8,7 +8,12 @@
 
 # production
 /build
+/build-*
+/dist
 *.zip
+*.xpi
+*.apk
+*.ipa
 
 # misc
 .DS_Store

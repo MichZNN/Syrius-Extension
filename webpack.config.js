@@ -20,6 +20,47 @@ const alias = {
   'crypto-browserify': require.resolve('crypto-browserify'),
 };
 
+// Chrome's package keeps `build/`, which CI, the dev harness and the browser
+// tests all load. Every other platform builds beside it, so making a Firefox
+// package never replaces the Chrome one.
+const outputDir = path.resolve(__dirname, platform === 'chrome' ? 'build' : `build-${platform}`);
+
+// src/manifest.json is Chrome's. Firefox reads the same Manifest V3 with three
+// differences: no background service worker (an event page runs the same
+// bundle), a fixed add-on ID with its minimum version and update manifest, and
+// the data collection declaration AMO requires, which is none. The GitHub host
+// permissions are dropped: they exist only for the unpacked Chrome updater.
+const firefoxId = 'syrius-extension@zenon-network';
+const manifestFor = (manifest) => {
+  if (platform !== 'firefox') return manifest;
+  const {
+    minimum_chrome_version: _chromeOnly,
+    optional_host_permissions: _unpackedUpdater,
+    ...rest
+  } = manifest;
+  return {
+    ...rest,
+    background: { scripts: [manifest.background.service_worker] },
+    browser_specific_settings: {
+      gecko: {
+        id: firefoxId,
+        // 140 is the first to read data_collection_permissions (and the ESR).
+        strict_min_version: '140.0',
+        update_url: 'https://github.com/sol-znn/syrius-extension/releases/latest/download/updates.json',
+        data_collection_permissions: { required: ['none'] },
+      },
+    },
+  };
+};
+
+// The app (android, ios) is one page: the chrome.* shim, then the background
+// script, then the popup (src/platform/mobileShim.js).
+const isApp = platform === 'android' || platform === 'ios';
+const appManifest = () => ({
+  ...JSON.parse(fileSystem.readFileSync(path.join(__dirname, 'src/manifest.json'), 'utf8')),
+  version: process.env.npm_package_version || require('./package.json').version,
+});
+
 // Load secrets if they exist
 const secretsPath = path.join(__dirname, 'secrets.' + env.NODE_ENV + '.js');
 if (fileSystem.existsSync(secretsPath)) {
@@ -43,13 +84,16 @@ module.exports = {
     background: path.join(__dirname, './src/sections/Background/index.js'),
     contentScript: path.join(__dirname, './src/sections/Content/index.js'),
     inpage: path.join(__dirname, './src/sections/Inpage/index.js'),
+    ...(isApp && { mobileShim: path.join(__dirname, './src/platform/mobileShim.js') }),
   },
 
   output: {
     filename: '[name].bundle.js',
-    path: path.resolve(__dirname, 'build'),
+    path: outputDir,
     clean: true,
-    publicPath: ASSET_PATH,
+    // Relative in the app, so the same files load from Capacitor's origin or
+    // straight from disk.
+    publicPath: isApp ? './' : ASSET_PATH,
   },
 
   // A published extension ships whatever is in `build`, and a source map of a
@@ -78,6 +122,9 @@ module.exports = {
           test: (module) => (module.resource || '').includes('node_modules'),
           name: 'vendors',
           chunks: (chunk) => chunk.name === 'popup',
+          // AMO's validator refuses to parse a script over 5 MB, and the
+          // vendor chunk is 6. Firefox gets it in pieces; Chrome keeps one file.
+          ...(platform === 'firefox' && { name: false, maxSize: 4 * 1024 * 1024 }),
         }
       }
     },
@@ -177,6 +224,9 @@ module.exports = {
     // (src/services/utils/selfUpdate.js).
     new webpack.EnvironmentPlugin({ SYRIUS_PLATFORM: platform }),
 
+    // What chrome.runtime.getManifest() answers in the app.
+    ...(isApp ? [new webpack.DefinePlugin({ 'process.env.SYRIUS_MANIFEST': JSON.stringify(appManifest()) })] : []),
+
     new CopyWebpackPlugin({
       patterns: [
         { from: './LICENSE', to: 'LICENSE', toType: 'file' },
@@ -203,26 +253,26 @@ module.exports = {
         { from: path.join(__dirname, 'utils/zts-search-worker.js'), to: 'zts-search-worker.js', transform: () => require('./utils/zts-search-worker')() },
         {
           from: './src/manifest.json',
-          to: path.resolve(__dirname, 'build'),
+          to: outputDir,
           force: true,
           transform: (content) => {
             return Buffer.from(
-              JSON.stringify({
+              JSON.stringify(manifestFor({
                 description: process.env.npm_package_description,
                 version: process.env.npm_package_version,
                 ...JSON.parse(content.toString()),
-              }, null, 2)
+              }), null, 2)
             );
           },
         },
         {
           from: './src/assets/img/icon-128.png',
-          to: path.resolve(__dirname, 'build'),
+          to: outputDir,
           force: true,
         },
         {
           from: './src/assets/img/icon-34.png',
-          to: path.resolve(__dirname, 'build'),
+          to: outputDir,
           force: true,
         },
       ],
@@ -231,9 +281,19 @@ module.exports = {
     new HtmlWebpackPlugin({
       template: './src/sections/Popup/index.html',
       filename: 'popup.html',
-      chunks: ['vendors', 'popup'],
+      chunks: isApp ? ['mobileShim', 'background', 'vendors', 'popup'] : ['vendors', 'popup'],
+      chunksSortMode: 'manual',
       cache: false,
     }),
+
+    // Capacitor opens index.html; the wallet's own links name popup.html.
+    ...(isApp ? [new HtmlWebpackPlugin({
+      template: './src/sections/Popup/index.html',
+      filename: 'index.html',
+      chunks: ['mobileShim', 'background', 'vendors', 'popup'],
+      chunksSortMode: 'manual',
+      cache: false,
+    })] : []),
 
     new webpack.ProvidePlugin({
       Buffer: ['buffer', 'Buffer'],
