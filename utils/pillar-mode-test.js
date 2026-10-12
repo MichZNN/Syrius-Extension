@@ -412,7 +412,7 @@ test('settings: Extension starts open, Modes and Wallet closed, and a closed sec
   const aboveModes = page.slice(page.indexOf('<div className="page">'), page.indexOf("id: 'modes'"));
   // Links and the two choices among them, in the owner's order.
   assert.deepEqual([...aboveModes.matchAll(/<SettingsItem icon="[a-z-]+" title="([^"]+)"|className="settings-item-title">([^<]+)</g)].map((m) => m[1] || m[2]),
-    ['Node', 'Explorer', 'Connected sites', 'Address book', 'Zap a random alien', 'Sign message', 'Theme', 'About']);
+    ['Node', 'Explorer', 'Connected sites', 'Zap a random alien', 'Sign message', 'Address book', 'Theme', 'About']);
   // The explorer's choices are named short enough for the row, and each has a name.
   const { explorerChoices } = load('src/services/utils/explorer.js', cache);
   for (const choice of explorerChoices) assert.ok(choice.short && choice.short.length <= 14, choice.key);

@@ -17,6 +17,8 @@ New
 - Accelerator-Z phases: Max beside ZNN and QSR fills in what the project has
   left, and more is refused before the block is sent.
 - An address book (Settings), offered on Send with the last five recipients.
+- Proof of work runs on up to four cores at once, and "Generating plasma"
+  says about how long it should take, counting down.
 
 Android and iOS apps (sideload)
 - The wallet as an Android app and an unsigned iOS app (each release's IPA,
@@ -57,6 +59,10 @@ Changed
   different words and no word is offered twice.
 
 Fixed
+- Firefox never generated plasma, so a block that needed proof of work was
+  never sent there. The SDK's worker is a blob: URL, which Firefox's extension
+  pages refuse; the wallet's own worker is a file of the extension.
+- A full address ran past the end of the Send and contact address fields.
 - Two sends started one after the other, each paying with proof of work: the
   second failed. They now take turns and both land, with no retry.
 - After the popup reopened on its last screen, Back went nowhere: the screens

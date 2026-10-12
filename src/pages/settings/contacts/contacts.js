@@ -21,7 +21,9 @@ const validAddress = (input) => {
 
 const Contacts = () => {
   const [contacts, setContacts] = useState(getContacts);
-  const { register, handleSubmit, formState: { errors }, reset, setValue } = useForm({ mode: 'onSubmit' });
+  const { register, handleSubmit, formState: { errors }, reset, setValue, watch } = useForm({ mode: 'onSubmit' });
+  // Scan sits in the field until an address needs the whole width (send.js).
+  const scanFits = Boolean(app()?.scan) && (watch('address') || '').trim().length <= 34;
 
   const add = ({ name, address }) => {
     try {
@@ -77,15 +79,15 @@ const Contacts = () => {
           <div className={`input-error ${errors.name ? '' : 'invisible'}`}>{errors.name?.message || ' '}</div>
         </div>
         <div className="custom-control">
-          <div className="input-with-button w-100">
+          <div className={`input-with-button w-100 ${scanFits ? '' : 'is-full'}`}>
             <input
               {...register('address', { required: 'Enter an address', validate: validAddress })}
-              className={`w-100 custom-label ${errors.address ? 'custom-label-error' : ''}`}
+              className={`w-100 custom-label address-input ${errors.address ? 'custom-label-error' : ''}`}
               placeholder="Address"
               spellCheck="false"
               autoComplete="off"
             />
-            {app()?.scan && (
+            {scanFits && (
               <div className="input-icon-buttons">
                 <button type="button" className="input-icon-button" aria-label="Scan QR code" onClick={scan}>
                   <Icon name="scan" size={18} />

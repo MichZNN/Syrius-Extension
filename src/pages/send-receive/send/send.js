@@ -152,6 +152,10 @@ const Send = () => {
   const contacts = useMemo(() => (picking ? getContacts() : []), [picking]);
   const recent = useMemo(() => (picking ? getRecentRecipients() : []), [picking]);
   const nameOf = (value) => contacts.find((entry) => entry.address === value)?.name;
+  // The buttons sit inside the field while what is typed leaves them room. A
+  // Zenon address is 40 characters and needs the whole width, so then the
+  // field has it and the address book is a link under it, as Plasma's "Me" is.
+  const buttonsFit = recipient.trim().length <= (app()?.scan ? 30 : 34);
 
   // A QR code holding an address fills the field; one holding a syrius://
   // link is followed, as if it had been tapped.
@@ -310,10 +314,10 @@ const Send = () => {
         </div>
 
         <div className="custom-control">
-          <div className={`input-with-button w-100 ${app()?.scan ? 'has-two' : ''}`}>
+          <div className={`input-with-button w-100 ${!buttonsFit ? 'is-full' : app()?.scan ? 'has-two' : ''}`}>
             <input
               {...register('recipientAddressField', { required: true, validate: validateRecipient })}
-              className={`w-100 custom-label ${
+              className={`w-100 custom-label address-input ${
                 errors.recipientAddressField ? 'custom-label-error' : ''
               }`}
               placeholder="Recipient address"
@@ -326,6 +330,7 @@ const Send = () => {
               spellCheck="false"
               autoComplete="off"
             />
+            {buttonsFit && (
             <div className="input-icon-buttons">
               {app()?.scan && (
                 <button type="button" className="input-icon-button" aria-label="Scan QR code" onClick={scan}>
@@ -342,7 +347,13 @@ const Send = () => {
                 <Icon name="contacts" size={18} />
               </button>
             </div>
+            )}
           </div>
+          {!buttonsFit && (
+            <button type="button" className="text-link field-link" aria-expanded={picking} onClick={() => setPicking(!picking)}>
+              Address book
+            </button>
+          )}
           {picking && (
             <div className="recipient-picker">
               {!contacts.length && !recent.length && <div className="text-gray text-xs">None yet</div>}

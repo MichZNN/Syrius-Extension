@@ -135,9 +135,9 @@ const Settings = () => {
           })}
         </div>
         <SettingsItem icon="link" title="Connected sites" url="connected-sites" tone="info" />
-        <SettingsItem icon="contacts" title="Address book" url="contacts" />
         <SettingsItem icon="zap" title="Zap a random alien" url="zap" tone="highlight" />
         <SettingsItem icon="sign" title="Sign message" url="sign-message" />
+        <SettingsItem icon="contacts" title="Address book" url="contacts" />
         <div className="settings-item is-control">
           <span className="settings-item-icon is-primary">
             <Icon name="sun" size={18} />
