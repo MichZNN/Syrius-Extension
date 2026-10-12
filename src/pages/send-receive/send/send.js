@@ -310,7 +310,7 @@ const Send = () => {
         </div>
 
         <div className="custom-control">
-          <div className={`input-with-button w-100 ${app() ? 'has-two' : ''}`}>
+          <div className={`input-with-button w-100 ${app()?.scan ? 'has-two' : ''}`}>
             <input
               {...register('recipientAddressField', { required: true, validate: validateRecipient })}
               className={`w-100 custom-label ${
@@ -327,7 +327,7 @@ const Send = () => {
               autoComplete="off"
             />
             <div className="input-icon-buttons">
-              {app() && (
+              {app()?.scan && (
                 <button type="button" className="input-icon-button" aria-label="Scan QR code" onClick={scan}>
                   <Icon name="scan" size={18} />
                 </button>

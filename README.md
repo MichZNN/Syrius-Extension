@@ -6,8 +6,8 @@ Keys are generated and encrypted on your machine and never leave it. The
 extension talks to a Zenon node of your choosing, and to web pages through an
 injected provider that does nothing without being asked first.
 
-Version **0.3.6**, Manifest V3, Chrome or Brave 112 or later, and an Android
-app built from the same source. [What changed](CHANGELOG.md).
+Version **0.3.6**, Manifest V3, Chrome or Brave 112 or later, and Android and
+iOS apps built from the same source. [What changed](CHANGELOG.md).
 
 ## Features
 
@@ -28,10 +28,10 @@ app built from the same source. [What changed](CHANGELOG.md).
 - **Picks up where it left off**: the popup reopens on the screen it closed
   on, with what had been typed, until the wallet locks.
 - **Address book** (Settings), offered on Send with the last five recipients.
-- **Android app**: fingerprint unlock, QR scanning on Send, Share on Receive,
+- **Android and iOS apps**: fingerprint or Face ID unlock, Share on Receive,
   a notification for incoming transfers, and desktop Syrius's `syrius://`
   links, including `syrius://request` for another app to ask for a connection
-  or a signature.
+  or a signature. QR scanning on Send is Android only for now.
 
 ## Install
 
@@ -65,7 +65,7 @@ services' scanner, so it needs no camera permission.
 A debug APK from source needs JDK 21 and the Android SDK as well:
 
 ```bash
-SYRIUS_PLATFORM=android npm run build   # into build-android/
+SYRIUS_PLATFORM=android npm run build   # into build-app/
 npx cap sync android
 cd android && ./gradlew clean assembleDebug
 ```
@@ -73,6 +73,24 @@ cd android && ./gradlew clean assembleDebug
 The APK is `android/app/build/outputs/apk/debug/app-debug.apk`.
 `node tools/app-links/serve.mjs` serves a page of `syrius://` links and
 requests to open on the phone ([tools/app-links](tools/app-links/README.md)).
+
+### iOS
+
+Each release has an unsigned `syrius-<version>-ios-unsigned.ipa`. Apple lets
+an app onto an iPhone only once it is signed, and a free Apple ID's signature
+lasts seven days, so install it with [SideStore](https://sidestore.io) or
+[AltStore](https://altstore.io): either signs it with your Apple ID and renews
+it on the phone before the seven days are up. The app is
+`network.zenon.syrius` and needs iOS 15 or later.
+
+The IPA is built on a macOS runner (`.github/workflows/ios.yml`); building it
+yourself needs a Mac with Xcode:
+
+```bash
+SYRIUS_PLATFORM=ios npm run build       # into build-app/
+npx cap sync ios
+npx cap open ios                        # then build and run from Xcode
+```
 
 ## Documentation
 
@@ -96,6 +114,7 @@ requests to open on the phone ([tools/app-links](tools/app-links/README.md)).
 | `src/` | The extension: `pages`, `components`, `layouts`, `services`, `sections` (popup, worker, content scripts) |
 | `src/platform/` | The app's side: the `chrome.*` stand-in, `syrius://` links and requests, fingerprint, scanner, notifications |
 | `android/` | The Capacitor Android project, with the app's own QR scanner plugin |
+| `ios/` | The Capacitor iOS project |
 | `utils/` | The build, the dev harness and the test suites |
 | `tools/` | Developer tools: the local test chain, the phone link page, icon generators, deliberate-regression lists, probes |
 | `vendor/` | Vendored dependencies |

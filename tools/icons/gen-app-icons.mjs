@@ -1,4 +1,4 @@
-// Renders the Android launcher icons and splash screens from
+// Renders the Android and iOS launcher icons and splash screens from
 // src/assets/img/icon.svg, the vector trace of the extension's toolbar icon,
 // so the app looks like the extension it is.
 //
@@ -15,6 +15,10 @@
 //                                        the 66dp safe circle of 108dp
 //   values/ic_launcher_background.xml    adaptive icon background colour
 //   drawable*/splash.png                 the S centred on the app background
+//
+// and into ios/App/App/Assets.xcassets:
+//   AppIcon.appiconset/AppIcon-512@2x.png  1024px square; iOS rounds the corners
+//   Splash.imageset/*.png                  the S centred on the app background
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -22,6 +26,7 @@ import { spawn } from 'node:child_process';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '../..');
 const res = path.join(root, 'android/app/src/main/res');
+const assets = path.join(root, 'ios/App/App/Assets.xcassets');
 const svg = fs.readFileSync(path.join(root, 'src/assets/img/icon.svg'), 'utf8');
 // The app's own background, --background in Popup.scss (hsl 0 0% 8%).
 const background = '#141414';
@@ -30,16 +35,27 @@ const densities = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };
 const jobs = [];
 for (const [density, scale] of Object.entries(densities)) {
   const tile = Math.round(48 * scale);
-  jobs.push({ file: `mipmap-${density}/ic_launcher.png`, width: tile, height: tile, shape: 'square', logo: 0.62 });
-  jobs.push({ file: `mipmap-${density}/ic_launcher_round.png`, width: tile, height: tile, shape: 'circle', logo: 0.6 });
+  jobs.push({ dir: res, file: `mipmap-${density}/ic_launcher.png`, width: tile, height: tile, shape: 'square', logo: 0.62 });
+  jobs.push({ dir: res, file: `mipmap-${density}/ic_launcher_round.png`, width: tile, height: tile, shape: 'circle', logo: 0.6 });
   const layer = Math.round(108 * scale);
-  jobs.push({ file: `mipmap-${density}/ic_launcher_foreground.png`, width: layer, height: layer, shape: 'none', logo: 0.5 });
+  jobs.push({ dir: res, file: `mipmap-${density}/ic_launcher_foreground.png`, width: layer, height: layer, shape: 'none', logo: 0.5 });
 }
-for (const file of fs.readdirSync(res, { recursive: true })) {
-  if (path.basename(file) !== 'splash.png') continue;
-  const png = fs.readFileSync(path.join(res, file));
-  // PNG IHDR: width and height, big-endian, at bytes 16 and 20.
-  jobs.push({ file, width: png.readUInt32BE(16), height: png.readUInt32BE(20), shape: 'fill', logo: 0.22 });
+// Splash screens keep the sizes the platform template gave them.
+const splashes = (dir, match) => {
+  if (!fs.existsSync(dir)) return;
+  for (const file of fs.readdirSync(dir, { recursive: true })) {
+    if (!match(String(file))) continue;
+    const png = fs.readFileSync(path.join(dir, file));
+    // PNG IHDR: width and height, big-endian, at bytes 16 and 20.
+    jobs.push({ dir, file, width: png.readUInt32BE(16), height: png.readUInt32BE(20), shape: 'fill', logo: 0.22 });
+  }
+};
+splashes(res, (file) => path.basename(file) === 'splash.png');
+if (fs.existsSync(assets)) {
+  // Filled to the edge: iOS masks the corners, and an icon with transparent
+  // corners shows them black.
+  jobs.push({ dir: assets, file: 'AppIcon.appiconset/AppIcon-512@2x.png', width: 1024, height: 1024, shape: 'fill', logo: 0.62 });
+  splashes(path.join(assets, 'Splash.imageset'), (file) => file.endsWith('.png'));
 }
 
 const findChrome = () => [
@@ -113,10 +129,10 @@ try {
   ws.close();
   const images = reply.result?.result?.value;
   if (!Array.isArray(images)) throw new Error(`Rendering failed: ${JSON.stringify(reply.result?.exceptionDetails || reply)}`);
-  jobs.forEach((job, index) => fs.writeFileSync(path.join(res, job.file), Buffer.from(images[index], 'base64')));
+  jobs.forEach((job, index) => fs.writeFileSync(path.join(job.dir, job.file), Buffer.from(images[index], 'base64')));
   fs.writeFileSync(path.join(res, 'values/ic_launcher_background.xml'),
     `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">${background}</color>\n</resources>\n`);
-  console.log(`Wrote ${jobs.length} images into ${path.relative(root, res)}`);
+  console.log(`Wrote ${jobs.length} images`);
 } finally {
   browser.kill();
   setTimeout(() => fs.rmSync(profile, { recursive: true, force: true }), 500);

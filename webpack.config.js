@@ -22,8 +22,11 @@ const alias = {
 
 // Chrome's package keeps `build/`, which CI, the dev harness and the browser
 // tests all load. Every other platform builds beside it, so making a Firefox
-// package never replaces the Chrome one.
-const outputDir = path.resolve(__dirname, platform === 'chrome' ? 'build' : `build-${platform}`);
+// package never replaces the Chrome one. The two apps share `build-app/`,
+// because Capacitor reads one webDir for both; each is built just before its
+// `cap sync`.
+const isApp = platform === 'android' || platform === 'ios';
+const outputDir = path.resolve(__dirname, platform === 'chrome' ? 'build' : isApp ? 'build-app' : `build-${platform}`);
 
 // src/manifest.json is Chrome's. Firefox reads the same Manifest V3 with three
 // differences: no background service worker (an event page runs the same
@@ -55,7 +58,6 @@ const manifestFor = (manifest) => {
 
 // The app (android, ios) is one page: the chrome.* shim, then the background
 // script, then the popup (src/platform/mobileShim.js).
-const isApp = platform === 'android' || platform === 'ios';
 const appManifest = () => ({
   ...JSON.parse(fileSystem.readFileSync(path.join(__dirname, 'src/manifest.json'), 'utf8')),
   version: process.env.npm_package_version || require('./package.json').version,

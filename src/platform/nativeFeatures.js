@@ -80,7 +80,7 @@ const biometric = {
   },
 };
 
-// A QR code's text, or null when the person backed out. Google's scanner
+// A QR code's text, or null when the person backed out. Android: Google's scanner
 // module draws the camera itself, so the app needs no camera permission
 // (android/.../QrScannerPlugin.java, the app's own plugin).
 const QrScanner = registerPlugin('QrScanner');
@@ -161,7 +161,9 @@ const install = () => {
   }).catch(() => {});
   window.syriusApp = Object.freeze({
     biometric: Object.freeze({ ...biometric, enable: own(biometric.enable), unlock: own(biometric.unlock) }),
-    scan: own(scan),
+    // Android only for now: the scanner is Play services' (QrScannerPlugin),
+    // and iOS has no counterpart yet. The Scan buttons look for this.
+    scan: process.env.SYRIUS_PLATFORM === 'android' ? own(scan) : null,
     share: own(share),
     secureScreen,
     notify,

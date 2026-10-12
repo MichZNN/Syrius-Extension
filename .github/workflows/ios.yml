@@ -1,0 +1,150 @@
+# An unsigned iOS app (.ipa) for each release.
+#
+# CI cannot sign it: a free Apple ID only signs from Xcode or a sideloading
+# tool on the person's own machine or phone, and that signature lasts seven
+# days. So the IPA is published unsigned, and SideStore or AltStore signs it
+# with the person's Apple ID on install and renews it every seven days on the
+# phone. Rebuilding here would renew nothing.
+#
+# On a release tag the IPA is attached to that tag's GitHub release, which the
+# Chrome build creates (build-and-release.yml), so this waits for it. A pull
+# request that touches the app builds it as an artifact only, to catch an iOS
+# break before release. Run by hand with a tag to replace a release's IPA.
+
+name: iOS IPA
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - 'src/platform/**'
+      - 'capacitor.config.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Release tag to attach the IPA to (empty for an artifact only)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    name: Build unsigned IPA
+    runs-on: macos-15
+    timeout-minutes: 45
+    outputs:
+      ipa: ${{ steps.build.outputs.ipa }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Check toolchain
+        run: |
+          node --version
+          xcodebuild -version
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build the app's web files
+        env:
+          SYRIUS_PLATFORM: ios
+        run: npm run build
+
+      - name: Copy them into the iOS project
+        run: npx cap sync ios
+
+      # Version and build number as Android's: 0.3.6 is 306.
+      - name: Build unsigned
+        id: build
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          build="$(node -p "const [a,b,c]=require('./package.json').version.split('.').map(Number); a*10000+b*100+c")"
+          xcodebuild -project ios/App/App.xcodeproj -list
+          xcodebuild build \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/derived" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            MARKETING_VERSION="$version" \
+            CURRENT_PROJECT_VERSION="$build"
+
+          app="$RUNNER_TEMP/derived/Build/Products/Release-iphoneos/App.app"
+          test -f "$app/Info.plist"
+          test -f "$app/public/index.html"
+
+          # An IPA is the app in a Payload folder, zipped.
+          ipa="syrius-${version}-ios-unsigned.ipa"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$app" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/$ipa" Payload)
+          shasum -a 256 "$ipa" | tee "$ipa.sha256"
+          printf 'ipa=%s\n' "$ipa" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-ipa
+          path: |
+            ${{ steps.build.outputs.ipa }}
+            ${{ steps.build.outputs.ipa }}.sha256
+          if-no-files-found: error
+
+  # Separate, so the job that runs npm's install scripts and the build never
+  # holds a token that can write releases.
+  attach:
+    name: Attach to the release
+    needs: ipa
+    if: startsWith(github.ref, 'refs/tags/') || inputs.release != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    steps:
+      - name: Download IPA
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ios-ipa
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.release || github.ref_name }}
+          IPA: ${{ needs.ipa.outputs.ipa }}
+        run: |
+          # The Chrome build publishes the release; give it half an hour.
+          for attempt in $(seq 1 60); do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release upload "$TAG" "$IPA" "$IPA.sha256" --clobber
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::Release $TAG did not appear; the IPA is in this run's artifacts."
+          exit 1

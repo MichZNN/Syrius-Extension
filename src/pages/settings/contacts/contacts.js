@@ -85,7 +85,7 @@ const Contacts = () => {
               spellCheck="false"
               autoComplete="off"
             />
-            {app() && (
+            {app()?.scan && (
               <div className="input-icon-buttons">
                 <button type="button" className="input-icon-button" aria-label="Scan QR code" onClick={scan}>
                   <Icon name="scan" size={18} />
