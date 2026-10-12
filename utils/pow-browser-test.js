@@ -83,7 +83,7 @@ const chromium = async () => {
   let socket;
   try {
     let port;
-    for (let i = 0; i < 100 && !port; i++) {
+    for (let i = 0; i < 300 && !port; i++) {
       const file = path.join(profile, 'DevToolsActivePort');
       if (fs.existsSync(file)) port = Number(fs.readFileSync(file, 'utf8').split('\n')[0]);
       else await pause(100);

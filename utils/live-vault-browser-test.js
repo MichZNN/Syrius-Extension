@@ -133,7 +133,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 let socket, cdp;
 (async () => {
   let port;
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 300; i++) {
     if (launchError) throw launchError;
     const file = path.join(dir, 'profile', 'DevToolsActivePort');
     if (fs.existsSync(file)) { port = Number(fs.readFileSync(file, 'utf8').split('\n')[0]); break; }

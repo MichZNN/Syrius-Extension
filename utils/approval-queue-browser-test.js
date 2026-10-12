@@ -22,7 +22,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const watchdog = setTimeout(() => { console.error('Native approval queue checks timed out'); socket?.close(); browser.kill(); process.exit(1); }, 60000);
 (async () => {
   let port;
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 300; i++) {
     if (launchError) throw launchError;
     const file = path.join(dir, 'profile', 'DevToolsActivePort');
     if (fs.existsSync(file)) { port = Number(fs.readFileSync(file, 'utf8').split('\n')[0]); break; }

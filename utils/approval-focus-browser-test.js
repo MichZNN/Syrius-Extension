@@ -89,7 +89,7 @@ queue=[request()];createRoot(document.querySelector('#app-container')).render(<P
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
   let launchError; browser.on('error', () => { launchError = true; }); browser.stderr.resume();
   let port;
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 600; i++) {
     if (launchError) throw Error('Browser unavailable');
     const file = path.join(profile, 'DevToolsActivePort');
     if (fs.existsSync(file)) { port = Number(fs.readFileSync(file, 'utf8').split('\n')[0]); break; }
