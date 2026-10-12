@@ -34,10 +34,11 @@ From a release: download the ZIP from the
 [releases page](https://github.com/sol-znn/syrius-extension/releases), open
 `chrome://extensions`, turn on Developer mode and drag the ZIP in.
 
-Updating: the lock screen says when a newer release is out, and Settings,
-About, Update downloads its ZIP. Unzip it over the extension's folder and
-press reload on its card in `chrome://extensions`; the wallet and its settings
-are kept.
+Updating: the lock screen says when a newer release is out. Settings, About,
+Update opens a tab where you choose the folder the extension was loaded from,
+once; Update now then writes the checked release into it and reloads. The
+wallet and its settings are kept. "Forget update folder" in About resets the
+choice, and "Download the ZIP instead" is there for doing it by hand.
 
 From source (Node.js 24, npm 10):
 

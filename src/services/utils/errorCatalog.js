@@ -34,6 +34,17 @@ const catalog = {
   107: 'no momentum',
   // What a form refused, in the form's own words.
   110: '{text}',
+  // Updating an unpacked install (services/update)
+  120: 'That folder is not this extension. Pick the one it was loaded from.',
+  121: 'That folder is not this extension any more. Choose it again.',
+  122: 'The {version} release could not be downloaded.',
+  123: 'The download does not match its published checksum. Nothing was written.',
+  124: 'The download is not this extension. Nothing was written.',
+  125: 'The download is version {found}, not a newer {version}. Nothing was written.',
+  126: 'No version to update to.',
+  127: 'Downloading the release needs access to GitHub.',
+  128: 'Writing the update needs access to the folder.',
+  129: 'Not a usable release archive: {detail}',
 
   // The wallet
   200: 'Wrong password.',

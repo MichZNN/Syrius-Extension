@@ -56,6 +56,11 @@ known, and all of a wallet's records are deleted when the wallet is removed.
   cache write can be retried the next time About opens. The request carries no
   wallet data. GitHub receives the connection's network metadata, including the
   IP address.
+- **Updating an unpacked install:** pressing Update now downloads the release
+  ZIP and its checksum from GitHub, after the browser asks for that access. The
+  folder chosen for updates is remembered in the extension's own storage until
+  "Forget update folder" in About, which also gives the access back. Nothing
+  about the wallet is sent.
 - **Requesting-site icons:** an approval screen can load a site's favicon URL.
   The icon server receives the browser request and its network metadata.
 - **Block explorers:** opening an explorer link sends the linked public address

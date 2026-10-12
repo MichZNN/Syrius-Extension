@@ -25,4 +25,9 @@ if (window.location.hash.startsWith('#/site-integration')) {
   document.body.classList.add('standalone-window');
 }
 
+// The Update tab shows the popup's frame in the middle of the tab (Popup.scss).
+if (window.location.hash.startsWith('#/update')) {
+  document.body.classList.add('in-tab');
+}
+
 createRoot(window.document.querySelector('#app-container')).render(<Popup />);

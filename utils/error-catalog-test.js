@@ -156,6 +156,8 @@ const anywhere = [
   /^Object\.assign\(fail\(/,
   // Factories, each checked below to return a catalogue error.
   /^(ended|changed|invalid|busy|unavailable|requestEnded|approvalEnded)\(\)/,
+  // The update's archive refusals carry what was wrong with the archive.
+  /^refuse\('[^']*'\);|^refuse\(`[^`]*`\);/,
   /^(session|selection)\.(ended|changed)\(\)/,
   // Something caught, or kept, and passed on.
   /^(error|err|nonce|block|afterError);/,
@@ -189,6 +191,7 @@ test('src: the factories behind those throws return catalogue errors', () => {
     'src/services/wallet/sessionLease.js': ["const ended = () => Object.assign(fail(201), { code: 'WALLET_LOCKED' });", 'const unavailable = () => Object.assign(fail(202), {', 'const changed = () => Object.assign(fail(203), {'],
     'src/services/wallet/removal.js': ['const changed = () => fail(213);', 'const invalid = () => fail(214);'],
     'src/services/wallet/blockApproval.js': ['const changed = () => fail(820);'],
+    'src/services/update/zip.js': ["const refuse = (detail) => fail(129, { detail }, { code: 'UPDATE_ARCHIVE' });"],
     'src/services/wallet/journal.js': ["const unavailable = () => fail(322, undefined, { code: 'JOURNAL_UNAVAILABLE' });"],
     'src/services/wallet/approvalOperation.js': ['const ended = () => fail(814);'],
     'src/services/utils/approvalLimits.js': ['const invalid = () => Object.assign(fail(810), { code: -32602 });', 'const busy = () => Object.assign(fail(811), { code: -32005 });'],
@@ -296,7 +299,7 @@ test('fail: what fills a brace is cut to one short line; an unshowable reason en
 
 test('describe: the wallet\'s own errors keep their number', () => {
   for (const { id } of entries) {
-    const params = { text: 'A form message.', reason: 'a reason', method: 'm', status: 500, name: 'n', contract: 'c', count: 2, chainId: 5, reported: 5, wanted: 7, host: 'rpc.example', state: 'did not answer in time', network: 'ZVM Devnet', inbox: 'z1in', known: 'z1known', signing: 1, bytes: 9, chunks: 4, vault: 'z1v', sent: 'ZNN', failed: 'QSR', done: 2, total: 3 };
+    const params = { text: 'A form message.', reason: 'a reason', method: 'm', status: 500, name: 'n', contract: 'c', count: 2, chainId: 5, reported: 5, wanted: 7, host: 'rpc.example', state: 'did not answer in time', network: 'ZVM Devnet', inbox: 'z1in', known: 'z1known', signing: 1, bytes: 9, chunks: 4, vault: 'z1v', sent: 'ZNN', failed: 'QSR', done: 2, total: 3, version: '0.3.7', found: '0.3.5', detail: 'no central directory' };
     for (const key of catalog[id].matchAll(/\{(\w+)\}/g)) assert.ok(key[1] in params, `${id}: this test has no value for {${key[1]}}`);
     const error = fail(id, params);
     assert.equal(error.errorId, id);

@@ -10,7 +10,9 @@ import {
   releasesUrl,
   repositoryUrl,
 } from '../../../services/utils/release';
-import { updateNow } from '../../../services/utils/selfUpdate';
+import { platform, updateNow } from '../../../services/utils/selfUpdate';
+import { resetUpdatePrefs, savedFolder } from '../../../services/update/chromeUpdate';
+import { notify } from '../../../services/utils/notify';
 
 // About (Settings): which version this is, whether a newer one is out, and
 // where the releases, the source and the privacy policy are.
@@ -48,18 +50,35 @@ const About = () => {
   const version = currentVersion();
   const [latest, setLatest] = useState(undefined);
   const [updating, setUpdating] = useState(null);
+  // A remembered update folder (pages/update), which can be forgotten here.
+  const [hasFolder, setHasFolder] = useState(false);
 
   useEffect(() => {
     let mounted = true;
     latestVersion().then((found) => { if (mounted) setLatest(found); });
+    if (platform === 'chrome') savedFolder().then((folder) => { if (mounted) setHasFolder(Boolean(folder)); });
     return () => { mounted = false; };
   }, []);
 
   const state = releaseState(latest, version);
 
+  const forgetFolder = async () => {
+    await resetUpdatePrefs();
+    setHasFolder(false);
+    notify.success('Update folder forgotten');
+  };
+
   const update = async () => {
     setUpdating('checking');
     const { result, url } = await updateNow(latest);
+    // An unpacked install is updated from a tab of its own, which writes the
+    // release into the folder it was loaded from.
+    if (result === 'unzip') {
+      // eslint-disable-next-line no-undef
+      chrome.tabs.create({ url: chrome.runtime.getURL(`popup.html#/update?v=${encodeURIComponent(latest)}`) });
+      setUpdating(null);
+      return;
+    }
     if (url) window.open(url, '_blank', 'noreferrer');
     setUpdating(result);
   };
@@ -87,6 +106,14 @@ const About = () => {
               <Icon name="download" size={18} />
             </span>
             <span className="settings-item-title">{updateLabels[updating] || `Update to ${latest}`}</span>
+          </button>
+        )}
+        {hasFolder && (
+          <button type="button" className="settings-item" onClick={forgetFolder}>
+            <span className="settings-item-icon is-info">
+              <Icon name="folder" size={18} />
+            </span>
+            <span className="settings-item-title">Forget update folder</span>
           </button>
         )}
         {links.map((link) => (

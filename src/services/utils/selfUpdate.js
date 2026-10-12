@@ -3,9 +3,10 @@ import { parseVersion, releasesUrl, latestReleaseUrl } from './release';
 // Updating the installed wallet from the About screen, per platform.
 //
 //   chrome   A browser-managed install (a store) is asked to check now and
-//            reloaded once the update is in. One loaded unpacked from a ZIP is
-//            never updated by the browser and cannot rewrite its own files: the
-//            new ZIP is downloaded, to unzip over the old folder and reload.
+//            reloaded once the update is in. One loaded unpacked is never
+//            updated by the browser: 'unzip' sends About to the Update tab,
+//            which writes the release into the folder the person picks
+//            (services/update/chromeUpdate.js), or downloads the ZIP by hand.
 //   firefox  The signed package names an update manifest (`update_url`), so
 //            the browser can check now and reload. Failing that, opening the
 //            new .xpi installs it over this one.

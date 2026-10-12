@@ -5,9 +5,13 @@
 New
 - The lock screen says when a newer release is out, in one quiet line, and
   only then.
-- About's Update row updates the wallet as far as the platform allows: a
-  browser-managed install is updated and reloaded; an unpacked Chrome or
-  Brave install downloads the new ZIP to unzip over its folder.
+- About's Update row updates the wallet as far as the platform allows. A
+  browser-managed install is updated and reloaded. An unpacked Chrome or Brave
+  install opens an Update tab: choose the folder the extension was loaded from
+  once, and Update now downloads the release, checks its published checksum
+  and that it is this extension at the newer version, writes it over the
+  folder and reloads. The folder is remembered; About's "Forget update folder"
+  resets it.
 - The popup reopens on the screen it closed on, with what had been typed,
   when it closes by losing focus. Not after the wallet locks.
 - Accelerator-Z phases: Max beside ZNN and QSR fills in what the project has

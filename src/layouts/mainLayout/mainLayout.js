@@ -8,6 +8,7 @@ import SiteIntegrationLayout from '../siteIntegrationLayout/siteIntegrationLayou
 import DashboardPassword from '../../pages/dashboard/dashboard-password/dashboard-password';
 import InitialNodeSelection from '../../pages/settings/change-node/initial-node-selection';
 import Splash from '../../components/splash/splash';
+import Update from '../../pages/update/update';
 
 import { completeUnlock } from '../../services/wallet/bootstrap';
 import session from '../../services/wallet/session';
@@ -109,8 +110,11 @@ const MainLayout = () => {
         await prepareDevWallet();
       }
 
-      const wallets = loadStorageWalletNames();
       const initialPathname = requestedRoute.current;
+      // Updating the extension needs no wallet, unlocked or not: its tab is
+      // left where it was opened (pages/update).
+      if (initialPathname === '/update') return;
+      const wallets = loadStorageWalletNames();
       const isWithin = (route) =>
         initialPathname === route || initialPathname.startsWith(`${route}/`);
       const deepLink = deepLinkRoutes.includes(initialPathname)
@@ -225,6 +229,7 @@ const MainLayout = () => {
         <Route path="initial-node-selection" element={<InitialNodeSelection />} />
         <Route path="tabs/*" element={<TabsLayout />} />
         <Route path="site-integration" element={<SiteIntegrationLayout />} />
+        <Route path="update" element={<Update />} />
       </Routes>
     </div>
   );

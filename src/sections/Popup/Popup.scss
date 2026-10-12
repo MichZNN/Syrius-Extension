@@ -207,6 +207,27 @@ body.standalone-window {
   height: 100vh;
 }
 
+// The Update tab (pages/update) is the popup opened in a tab, because the
+// toolbar popup closes when the folder picker opens. Shown as the popup, the
+// same 360 by 600 frame centred in the tab, not pinned to its top-left corner
+// as a bare page.
+body.in-tab {
+  width: 100%;
+  height: 100vh;
+  overflow: auto;
+  display: grid;
+  place-items: center;
+
+  #app-container {
+    width: 360px;
+    height: 600px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-xl);
+    overflow: hidden;
+  }
+}
+
 #app-container,
 .popup,
 .main-layout {
@@ -4583,5 +4604,29 @@ a.settings-item {
     min-width: 0;
     overflow: hidden;
     background: var(--popover);
+  }
+}
+
+// Updating an unpacked install (pages/update): a tab of its own.
+.update-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.update-fallback {
+  align-self: center;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  transition: color var(--motion);
+
+  &:hover,
+  &:focus-visible {
+    color: var(--primary);
   }
 }
