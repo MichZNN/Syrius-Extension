@@ -16,7 +16,7 @@ import { ringInPhase, spinOnce } from '../../../services/utils/edgeLight';
 import { describe, fail, wrongPassword as wrongPasswordId } from '../../../services/utils/errors';
 import { notify } from '../../../services/utils/notify';
 import { currentVersion, latestVersion, releaseState, releasesUrl } from '../../../services/utils/release';
-import app from '../../../services/utils/app';
+import app, { biometricIcon, biometricName } from '../../../services/utils/app';
 
 // The unlock screen.
 //
@@ -267,8 +267,8 @@ const DashboardPassword = () => {
               disabled={isUnlocking}
               onClick={() => unlockWithFingerprint(selectedWallet)}
             >
-              <Icon name="fingerprint" size={18} />
-              Fingerprint
+              <Icon name={biometricIcon()} size={18} />
+              {biometricName()}
             </button>
           )}
           {/* The unlock waits on the node; after 3 s this says so and offers a way on. */}

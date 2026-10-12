@@ -4,10 +4,10 @@ import { useForm } from 'react-hook-form';
 
 import Icon from '../../../components/icon/icon';
 import { notify } from '../../../services/utils/notify';
-import app from '../../../services/utils/app';
+import app, { biometricIcon, biometricName } from '../../../services/utils/app';
 import vault from '../../../services/wallet/vault';
 
-// Fingerprint unlock, in the app (platform/nativeFeatures.js).
+// Fingerprint, Face ID or Touch ID unlock, in the app (platform/nativeFeatures.js).
 //
 // Turning it on proves the password first, as changing it does: an unlocked
 // wallet left on a table must not let someone else's fingerprint in for good.
@@ -44,7 +44,7 @@ const Biometric = () => {
       if (!vault.isCurrent(lifetime)) return;
       await app().biometric.enable(walletName, password);
       setPassword('');
-      notify.success('Fingerprint unlock on');
+      notify.success(`${biometricName()} unlock on`);
       navigate('/tabs/settings', { replace: true });
     } catch (error) {
       notify.error(error);
@@ -56,7 +56,7 @@ const Biometric = () => {
   const turnOff = async () => {
     await app()?.biometric.disable(walletName);
     setState('off');
-    notify.success('Fingerprint unlock off');
+    notify.success(`${biometricName()} unlock off`);
   };
 
   if (state === null) return <div className="page" />;
@@ -64,7 +64,10 @@ const Biometric = () => {
   if (state === 'absent') {
     return (
       <div className="page">
-        <p className="text-gray">Add a fingerprint in the phone&apos;s settings first.</p>
+        <p className="text-gray">
+          {biometricName() === 'Fingerprint' ? 'Add a fingerprint' : `Set up ${biometricName()}`} in the
+          phone&apos;s settings first.
+        </p>
       </div>
     );
   }
@@ -73,7 +76,7 @@ const Biometric = () => {
     return (
       <div className="page">
         <div className="biometric-state">
-          <Icon name="fingerprint" size={32} />
+          <Icon name={biometricIcon()} size={32} />
           <span>On for {walletName}</span>
         </div>
         <button type="button" className="button danger-text w-100" onClick={turnOff}>

@@ -40,6 +40,7 @@ import AzForm from '../../pages/pillar/az-form';
 import TokenManage from '../../pages/tokens/token-manage';
 import TokenIssue from '../../pages/tokens/token-issue';
 import TokenDetail from '../../pages/tokens/token-detail';
+import { biometricName } from '../../services/utils/app';
 
 // Which screens are somewhere you go into, rather than somewhere you are. Those
 // get a back button and no bottom bar — a tab bar on a sub-screen invites you to
@@ -52,7 +53,8 @@ const subScreens = {
   '/tabs/settings/change-node': 'Node',
   '/tabs/settings/export-mnemonic': 'Backup phrase',
   '/tabs/settings/change-password': 'Password',
-  '/tabs/settings/biometric': 'Fingerprint unlock',
+  // Fingerprint, Face ID or Touch ID, as the phone calls it.
+  get '/tabs/settings/biometric'() { return `${biometricName()} unlock`; },
   '/tabs/settings/contacts': 'Address book',
   '/tabs/settings/connected-sites': 'Connected sites',
   '/tabs/settings/sign-message': 'Sign message',

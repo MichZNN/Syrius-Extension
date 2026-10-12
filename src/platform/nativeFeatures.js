@@ -1,6 +1,6 @@
 import { registerPlugin } from '@capacitor/core';
 import { App } from '@capacitor/app';
-import { AccessControl, AuthenticationStrength, NativeBiometric } from '@capgo/capacitor-native-biometric';
+import { AccessControl, AuthenticationStrength, BiometryType, NativeBiometric } from '@capgo/capacitor-native-biometric';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { PrivacyScreen } from '@capacitor/privacy-screen';
 import { Share } from '@capacitor/share';
@@ -26,12 +26,20 @@ const cancelled = (error) => ['10', '11', '13', '15', '16', '17'].includes(Strin
 // The key was invalidated (new fingerprint enrolled) or never stored.
 const gone = (error) => ['21'].includes(String(error?.code)) || /invalidated|not found/i.test(error?.message || '');
 
+// Android shows the title; iOS shows the reason under Touch ID.
 const prompt = {
   title: 'Unlock Syrius',
+  reason: 'Unlock Syrius',
   negativeButtonText: 'Use password',
 };
 
+// What the screens call it: the phone's own name for it. An iPhone is Face ID
+// until it says Touch ID (the SE); install() asks.
+let biometricName = process.env.SYRIUS_PLATFORM === 'ios' ? 'Face ID' : 'Fingerprint';
+const names = { [BiometryType.FACE_ID]: 'Face ID', [BiometryType.TOUCH_ID]: 'Touch ID' };
+
 const biometric = {
+  name: () => biometricName,
   // Whether this phone has a strong biometric enrolled: a Keystore key bound
   // to a fingerprint needs a Class 3 sensor, which weak face unlock is not.
   available: async () => {
@@ -149,6 +157,9 @@ const emit = (event) => lifecycle.forEach((listener) => {
 });
 
 const install = () => {
+  NativeBiometric.isAvailable({ useFallback: false })
+    .then(({ biometryType }) => { biometricName = names[biometryType] || biometricName; })
+    .catch(() => {});
   App.addListener('pause', () => {
     pausedAt = Date.now();
     pausedByUs = ownUi > 0;

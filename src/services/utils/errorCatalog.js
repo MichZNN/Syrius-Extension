@@ -51,7 +51,7 @@ const catalog = {
   132: 'No pillar is named {name}.',
   133: 'Give the contact a name.',
   134: 'That QR code holds no Zenon address.',
-  135: 'Fingerprints changed on this phone. Unlock with the password and turn fingerprint unlock on again.',
+  135: 'Fingerprints or Face ID changed on this phone. Unlock with the password and turn it on again in Settings.',
   136: 'Installing the QR scanner. Try again in a moment.',
 
   // The wallet

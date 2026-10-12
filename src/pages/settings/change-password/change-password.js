@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { notify } from '../../../services/utils/notify';
 import { validateWalletPassword } from '../../../services/wallet/password';
 import vault from '../../../services/wallet/vault';
-import app from '../../../services/utils/app';
+import app, { biometricName } from '../../../services/utils/app';
 
 // Changing the wallet password.
 //
@@ -56,7 +56,7 @@ const ChangePassword = () => {
           await native.biometric.enable(walletName, newPassword);
         } catch (error) {
           await native.biometric.disable(walletName);
-          notify.info('Fingerprint unlock is off. Turn it on again in Settings.');
+          notify.info(`${biometricName()} unlock is off. Turn it on again in Settings.`);
         }
       }
 

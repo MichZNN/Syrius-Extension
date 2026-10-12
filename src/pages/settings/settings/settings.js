@@ -9,7 +9,7 @@ import { notify } from '../../../services/utils/notify';
 import { explorerChoices } from '../../../services/utils/explorer';
 import { applyTheme, themeChoices } from '../../../services/utils/theme';
 import { modes } from '../../../services/utils/menu';
-import app from '../../../services/utils/app';
+import app, { biometricIcon, biometricName } from '../../../services/utils/app';
 
 // The settings index.
 //
@@ -194,7 +194,7 @@ const Settings = () => {
             <div className="settings-group">
               <SettingsItem icon="key" title="Backup phrase" url="export-mnemonic" tone="warning" />
               <SettingsItem icon="password" title="Password" url="change-password" />
-              {app() && <SettingsItem icon="fingerprint" title="Fingerprint unlock" url="biometric" />}
+              {app() && <SettingsItem icon={biometricIcon()} title={`${biometricName()} unlock`} url="biometric" />}
             </div>
 
             <label className="setting-row">
