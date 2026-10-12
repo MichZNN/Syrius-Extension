@@ -1,4 +1,4 @@
-import React, { useContext, useRef, useState } from 'react';
+import React, { useContext, useRef } from 'react';
 
 import AlertModal from '../../components/modals/alert-modal';
 import PasswordModal from '../../components/modals/password-modal';
@@ -20,6 +20,7 @@ import {
 import { znnZts, qsrZts } from '../../services/wallet/account';
 import { formatExact, parseAmount } from '../../services/utils/format';
 import { notify } from '../../services/utils/notify';
+import usePopupState from '../../services/utils/popupState';
 
 // Sentinel (sentinel mode).
 //
@@ -93,7 +94,7 @@ const Owned = ({ sentinel, activeCount, uncollected, onCollect, onRevoke }) => {
 // The QSR an address has put in and not yet used: shown wherever there is
 // some, with the way to take it back.
 const Deposit = ({ qsrBalance, qsrDeposited, qsrShort, canAdd, onDeposit, onWithdraw }) => {
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = usePopupState('sentinel.amount', '');
   const parsed = parseAmount(amount, decimals);
   const tooMuch = parsed !== null && parsed.gt(toBase(qsrBalance).toString());
   const canDeposit = canAdd && parsed !== null && !parsed.isZero() && !tooMuch;

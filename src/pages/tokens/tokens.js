@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import useAccount from '../../services/hooks/useAccount';
 import { formatAmount, formatExact, truncateAddress } from '../../services/utils/format';
+import usePopupState from '../../services/utils/popupState';
 
 // Every ZTS this account holds.
 //
@@ -16,7 +17,7 @@ import { formatAmount, formatExact, truncateAddress } from '../../services/utils
 const Tokens = () => {
   const navigate = useNavigate();
   const { balances, isLoading } = useAccount();
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = usePopupState('tokens.query', '');
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();

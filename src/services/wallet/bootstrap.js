@@ -15,6 +15,7 @@ import {
 import { announceUnlock } from './announce';
 import vault from './vault';
 import { beginReadContextChange } from './readContext';
+import { load as loadPopupState } from '../utils/popupState';
 
 // Everything that has to happen between "this is the right password" and "the
 // wallet is on screen", in the one order that works.
@@ -129,6 +130,9 @@ const completeUnlock = async ({ walletName, password, sessionRecord, dispatch })
   const isConnected = await connectToNode(dispatch, () => vault.isCurrent(lifetime));
   await vault.assertSession(lifetime);
   await announceUnlock(address, lifetime);
+  // What the popup was showing under this lease, if it was closed while
+  // unlocked (utils/popupState.js). A password unlock is a new lease: nothing.
+  await loadPopupState(vault);
   return { address, isConnected };
 };
 

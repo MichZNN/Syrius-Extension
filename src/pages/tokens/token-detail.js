@@ -10,6 +10,7 @@ import useChainChange from '../../services/hooks/useChainChange';
 import { burnError, mintError, reads, templates, updateError } from '../../services/token/token';
 import { formatExact, parseAmount } from '../../services/utils/format';
 import { notify } from '../../services/utils/notify';
+import usePopupState from '../../services/utils/popupState';
 
 // One token: what it is, and Mint, Burn and Update for its owner. Burn is
 // also offered to anyone holding a burnable token.
@@ -31,8 +32,8 @@ const TokenDetail = () => {
 
   const [token, setToken] = useState(location.state?.token || null);
   const [chosen, setAction] = useState(token?.isMintable ? 'mint' : 'burn');
-  const [amount, setAmount] = useState('');
-  const [receiver, setReceiver] = useState('');
+  const [amount, setAmount] = usePopupState('token.amount', '');
+  const [receiver, setReceiver] = usePopupState('token.receiver', '');
   const [next, setNext] = useState(null);
   const [touched, setTouched] = useState(false);
 
@@ -50,7 +51,7 @@ const TokenDetail = () => {
   useEffect(() => {
     if (address && !receiver) setReceiver(address);
     if (token && !next) setNext({ owner: token.owner, isMintable: token.isMintable, isBurnable: token.isBurnable });
-  }, [address, receiver, token, next]);
+  }, [address, receiver, setReceiver, token, next]);
 
   if (!token) return <Navigate to="/tabs/tokens/manage" replace />;
 

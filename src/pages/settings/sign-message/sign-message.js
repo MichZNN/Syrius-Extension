@@ -8,6 +8,7 @@ import {
 } from '../../../services/wallet/signMessage';
 import { copyToClipboard, notify } from '../../../services/utils/notify';
 import { truncateAddress } from '../../../services/utils/format';
+import usePopupState from '../../../services/utils/popupState';
 
 // Signing a message by hand.
 //
@@ -39,7 +40,7 @@ const SignedField = ({ label, value, copyLabel }) => (
 const SignMessage = () => {
   const { address } = useSelector((state) => state.wallet);
 
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = usePopupState('sign.message', '');
   const [signed, setSigned] = useState(null);
   const [isSigning, setIsSigning] = useState(false);
 

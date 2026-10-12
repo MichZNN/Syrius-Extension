@@ -18,6 +18,7 @@ import {
 } from '../../services/pillar/rules';
 import { formatAmount, formatExact, parseAmount } from '../../services/utils/format';
 import { notify } from '../../services/utils/notify';
+import usePopupState from '../../services/utils/popupState';
 
 // Submitting an Accelerator-Z project, and adding or replacing a phase of one.
 // The contract takes the same five fields for all three, with the same limits
@@ -41,7 +42,7 @@ const AzForm = ({ mode: routeMode }) => {
   const mode = routeMode === 'phase' ? location.state?.mode : 'new';
   const editing = mode === 'update' ? currentPhase(project)?.phase : null;
 
-  const [form, setForm] = useState(() => ({
+  const [form, setForm] = usePopupState(`az.${mode}.${project?.id || 'new'}`, () => ({
     name: editing?.name || '',
     description: editing?.description || '',
     url: editing?.url || '',

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
@@ -14,6 +14,7 @@ import MenuHeader from '../../pages/menu/menu-header/menu-header';
 import MenuTabs from '../../pages/menu/menu-tabs/menu-tabs';
 import OutgoingWatch from '../../components/outgoing-watch/outgoing-watch';
 import JournalNotice from '../../components/journal-notice/journal-notice';
+import { saveRoute } from '../../services/utils/popupState';
 
 import Settings from '../../pages/settings/settings/settings';
 import ChangeNode from '../../pages/settings/change-node/change-node';
@@ -68,6 +69,8 @@ const subScreens = {
 const TabsLayout = () => {
   const location = useLocation();
   const subScreenTitle = subScreens[location.pathname];
+  // Reopened here if the popup closes (utils/popupState.js).
+  useEffect(() => { saveRoute(location.pathname, location.state); }, [location.pathname, location.state]);
   const address = useSelector((state) => state.wallet.address);
   // A row appearing, settling or failing is each a reason to look again now
   // rather than at the next poll.

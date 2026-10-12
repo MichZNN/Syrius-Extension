@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Primitives } from 'znn-ts-sdk';
 import { useForm } from 'react-hook-form';
@@ -18,6 +18,7 @@ import {
 import { notify } from '../../../services/utils/notify';
 import { znnZts } from '../../../services/wallet/account';
 import { fail } from '../../../services/utils/errors';
+import usePopupState from '../../../services/utils/popupState';
 
 // Sending.
 //
@@ -43,11 +44,9 @@ const Send = () => {
   const { openModal } = useContext(ModalContext);
   const { sendInBackground } = useBackgroundSender();
 
-  const [selectedToken, setSelectedToken] = useState(
-    location.state?.currentSelectedToken || znnZts
-  );
-  const [amount, setAmount] = useState('');
-  const [recipient, setRecipient] = useState('');
+  const [selectedToken, setSelectedToken] = usePopupState('send.token', znnZts);
+  const [amount, setAmount] = usePopupState('send.amount', '');
+  const [recipient, setRecipient] = usePopupState('send.recipient', '');
 
   const {
     register,
@@ -77,6 +76,16 @@ const Send = () => {
   useEffect(() => {
     setValue('selectedTokenField', selectedToken, { shouldValidate: true });
   }, [selectedToken, setValue]);
+
+  // A token picked on the screen that opened this one wins over a kept one.
+  // Kept values (utils/popupState.js) are the form library's too, or it would
+  // call them missing.
+  useEffect(() => {
+    if (location.state?.currentSelectedToken) setSelectedToken(location.state.currentSelectedToken);
+    if (amount) setValue('sendAmountField', amount, { shouldValidate: true });
+    if (recipient) setValue('recipientAddressField', recipient, { shouldValidate: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Comparing base units rather than parsed floats, so a balance that a double
   // cannot represent still validates correctly.

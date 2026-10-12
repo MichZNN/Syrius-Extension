@@ -13,6 +13,7 @@ global.localStorage = { getItem: key => memory.get(key) ?? null, setItem: (key, 
 global.chrome = { windows: { getCurrent: async () => ({ id: 1 }) } };
 const sdk = require('znn-ts-sdk');
 const { ethers } = require('ethers');
+const { popupStateStub } = require('./fixtures/popup-state-stub');
 const root = path.join(__dirname, '..');
 const loader = (override = () => undefined) => {
   const cache = new Map();
@@ -74,6 +75,7 @@ const view = ({ file, states, account }) => {
   };
   const Component = loader(name => {
     if (name === 'react') return mockReact;
+    if (name.endsWith('/utils/popupState')) return popupStateStub(mockReact);
     if (name === 'react-router-dom') return { useNavigate: () => () => {}, useLocation: () => ({}) };
     if (name === 'react-redux') return { useSelector: fn => fn({ wallet: { address: account.address, isUnlocked: true }, connectionParameters: { chainIdentifier: 1, nodeUrl: 'wss://example.invalid' } }) };
     if (name === 'react-hook-form') return { useForm: () => ({ register: (name, options) => { rules[name] = options; return { name }; }, handleSubmit: fn => fn, formState: { errors: {} }, reset: () => {}, setValue: () => {}, trigger: () => {} }) };

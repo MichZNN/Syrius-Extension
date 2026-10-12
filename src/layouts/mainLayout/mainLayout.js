@@ -21,6 +21,7 @@ import NodeStall from '../../components/node-stall/node-stall';
 import { describe, fail } from '../../services/utils/errors';
 import { getCurrentNodeUrl } from '../../services/utils/storage';
 import { isDevWalletBuild, prepareDevWallet } from '../../services/utils/devWallet';
+import { savedRoute } from '../../services/utils/popupState';
 
 // The routes that mean something specific was asked for, rather than "open the
 // wallet". A dApp approval is opened as `popup.html#/site-integration`, and
@@ -150,10 +151,14 @@ const MainLayout = () => {
             dispatch,
           });
           if (!cancelled) {
+            // A popup opened plainly goes back to the screen it closed on
+            // (utils/popupState.js); a deep link or an explicit route wins.
+            const kept = savedRoute();
+            const reopen = !deepLink && !isWithin('/tabs') && kept?.pathname?.startsWith('/tabs/') ? kept : null;
             const destination = deepLink || (
-              isWithin('/tabs') ? initialPathname : '/tabs/dashboard'
+              isWithin('/tabs') ? initialPathname : reopen?.pathname || '/tabs/dashboard'
             );
-            navigateIfNeeded(destination);
+            navigateIfNeeded(destination, reopen?.state ? { state: reopen.state } : {});
           }
           return;
         } catch (err) {

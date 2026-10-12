@@ -16,6 +16,7 @@ import fallbackValues from '../../../services/utils/fallbackValues';
 import { formatAmount, formatExact, parseAmount, toBigNumber, toDecimals } from '../../../services/utils/format';
 import { notify } from '../../../services/utils/notify';
 import { fail } from '../../../services/utils/errors';
+import usePopupState from '../../../services/utils/popupState';
 
 // Staking.
 //
@@ -32,8 +33,8 @@ const Stake = () => {
   const { sendInBackground } = useBackgroundSender();
 
   const [addressObject, setAddressObject] = useState(null);
-  const [amount, setAmount] = useState('');
-  const [duration, setDuration] = useState('');
+  const [amount, setAmount] = usePopupState('stake.amount', '');
+  const [duration, setDuration] = usePopupState('stake.duration', '');
   const [uncollectedQsr, setUncollectedQsr] = useState(0);
 
   const znn = balanceMap[znnZts];

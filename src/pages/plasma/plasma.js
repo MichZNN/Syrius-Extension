@@ -23,6 +23,7 @@ import {
 import { notify } from '../../services/utils/notify';
 import Icon from '../../components/icon/icon';
 import { fail } from '../../services/utils/errors';
+import usePopupState from '../../services/utils/popupState';
 
 // Plasma.
 //
@@ -50,11 +51,11 @@ const Plasma = () => {
   const { sendInBackground } = useBackgroundSender();
 
   const [addressObject, setAddressObject] = useState(null);
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = usePopupState('plasma.amount', '');
   // Who the plasma is for — fusing is a gift the contract allows to any
   // address, not only your own. Defaults to this account so the common case
   // (fusing for yourself) needs no typing.
-  const [recipient, setRecipient] = useState('');
+  const [recipient, setRecipient] = usePopupState('plasma.recipient', '');
   const [momentumHeight, setMomentumHeight] = useState(0);
   const [plasmaInfo, setPlasmaInfo] = useState(null);
   const [isPlasmaLoading, setIsPlasmaLoading] = useState(false);
