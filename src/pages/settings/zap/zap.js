@@ -21,6 +21,7 @@ import { blocksFor, defaultMessage, defaults, findAlien, messageError, messageMa
 
 // How many of this wallet's own addresses are kept out of the draw.
 const ownAddresses = 16;
+const nodeSelectionNotice = 'The recipient is picked from activity reported by your connected node. A node can influence who receives the Zap.';
 
 const Zap = () => {
   const navigate = useNavigate();
@@ -91,6 +92,7 @@ const Zap = () => {
         <p>
           Send <b>{parts}</b> to <span className="mono" title={alien.address}>{truncateAddress(alien.address)}</span>?
         </p>
+        <p className="approval-note">{nodeSelectionNotice}</p>
       </AlertModal>
     );
   };
@@ -115,6 +117,8 @@ const Zap = () => {
             <Icon name="dice" size={18} className={finding ? 'is-rolling' : ''} />
           </button>
         </div>
+
+        <p className="approval-note">{nodeSelectionNotice}</p>
 
         <div className="field-row">
           <label className="field">
