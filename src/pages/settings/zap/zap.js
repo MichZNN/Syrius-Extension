@@ -11,7 +11,6 @@ import { parseAmount, truncateAddress } from '../../../services/utils/format';
 import { notify } from '../../../services/utils/notify';
 import vault from '../../../services/wallet/vault';
 import { blocksFor, defaultMessage, defaults, findAlien, messageError, messageMax } from '../../../services/zap/zap';
-import { sendZap } from '../../../services/zap/send';
 
 // Zap (Settings): a small gift to a random address that was active this week.
 //
@@ -73,7 +72,10 @@ const Zap = () => {
         addressIndex: selectedAddressIndex,
         successMessage: 'Zapped',
         row: { owner: address, label: 'Zapping', amount: blocks[0].amount, decimals: 8, tokenSymbol: blocks[0].symbol },
-        send: () => sendZap(blocks, selectedAddressIndex),
+        // One job of a block per coin (wallet/blockJobs.js).
+        templates: blocks.map((block) => block.template),
+        kind: 'zap',
+        symbols: blocks.map((block) => block.symbol),
       });
       navigate('/tabs/settings');
     } catch (err) {

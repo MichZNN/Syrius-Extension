@@ -45,6 +45,13 @@ export const pendingTransactionsSlice = createSlice({
         Object.assign(entry, changes);
       }
     },
+    // A row the background page reports (components/block-sync): added if this
+    // popup has not seen it, merged if it has.
+    upsertPendingTransaction: (state, action) => {
+      const entry = state.items.find((item) => item.id === action.payload.id);
+      if (entry) Object.assign(entry, action.payload);
+      else state.items.unshift({ status: pendingStatus.sending, ...action.payload });
+    },
     clearPendingTransaction: (state, action) => {
       state.items = state.items.filter((item) => item.id !== action.payload);
     },
@@ -66,6 +73,7 @@ export const pendingTransactionsSlice = createSlice({
 export const {
   startPendingTransaction,
   updatePendingTransaction,
+  upsertPendingTransaction,
   clearPendingTransaction,
   clearSettledTransactions,
   resetPendingTransactions,

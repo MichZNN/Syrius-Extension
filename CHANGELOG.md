@@ -17,8 +17,17 @@ New
 - Accelerator-Z phases: Max beside ZNN and QSR fills in what the project has
   left, and more is refused before the block is sent.
 - An address book (Settings), offered on Send with the last five recipients.
+- Zap a random alien is in the menu as well as in Settings.
 - Proof of work runs on up to four cores at once, and "Generating plasma"
-  says about how long it should take, counting down.
+  says about how long it should take, counting down (~12s, ~3m), on a line
+  of its own under the block.
+- Sends and receives run in the background while the wallet is unlocked
+  with "Lock after" set to a time: closing the popup no longer stops them,
+  proof of work included, and Home shows them again, still going, when it
+  reopens. With On close the popup does the work, and closing it stops it.
+- Incoming transfers are received without opening the popup: every account
+  of the unlocked wallet is checked every 30 s. Auto-receive in Settings
+  turns it off. It never extends "Lock after".
 
 Android and iOS apps (sideload)
 - The wallet as an Android app and an unsigned iOS app (each release's IPA,

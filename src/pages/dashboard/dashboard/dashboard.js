@@ -15,6 +15,7 @@ import useDelayedFlag from '../../../services/hooks/useDelayedFlag';
 import usePriceFeed from '../../../services/hooks/usePriceFeed';
 import useChainChange from '../../../services/hooks/useChainChange';
 import { receiveOnce } from '../../../services/wallet/outgoingWatch';
+import { hostReady, hostReceive, onHostState } from '../../../services/wallet/blockService';
 import vault from '../../../services/wallet/vault';
 import {
   countPendingBlocks,
@@ -23,8 +24,7 @@ import {
   znnZts,
   qsrZts,
 } from '../../../services/wallet/account';
-import { embeddedContractName } from '../../../services/utils/contracts';
-import { contractDisplayName } from '../../../services/utils/contractCalls';
+import { describePendingBlock } from '../../../services/utils/outgoingBlock';
 import { formatAmount, formatExact, formatUsd } from '../../../services/utils/format';
 import { notify } from '../../../services/utils/notify';
 import { updateSetting } from '../../../services/wallet/preferences';
@@ -44,25 +44,6 @@ import {
 // happens on its own when the setting is on, but it is bounded, it says what it
 // is doing, and it never blocks the first paint.
 
-// The row shown for the block being received right now.
-//
-// It is built from the unreceived block itself rather than from history,
-// because until the receive is signed and published there is nothing in this
-// account's chain to list — which is exactly the stretch where proof of work
-// runs and the wallet looked like it had stopped.
-const describePendingBlock = (block) => {
-  const sender = block.address?.toString() || '';
-  const contract = embeddedContractName(sender);
-
-  return {
-    amount: block.amount,
-    decimals: block.token?.decimals,
-    tokenSymbol: block.token?.symbol || '',
-    address: sender,
-    counterpartyName: contract ? contractDisplayName(contract) : null,
-  };
-};
-
 const Dashboard = () => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
@@ -81,7 +62,11 @@ const Dashboard = () => {
   const [receiveProgress, setReceiveProgress] = useState('');
   // The block being received at this moment, and whether it is paying for
   // itself with proof of work. Null whenever nothing is in flight.
-  const [receivingBlock, setReceivingBlock] = useState(null);
+  const [ownReceivingBlock, setReceivingBlock] = useState(null);
+  // What the background page is receiving for this account (wallet/blockService.js).
+  const [hostReceiving, setHostReceiving] = useState(null);
+  useEffect(() => onHostState((state) => setHostReceiving(state?.receiving || null)), []);
+  const receivingBlock = ownReceivingBlock || (hostReceiving && hostReceiving.owner === address ? hostReceiving : null);
   const [hideBalances, setHideBalances] = useState(() => getSettings().hideBalances);
 
   // A send belongs to the address that made it; switching address should not
@@ -153,6 +138,12 @@ const Dashboard = () => {
 
   const receive = useCallback(async () => {
     if (!addressObject || isReceiving) {
+      return;
+    }
+    // The background page receives while it is there, popup or no popup; its
+    // row shows here as it goes.
+    if (await hostReady()) {
+      hostReceive();
       return;
     }
     setIsReceiving(true);

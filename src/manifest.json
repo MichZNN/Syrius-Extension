@@ -30,7 +30,7 @@
     "default_title": "Syrius",
     "default_popup": "popup.html"
   },
-  "permissions": ["storage", "alarms", "webNavigation"],
+  "permissions": ["storage", "alarms", "webNavigation", "offscreen"],
   "optional_host_permissions": [
     "https://github.com/*",
     "https://objects.githubusercontent.com/*",

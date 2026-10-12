@@ -15,6 +15,8 @@ import MenuTabs from '../../pages/menu/menu-tabs/menu-tabs';
 import OutgoingWatch from '../../components/outgoing-watch/outgoing-watch';
 import JournalNotice from '../../components/journal-notice/journal-notice';
 import AppWatch from '../../components/app-watch/app-watch';
+import BackgroundReceive from '../../components/background-receive/background-receive';
+import BlockSync from '../../components/block-sync/block-sync';
 import { saveRoute } from '../../services/utils/popupState';
 
 import Settings from '../../pages/settings/settings/settings';
@@ -146,6 +148,8 @@ const TabsLayout = () => {
           away from Home. */}
       <OutgoingWatch />
       <AppWatch />
+      <BackgroundReceive />
+      <BlockSync />
       {!subScreenTitle && <MenuTabs />}
     </div>
   );

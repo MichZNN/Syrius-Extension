@@ -14,6 +14,7 @@ import {
   acceptedRows, createTracker, stripRows, receiveOnce, pollMs, receivePollMs, confirmedShownMs,
 } from '../../services/wallet/outgoingWatch';
 import { getSettings } from '../../services/utils/storage';
+import { hostReady, hostReceive } from '../../services/wallet/blockService';
 import { clearPendingTransaction } from '../../services/redux/pendingTransactionsSlice';
 
 // Follows this wallet's sent blocks to their momentum on every screen under
@@ -115,6 +116,11 @@ const OutgoingWatch = () => {
       if (cancelled || !context.isCurrent() || !count) return;
       emitChainChange('incoming');
       if (home.current || !getSettings().autoReceive) return;
+      // The background page receives while it is there (wallet/blockService.js).
+      if (await hostReady()) {
+        hostReceive();
+        return;
+      }
       try {
         const received = await receiveOnce(async () =>
           receivePendingBlocks(context.zenon, await vault.getSigningKeyPair(), addressObject));

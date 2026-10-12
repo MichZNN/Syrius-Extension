@@ -43,6 +43,9 @@ const manifestFor = (manifest) => {
   } = manifest;
   return {
     ...rest,
+    // Firefox has no offscreen documents; its receiver is an iframe in the
+    // background page (sections/Background/receiver.js).
+    permissions: manifest.permissions.filter((permission) => permission !== 'offscreen'),
     background: { scripts: [manifest.background.service_worker] },
     browser_specific_settings: {
       gecko: {
@@ -87,6 +90,9 @@ module.exports = {
     contentScript: path.join(__dirname, './src/sections/Content/index.js'),
     inpage: path.join(__dirname, './src/sections/Inpage/index.js'),
     ...(isApp && { mobileShim: path.join(__dirname, './src/platform/mobileShim.js') }),
+    // Receives in the background while a timed unlock lasts (sections/Receiver).
+    // The app does that in its own page.
+    ...(!isApp && { receiver: path.join(__dirname, './src/sections/Receiver/index.js') }),
   },
 
   output: {
@@ -115,15 +121,16 @@ module.exports = {
     splitChunks: {
       // The content script and the injected page script run on every site the
       // user visits, so they must stay standalone — a shared vendor chunk they
-      // cannot load would break them. Only the popup gets one.
-      chunks: (chunk) => chunk.name === 'popup',
+      // cannot load would break them. Only the popup and the receiver page,
+      // which share it, get one.
+      chunks: (chunk) => chunk.name === 'popup' || chunk.name === 'receiver',
       cacheGroups: {
         vendor: {
           // A path test rather than a regex: this repo builds on Windows,
           // where module paths are separated by backslashes.
           test: (module) => (module.resource || '').includes('node_modules'),
           name: 'vendors',
-          chunks: (chunk) => chunk.name === 'popup',
+          chunks: (chunk) => chunk.name === 'popup' || chunk.name === 'receiver',
           // AMO's validator refuses to parse a script over 5 MB, and the
           // vendor chunk is 6. Firefox gets it in pieces; Chrome keeps one file.
           ...(platform === 'firefox' && { name: false, maxSize: 4 * 1024 * 1024 }),
@@ -289,6 +296,13 @@ module.exports = {
     }),
 
     // Capacitor opens index.html; the wallet's own links name popup.html.
+    ...(isApp ? [] : [new HtmlWebpackPlugin({
+      template: './src/sections/Receiver/index.html',
+      filename: 'receiver.html',
+      chunks: ['vendors', 'receiver'],
+      chunksSortMode: 'manual',
+      cache: false,
+    })]),
     ...(isApp ? [new HtmlWebpackPlugin({
       template: './src/sections/Popup/index.html',
       filename: 'index.html',

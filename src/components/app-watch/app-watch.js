@@ -13,6 +13,7 @@ import { emitChainChange } from '../../services/wallet/chainEvents';
 import { resetWalletState } from '../../services/redux/walletSlice';
 import { resetPendingTransactions } from '../../services/redux/pendingTransactionsSlice';
 import { invalidateAccountCache } from '../../services/hooks/useAccount';
+import { onBlockReceived } from '../../services/wallet/backgroundReceive';
 
 // What the app does while the wallet is unlocked and the person is elsewhere.
 // Mounted with the tab screens (layouts/tabsLayout), so only while unlocked;
@@ -59,6 +60,11 @@ const AppWatch = () => {
     const native = app();
     if (!native) return undefined;
     let stopped = false;
+    const announce = (block) => {
+      const symbol = block.token?.symbol || '';
+      const amount = formatAmount(block.amount, block.token?.decimals ?? 8);
+      native.notify({ title: `Incoming ${amount} ${symbol}`.trim(), body: `From ${block.address.toString()}` });
+    };
     const look = async () => {
       let page;
       try {
@@ -76,17 +82,22 @@ const AppWatch = () => {
       if (first || !fresh.length) return;
       emitChainChange('incoming');
       if (!native.inBackground()) return;
-      for (const block of fresh) {
-        const symbol = block.token?.symbol || '';
-        const amount = formatAmount(block.amount, block.token?.decimals ?? 8);
-        native.notify({ title: `Incoming ${amount} ${symbol}`.trim(), body: `From ${block.address.toString()}` });
-      }
+      fresh.forEach(announce);
     };
+    // A block the background receiver took before this look saw it still
+    // gets its notification.
+    const stopReceived = onBlockReceived((block) => {
+      seen.current = seen.current || new Set();
+      if (seen.current.has(block.hash.toString())) return;
+      seen.current.add(block.hash.toString());
+      if (native.inBackground()) announce(block);
+    });
     look();
     const timer = setInterval(look, pollMs);
     return () => {
       stopped = true;
       clearInterval(timer);
+      stopReceived();
     };
   }, []);
 

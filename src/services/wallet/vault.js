@@ -134,14 +134,16 @@ const unlockWithPassword = async (walletName, password, selectedIndex = 0, prepa
 };
 // Resumes the shared selection as recorded: its account, checked against the
 // keys it would resume, so a record cannot pair one wallet's name and scope
-// with another's entropy.
-const restore = async (record, prepare = () => {}) => {
+// with another's entropy. `renew: false` is the background receiver's
+// (wallet/backgroundReceive.js): it resumes without extending the session or
+// taking over its owner.
+const restore = async (record, prepare = () => {}, { renew = true } = {}) => {
   const generation = state.generation;
   const index = record?.scope?.index;
   if (!record?.entropy || !Number.isSafeInteger(index)) throw session.ended();
   const scope = await scopeOf(new KeyStore().fromEntropy(record.entropy), record.walletName, index);
   if (generation !== state.generation || !sameScope(scope, record.scope)) throw session.ended();
-  return session.restore(record, scope, (current, entropy) => {
+  return (renew ? session.restore : session.follow)(record, scope, (current, entropy) => {
     if (generation !== state.generation) throw session.ended();
     prepare();
     return adopt(current.walletName, new KeyStore().fromEntropy(entropy), current, current.scope.index);

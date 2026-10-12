@@ -498,11 +498,13 @@ test('fuses: the page sends what is in the list, after one confirmation, in one 
   const page = require('node:fs').readFileSync(path.join(root, 'src/pages/plasma/plasma.js'), 'utf8').replace(/\r\n/g, '\n').replace(/\s+/g, ' ');
   // Read against the list at the moment of sending, not from what was ticked.
   assert.ok(page.includes('const list = picked(entries.items, selected, momentumHeight); if (!list.length) return;'));
-  // Each cancel takes its account's turn (wallet/journal.js).
-  assert.ok(page.includes('return cancelMany(list.map((entry) => entry.id), async (id) => sendJournaled(Zenon.getSingleton(), await plasma.cancel(id), keyPair));'));
-  assert.equal(page.split('cancelMany(').length - 1, 1, 'one place sends a batch');
+  // One job of a CancelFuse block per listed fuse, each in its account's turn
+  // (wallet/blockJobs.js, wallet/journal.js).
+  assert.ok(page.includes('const templates = await Promise.all(list.map((entry) => plasma.cancel(entry.id)));'));
+  assert.ok(page.includes("templates, kind: 'fuses',"));
+  assert.equal(page.split("kind: 'fuses'").length - 1, 1, 'one place sends a batch');
   // The key is the one selected when the batch was confirmed.
-  assert.ok(page.includes('const index = vault.getSelectedIndex();') && page.includes('const keyPair = await vault.getSigningKeyPair(index);'));
+  assert.ok(page.includes('addressIndex: vault.getSelectedIndex(),'));
   // Only the dialog starts it.
   assert.equal(page.split('cancelSelected').length - 1, 2, 'defined, and handed to the dialog');
   assert.equal(page.split('confirmCancelSelected').length - 1, 2, 'the dialog opener: defined, and bound to the button');

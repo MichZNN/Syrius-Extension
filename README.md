@@ -28,6 +28,9 @@ iOS apps built from the same source. [What changed](CHANGELOG.md).
 - **Picks up where it left off**: the popup reopens on the screen it closed
   on, with what had been typed, until the wallet locks.
 - **Address book** (Settings), offered on Send with the last five recipients.
+- **Works in the background**: while the wallet is unlocked, sends and
+  receives carry on with the popup closed, proof of work included, and
+  incoming transfers are received on every account without opening it.
 - **Android and iOS apps**: fingerprint or Face ID unlock, Share on Receive,
   a notification for incoming transfers, and desktop Syrius's `syrius://`
   links, including `syrius://request` for another app to ask for a connection

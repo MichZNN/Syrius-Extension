@@ -9,9 +9,8 @@ import useAccount from '../../services/hooks/useAccount';
 import useBackgroundSender from '../../services/hooks/useBackgroundSender';
 import usePagedList from '../../services/hooks/usePagedList';
 import useChainChange from '../../services/hooks/useChainChange';
-import { cancelMany, cancellable, picked, prune, selectAll, toggle, totalOf } from '../../services/plasma/batchCancel';
+import { cancellable, picked, prune, selectAll, toggle, totalOf } from '../../services/plasma/batchCancel';
 import vault from '../../services/wallet/vault';
-import sendJournaled from '../../services/wallet/publisher';
 import { qsrZts } from '../../services/wallet/account';
 import {
   formatAmount,
@@ -320,19 +319,19 @@ const Plasma = () => {
     });
   }, [entries.items, momentumHeight]);
 
-  const cancelSelected = () => {
+  const cancelSelected = async () => {
     const list = picked(entries.items, selected, momentumHeight);
     if (!list.length) return;
     try {
       const plasma = Zenon.getSingleton().embedded.plasma;
-      const index = vault.getSelectedIndex();
+      // One job of a CancelFuse block per fuse (wallet/blockJobs.js).
+      const templates = await Promise.all(list.map((entry) => plasma.cancel(entry.id)));
       sendInBackground(null, {
         successMessage: `${list.length} fuses cancelled`,
         row: { owner: address, type: 'plasma', icon: 'plasma', counterpartyName: 'Plasma', label: `Cancelling ${list.length} fuses` },
-        send: async () => {
-          const keyPair = await vault.getSigningKeyPair(index);
-          return cancelMany(list.map((entry) => entry.id), async (id) => sendJournaled(Zenon.getSingleton(), await plasma.cancel(id), keyPair));
-        },
+        addressIndex: vault.getSelectedIndex(),
+        templates,
+        kind: 'fuses',
       });
       setSelected([]);
     } catch (err) {
