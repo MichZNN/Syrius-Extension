@@ -6,7 +6,6 @@ import vault from '../wallet/vault';
 import { captureHistoryNetwork } from '../wallet/historyObservation';
 import sendJournaled from '../wallet/publisher';
 import { invalidateAccountCache } from './useAccount';
-import { notify } from '../utils/notify';
 import { readableError } from '../utils/errors';
 import { describeOutgoingTemplate } from '../utils/outgoingBlock';
 import {
@@ -39,8 +38,9 @@ const useBackgroundSender = () => {
   const sendInBackground = useCallback(
     // `send`, when given, replaces the SDK's fill-in-and-send: a block that
     // was filled in and searched ahead (services/token/vanity.js) is signed
-    // as it is.
-    (template, { row, addressIndex, successMessage, send } = {}) => {
+    // as it is. A caller's `successMessage` is no longer shown: blocks report
+    // on their row and the strip, not in toasts.
+    (template, { row, addressIndex, send } = {}) => {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const owner = row?.owner;
       const zenon = Zenon.getSingleton();
@@ -96,12 +96,10 @@ const useBackgroundSender = () => {
             })
           );
 
-          if (successMessage) {
-            notify.success(successMessage);
-          }
         } catch (err) {
-          // The toast is read on the way past; the row is what is still there
-          // afterwards, so the reason goes on both.
+          // No toast for block work: the row on Home and the strip above the
+          // tab bar (components/outgoing-watch) say what happened and keep
+          // saying it until it is dismissed.
           dispatch(
             updatePendingTransaction({
               id,
@@ -109,7 +107,6 @@ const useBackgroundSender = () => {
               error: readableError(err),
             })
           );
-          notify.error(err);
         }
       })();
 

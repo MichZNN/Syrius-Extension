@@ -175,14 +175,15 @@ const Dashboard = () => {
         },
       }));
 
+      // No toast: the received blocks appear in the list below.
       if (received > 0) {
-        notify.success(`Received ${received} transaction${received === 1 ? '' : 's'}`);
         await refresh({ quiet: true });
         resetTransactions();
       }
       await refreshPending();
     } catch (err) {
-      notify.error(err);
+      // The pending banner stays, so the receive can be tried again from it.
+      setReceiveProgress('');
     } finally {
       setIsReceiving(false);
       setReceiveProgress('');

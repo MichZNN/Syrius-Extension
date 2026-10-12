@@ -21,7 +21,7 @@ import NodeStall from '../../components/node-stall/node-stall';
 import { describe, fail } from '../../services/utils/errors';
 import { getCurrentNodeUrl } from '../../services/utils/storage';
 import { isDevWalletBuild, prepareDevWallet } from '../../services/utils/devWallet';
-import { savedRoute } from '../../services/utils/popupState';
+import { savedTrail } from '../../services/utils/popupState';
 
 // The routes that mean something specific was asked for, rather than "open the
 // wallet". A dApp approval is opened as `popup.html#/site-integration`, and
@@ -151,14 +151,18 @@ const MainLayout = () => {
             dispatch,
           });
           if (!cancelled) {
-            // A popup opened plainly goes back to the screen it closed on
-            // (utils/popupState.js); a deep link or an explicit route wins.
-            const kept = savedRoute();
-            const reopen = !deepLink && !isWithin('/tabs') && kept?.pathname?.startsWith('/tabs/') ? kept : null;
-            const destination = deepLink || (
-              isWithin('/tabs') ? initialPathname : reopen?.pathname || '/tabs/dashboard'
-            );
-            navigateIfNeeded(destination, reopen?.state ? { state: reopen.state } : {});
+            // A popup opened plainly goes back to the screen it closed on,
+            // with the screens before it as history so Back still works
+            // (utils/popupState.js). A deep link or an explicit route wins.
+            const trail = savedTrail().filter((entry) => entry?.pathname?.startsWith('/tabs/'));
+            if (!deepLink && !isWithin('/tabs') && trail.length) {
+              trail.forEach((entry, index) => navigate(entry.pathname, {
+                replace: index === 0, ...(entry.state ? { state: entry.state } : {}),
+              }));
+              return;
+            }
+            const destination = deepLink || (isWithin('/tabs') ? initialPathname : '/tabs/dashboard');
+            navigateIfNeeded(destination);
           }
           return;
         } catch (err) {

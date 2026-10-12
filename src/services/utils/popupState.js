@@ -37,7 +37,7 @@ const area = () => {
   }
 };
 
-const empty = (lease) => ({ lease, route: null, fields: {} });
+const empty = (lease) => ({ lease, trail: [], fields: {} });
 
 const flush = () => {
   clearTimeout(timer);
@@ -77,7 +77,7 @@ const load = async (unlocked) => {
   try {
     const stored = (await storage.get(storageKey))[storageKey];
     if (stored && stored.lease === lease && stored.fields && typeof stored.fields === 'object') {
-      record = { lease, route: stored.route || null, fields: stored.fields };
+      record = { lease, trail: Array.isArray(stored.trail) ? stored.trail : [], fields: stored.fields };
     } else if (stored) {
       await storage.remove(storageKey);
     }
@@ -97,13 +97,21 @@ function clear() {
 
 const current = () => (record && vault && record.lease === vault.getLeaseId?.() ? record : null);
 
-// The screen to reopen on: { pathname, state }, or null.
-const savedRoute = () => current()?.route || null;
+// The screens to reopen on, oldest first: [{ pathname, state }], the last one
+// shown. Reopening rebuilds them as history, so Back walks the same way it
+// did before the popup closed; with only the last one, Back had nowhere to go.
+const maxTrail = 12;
+const savedTrail = () => current()?.trail || [];
 
-const saveRoute = (pathname, state) => {
+// `index` is where this screen sits in the popup's history (the router keeps
+// it in history.state.idx): what was after it is gone, as in the browser.
+const saveRoute = (pathname, state, index) => {
   const open = current();
   if (!open) return;
-  open.route = { pathname, state: plain(state) ?? null };
+  const at = Number.isInteger(index) && index >= 0 ? index : (open.trail || []).length;
+  const trail = (open.trail || []).slice(0, at);
+  trail.push({ pathname, state: plain(state) ?? null });
+  open.trail = trail.slice(-maxTrail);
   schedule();
 };
 
@@ -139,5 +147,5 @@ const usePopupState = (key, initial) => {
   return [value, set];
 };
 
-export { load, clear, savedRoute, saveRoute, readField, writeField, usePopupState, flush };
+export { load, clear, savedTrail, saveRoute, readField, writeField, usePopupState, flush };
 export default usePopupState;

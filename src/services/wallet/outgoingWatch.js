@@ -82,11 +82,13 @@ const createTracker = ({ now = Date.now } = {}) => {
 };
 
 // One line per moving block, newest first, for the strip under the header.
-// A failed block is not listed: its toast said why, and its row on Home keeps
-// the reason and the button that clears it.
+// A failed block is listed with its reason until it is cleared, here or on its
+// row on Home: blocks have no toasts (utils/notify.js), so this is where it is
+// said away from Home.
 const stripRows = (items, address, tracker) => (items || [])
   .filter((item) => !item.owner || item.owner === address)
   .map((item) => {
+    if (item.status === pendingStatus.failed) return { id: item.id, label: item.label, state: item.error || 'Failed', failed: true };
     if (item.status === pendingStatus.generatingPlasma) return { id: item.id, label: item.label, state: 'Generating plasma' };
     if (item.status === pendingStatus.sending) return { id: item.id, label: item.label, state: 'Sending' };
     if (item.status !== pendingStatus.settled) return null;

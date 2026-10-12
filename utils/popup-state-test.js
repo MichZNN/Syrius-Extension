@@ -50,7 +50,8 @@ const test = async (name, fn) => {
     const shared = browser();
     const first = popup(shared);
     await first.load();
-    first.saveRoute('/tabs/send', { currentSelectedToken: 'zts1znnxxxxxxxxxxxxx9z4ulx' });
+    first.saveRoute('/tabs/dashboard', null, 0);
+    first.saveRoute('/tabs/send', { currentSelectedToken: 'zts1znnxxxxxxxxxxxxx9z4ulx' }, 1);
     first.writeField('send.amount', '1.5');
     first.writeField('send.recipient', 'z1qq…');
     first.close();
@@ -58,7 +59,11 @@ const test = async (name, fn) => {
 
     const second = popup(shared);
     await second.load();
-    assert.deepEqual(second.savedRoute(), { pathname: '/tabs/send', state: { currentSelectedToken: 'zts1znnxxxxxxxxxxxxx9z4ulx' } });
+    // The whole trail, so Back walks it again after reopening.
+    assert.deepEqual(second.savedTrail(), [
+      { pathname: '/tabs/dashboard', state: null },
+      { pathname: '/tabs/send', state: { currentSelectedToken: 'zts1znnxxxxxxxxxxxxx9z4ulx' } },
+    ]);
     assert.equal(second.readField('send.amount'), '1.5');
     assert.equal(second.readField('send.recipient'), 'z1qq…');
   });
@@ -67,7 +72,7 @@ const test = async (name, fn) => {
     const shared = browser();
     const first = popup(shared);
     await first.load();
-    first.saveRoute('/tabs/plasma', null);
+    first.saveRoute('/tabs/plasma', null, 0);
     first.writeField('plasma.amount', '10');
     first.close();
     await new Promise((resolve) => setImmediate(resolve));
@@ -76,7 +81,7 @@ const test = async (name, fn) => {
     shared.vault.lease = 'lease-2';
     const second = popup(shared);
     await second.load();
-    assert.equal(second.savedRoute(), null);
+    assert.deepEqual(second.savedTrail(), []);
     assert.equal(second.readField('plasma.amount'), undefined);
     assert.equal(shared.stored.has('popupState'), false, 'the stale record is removed');
 
@@ -93,13 +98,27 @@ const test = async (name, fn) => {
     assert.equal(second.readField('stake.amount'), undefined, 'nothing is kept while locked');
   });
 
+  await test('the trail follows history: back then elsewhere drops what was ahead', async () => {
+    const shared = browser();
+    const page = popup(shared);
+    await page.load();
+    page.saveRoute('/tabs/dashboard', null, 0);
+    page.saveRoute('/tabs/settings', null, 1);
+    page.saveRoute('/tabs/settings/about', null, 2);
+    page.saveRoute('/tabs/settings', null, 1);
+    page.saveRoute('/tabs/plasma', null, 2);
+    assert.deepEqual(page.savedTrail().map((entry) => entry.pathname), ['/tabs/dashboard', '/tabs/settings', '/tabs/plasma']);
+    for (let index = 0; index < 20; index += 1) page.saveRoute(`/tabs/x${index}`, null, index);
+    assert.equal(page.savedTrail().length, 12, 'kept to the last twelve');
+  });
+
   await test('only what survives JSON is kept', async () => {
     const shared = browser();
     const page = popup(shared);
     await page.load();
     const cyclic = {}; cyclic.self = cyclic;
-    page.saveRoute('/tabs/az/phase', cyclic);
-    assert.deepEqual(page.savedRoute(), { pathname: '/tabs/az/phase', state: null });
+    page.saveRoute('/tabs/az/phase', cyclic, 0);
+    assert.deepEqual(page.savedTrail(), [{ pathname: '/tabs/az/phase', state: null }]);
     page.writeField('az.add.p1', { name: 'One', znn: '1' });
     assert.deepEqual(page.readField('az.add.p1'), { name: 'One', znn: '1' });
   });

@@ -778,11 +778,14 @@ test('outgoing watch: the strip names what is moving, in the words the rows use'
     { id: 'pow', label: 'Fuse', state: 'Generating plasma' },
     { id: 'out', label: 'Stake', state: 'Sending' },
     { id: 'wait', label: 'Cancel fuse', state: 'Unconfirmed' },
+    // No toast says why a block failed, so the strip does, until dismissed.
+    { id: 'bad', label: 'Vote', state: 'x', failed: true },
   ]);
   await tracker.check(async () => ({ confirmationDetail: {} }));
-  assert.deepEqual(watch.stripRows(items, a1, tracker).at(-1), { id: 'wait', label: 'Cancel fuse', state: 'Confirmed', done: true });
+  assert.deepEqual(watch.stripRows(items, a1, tracker)[2], { id: 'wait', label: 'Cancel fuse', state: 'Confirmed', done: true });
   clock += watch.confirmedShownMs;
-  assert.deepEqual(watch.stripRows(items, a1, tracker).map((row) => row.id), ['pow', 'out'], 'a confirmed block leaves the strip');
+  assert.deepEqual(watch.stripRows(items, a1, tracker).map((row) => row.id), ['pow', 'out', 'bad'], 'a confirmed block leaves the strip');
+  assert.deepEqual(watch.stripRows([{ ...items[4], error: undefined }], a1, tracker), [{ id: 'bad', label: 'Vote', state: 'Failed', failed: true }]);
   assert.deepEqual(watch.stripRows([], a1, tracker), []);
 });
 
@@ -816,11 +819,14 @@ test('outgoing watch: mounted for every tab screen, silent on Home, and each scr
   const fs = require('node:fs');
   const read = (file) => fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
   const layout = read('src/layouts/tabsLayout/tabsLayout.js');
-  assert.ok(layout.indexOf('<OutgoingWatch />') > 0 && layout.indexOf('<OutgoingWatch />') < layout.indexOf('<Routes'), 'above the routes, so no route unmounts it');
+  const at = layout.indexOf('<OutgoingWatch />');
+  assert.ok(at > layout.indexOf('</Routes>') && layout.indexOf('<OutgoingWatch />', at + 1) < 0, 'outside the routes, so no route unmounts it');
+  assert.ok(at < layout.indexOf('<MenuTabs />'), 'just above the tab bar');
 
   const component = read('src/components/outgoing-watch/outgoing-watch.js');
   assert.ok(component.includes("const homePath = '/tabs/dashboard';"));
-  assert.ok(component.includes('if (onHome) return null;'), 'Home lists the same blocks as rows');
+  assert.ok(component.includes('const rows = onHome ? [] : stripRows('), 'Home lists the same blocks as rows: the strip stays down');
+  assert.ok(!component.includes('notify.'), 'block work reports here, not in toasts');
   assert.ok(component.includes('return context.isCurrent() ? block : null;'), 'an answer from a changed connection is dropped');
   assert.ok(component.includes("if (home.current || !getSettings().autoReceive) return;"), 'Home receives for itself; elsewhere only with the setting on');
   assert.ok(component.includes('receiveOnce(async () =>'));
@@ -843,7 +849,8 @@ test('outgoing watch: mounted for every tab screen, silent on Home, and each scr
   }
 
   const css = read('src/sections/Popup/Popup.scss');
-  assert.match(css, /\.outgoing-strip \{[^}]*flex: 0 0 auto;/, 'takes its own room, never covers a button');
+  assert.match(css, /\.outgoing-dock \{[^}]*grid-template-rows: 0fr;[^}]*flex: 0 0 auto;/, 'takes its own room, never covers a button');
+  assert.ok(!/prefers-reduced-motion/.test(css), 'its motion always runs');
 
   // A send no longer jumps to Home: a tab stays where it is, and a form goes
   // back to the screen that opened it. Send is Home's own form.

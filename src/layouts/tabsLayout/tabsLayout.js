@@ -70,7 +70,9 @@ const TabsLayout = () => {
   const location = useLocation();
   const subScreenTitle = subScreens[location.pathname];
   // Reopened here if the popup closes (utils/popupState.js).
-  useEffect(() => { saveRoute(location.pathname, location.state); }, [location.pathname, location.state]);
+  useEffect(() => {
+    saveRoute(location.pathname, location.state, window.history.state?.idx);
+  }, [location.key, location.pathname, location.state]);
   const address = useSelector((state) => state.wallet.address);
   // A row appearing, settling or failing is each a reason to look again now
   // rather than at the next poll.
@@ -79,8 +81,6 @@ const TabsLayout = () => {
   return (
     <div className="tabs-layout">
       <MenuHeader backButton={Boolean(subScreenTitle)} title={subScreenTitle || ''} />
-      {/* Follows sent blocks on every screen; draws only away from Home. */}
-      <OutgoingWatch />
 
       <main className="menu-layout">
         {/* Here rather than on the dashboard: a block whose outcome is unknown
@@ -127,6 +127,9 @@ const TabsLayout = () => {
         </Routes>
       </main>
 
+      {/* Follows sent blocks on every screen; peeks up above the tab bar
+          away from Home. */}
+      <OutgoingWatch />
       {!subScreenTitle && <MenuTabs />}
     </div>
   );
