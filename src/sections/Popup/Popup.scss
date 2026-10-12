@@ -1670,6 +1670,11 @@ body.is-app .recipient-option {
   white-space: nowrap;
 }
 
+// Seconds that tick should not make the line beside them shift.
+.pow-countdown {
+  font-variant-numeric: tabular-nums;
+}
+
 // A send the node refused.
 //
 // It will never confirm, so nothing else on the dashboard will ever take it

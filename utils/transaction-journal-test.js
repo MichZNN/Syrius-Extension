@@ -62,6 +62,9 @@ const windowOf = (shared, { entropy = 'fixture-entropy-one', chain = 69 } = {}) 
       if (id === 'znn-ts-sdk') return sdk;
       if (id === './vault') return { __esModule: true, default: vault };
       if (id === './journal') return load('src/services/wallet/journal.js');
+      // Plasma: the stage each case stubs on the SDK below (BlockUtils._setDifficulty),
+      // which wallet/pow.js replaces with the same signature.
+      if (id === './pow') return { setDifficulty: (...args) => sdk.utils.BlockUtils._setDifficulty(...args) };
       if (id === '../utils/errors') return load('src/services/utils/errors.js');
       if (id === './errorCatalog') return load('src/services/utils/errorCatalog.js');
       throw new Error('Unexpected import: ' + id);

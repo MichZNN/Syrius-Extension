@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux';
 
 import ExternalLinkIcon from '../../animated-icons/external-link/external-link';
 import Icon from '../icon/icon';
+import PowCountdown from '../pow-countdown/pow-countdown';
 import { copyToClipboard } from '../../services/utils/notify';
 import { formatAmount, truncateAddress } from '../../services/utils/format';
 import { transactionUrl, currentExplorerLabel } from '../../services/utils/explorer';
@@ -79,6 +80,7 @@ const TransactionItem = ({
             {isGeneratingPlasma && (
               <span className="plasma-note" role="status">
                 Generating plasma…
+                <PowCountdown />
               </span>
             )}
             {/* Only while the network has not settled it. A permanent badge on

@@ -53,6 +53,7 @@ const catalog = {
   134: 'That QR code holds no Zenon address.',
   135: 'Fingerprints or Face ID changed on this phone. Unlock with the password and turn it on again in Settings.',
   136: 'Installing the QR scanner. Try again in a moment.',
+  137: 'Generating plasma failed. Try again.',
 
   // The wallet
   200: 'Wrong password.',

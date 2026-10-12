@@ -4,6 +4,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Primitives } from 'znn-ts-sdk';
 
 import Icon from '../icon/icon';
+import PowCountdown from '../pow-countdown/pow-countdown';
 import useReadContext from '../../services/hooks/useReadContext';
 import { invalidateAccountCache } from '../../services/hooks/useAccount';
 import vault from '../../services/wallet/vault';
@@ -149,7 +150,10 @@ const OutgoingWatch = () => {
           <Icon name={first.done ? 'circle-check' : first.failed ? 'circle-x' : 'loader'} size={14}
             className={first.done || first.failed ? '' : 'spinner'} />
           <span className="outgoing-strip-label">{first.label}</span>
-          <span className="outgoing-strip-state" title={first.state}>{first.state}</span>
+          <span className="outgoing-strip-state" title={first.state}>
+            {first.state}
+            {first.state === 'Generating plasma' && <PowCountdown prefix=" · " />}
+          </span>
           {rest.length > 0 && <span className="outgoing-strip-more">+{rest.length}</span>}
           {first.failed && shown && (
             <button type="button" className="outgoing-strip-dismiss" title="Dismiss"
