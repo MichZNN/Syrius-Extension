@@ -190,12 +190,89 @@ jobs:
           retention-days: 30
           archive: false
 
+  # The iOS app, unsigned. CI cannot sign it: a free Apple ID signs only from
+  # the person's own machine or phone, for seven days. SideStore or AltStore
+  # sign it on install and renew it there (README, iOS).
+  ios:
+    name: Build iOS app (unsigned IPA)
+    runs-on: macos-15
+    timeout-minutes: 45
+    outputs:
+      ipa: ${{ steps.package.outputs.ipa }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Check toolchain
+        run: |
+          node --version
+          xcodebuild -version
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build the app's web files
+        env:
+          SYRIUS_PLATFORM: ios
+        run: npm run build
+
+      - name: Copy them into the iOS project
+        run: npx cap sync ios
+
+      # Version and build number as Android's: 0.3.6 is 306.
+      - name: Build and package
+        id: package
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          build="$(node -p "const [a,b,c]=require('./package.json').version.split('.').map(Number); a*10000+b*100+c")"
+          xcodebuild build \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/derived" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            MARKETING_VERSION="$version" \
+            CURRENT_PROJECT_VERSION="$build"
+
+          app="$RUNNER_TEMP/derived/Build/Products/Release-iphoneos/App.app"
+          test -f "$app/Info.plist"
+          test -f "$app/public/index.html"
+
+          # An IPA is the app in a Payload folder, zipped.
+          ipa="syrius-${version}-ios-unsigned.ipa"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$app" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/$ipa" Payload)
+          printf 'ipa=%s\n' "$ipa" >> "$GITHUB_OUTPUT"
+
+      - name: Upload iOS app artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.package.outputs.ipa }}
+          if-no-files-found: error
+          retention-days: 30
+          archive: false
+
   release:
     name: Publish GitHub release
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       startsWith(github.ref, 'refs/tags/')
-    needs: build
+    needs: [build, ios]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -210,15 +287,26 @@ jobs:
           path: release-assets
           skip-decompress: true
 
-      - name: Recreate release checksum
+      - name: Download iOS app
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.ios.outputs.ipa }}
+          path: release-assets
+          skip-decompress: true
+
+      - name: Recreate release checksums
         working-directory: release-assets
         env:
           MANIFEST_VERSION: ${{ needs.build.outputs.manifest_version }}
+          IPA: ${{ needs.ios.outputs.ipa }}
         shell: bash
         run: |
           archive="syrius-extension-${MANIFEST_VERSION}-chrome-brave.zip"
           test -f "$archive"
+          test "$IPA" = "syrius-${MANIFEST_VERSION}-ios-unsigned.ipa"
+          test -f "$IPA"
           sha256sum "$archive" > "${archive}.sha256"
+          sha256sum "$IPA" > "${IPA}.sha256"
 
       - name: Publish GitHub release assets
         env:
@@ -230,8 +318,9 @@ jobs:
         shell: bash
         run: |
           mapfile -t assets < <(find release-assets -maxdepth 1 -type f -print | sort)
-          if (( ${#assets[@]} != 2 )); then
-            echo "::error::Expected exactly two release assets, found ${#assets[@]}."
+          # The Chrome/Brave ZIP and the iOS IPA, each with its checksum.
+          if (( ${#assets[@]} != 4 )); then
+            echo "::error::Expected exactly four release assets, found ${#assets[@]}."
             exit 1
           fi
 

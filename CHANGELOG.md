@@ -42,9 +42,9 @@ Android and iOS apps (sideload)
 Build
 - `SYRIUS_PLATFORM=firefox` builds a Firefox package into `build-firefox/`,
   and `android` or `ios` the app's web files into `build-app/`; Chrome's
-  stays in `build/`. Each release gets its iOS IPA from
-  `.github/workflows/ios.yml`. Firefox is not released yet: connecting sites
-  does not work there yet.
+  stays in `build/`. CI builds the iOS IPA beside the Chrome package, and a
+  release publishes both, each with its checksum. Firefox is not released
+  yet: connecting sites does not work there yet.
 
 Changed
 - Blocks in flight are followed in a line just above the tab bar, which peeks

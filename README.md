@@ -83,8 +83,8 @@ lasts seven days, so install it with [SideStore](https://sidestore.io) or
 it on the phone before the seven days are up. The app is
 `network.zenon.syrius` and needs iOS 15 or later.
 
-The IPA is built on a macOS runner (`.github/workflows/ios.yml`); building it
-yourself needs a Mac with Xcode:
+CI builds the IPA on a macOS runner beside the Chrome package, and a release
+publishes both. Building it yourself needs a Mac with Xcode:
 
 ```bash
 SYRIUS_PLATFORM=ios npm run build       # into build-app/
