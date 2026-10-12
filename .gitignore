@@ -37,3 +37,6 @@ desktop.ini
 AGENTS.md
 .codex
 .plans
+
+# Session handoff notes are working files, never committed.
+HANDOFF*.md
