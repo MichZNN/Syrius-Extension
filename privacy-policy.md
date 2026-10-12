@@ -25,12 +25,22 @@ to the window that unlocked it. Locking or expiry revokes the unlock authority
 and removes the saved unlock record. These controls do not guarantee secure
 erasure from browser or operating-system memory.
 
+Timed sessions can also run a receiver in the extension's own background
+page, so incoming transfers and sends started in the wallet can continue
+after the popup closes. Automatic receiving can be turned off in Settings.
+The receiver follows the existing unlock deadline instead of renewing it;
+an **On close** session does not open this receiver.
+
 Other local records include preferences, node URLs, wallet and address labels,
 connected-site origins and account permissions. Temporary approval requests
 contain the requesting origin, document metadata and request parameters and
 are held in session storage until completion, cancellation or expiry.
 These records are not all encrypted. Removing a wallet cleans its associated
 metadata and permissions; browser extension removal clears its local storage.
+
+The address book stores contact names and addresses locally, and the wallet
+also remembers up to five recent recipient addresses. These convenience
+records are not password-encrypted.
 
 The extension also remembers navigation within the wallet and opted-in form
 drafts, including recipient addresses, amounts and message text, in
@@ -93,7 +103,9 @@ The Manifest V3 extension requests:
   unlock and approval records;
 - `alarms` for session and approval expiry;
 - `webNavigation` to bind requests and events to the browser's current document
-  and invalidate stale navigation contexts.
+  and invalidate stale navigation contexts;
+- `offscreen` to run the background receiver and its proof-of-work workers
+  while a timed unlock lasts.
 
 Document tracking supports authorization checks. The reviewed source does not
 upload a browsing-history log to a maintainer service. The browser may display
