@@ -1,23 +1,30 @@
 import React, { useEffect, useState } from 'react';
 import { onPowProgress } from '../../services/wallet/powSearch';
+import { onHostState } from '../../services/wallet/blockService';
 
 // How much longer proof of work should take, counting down beside "Generating
 // plasma". The estimate is the expected time for this device (wallet/powSearch.js);
 // a search can run past it, and then this says so rather than going below
 // zero. Nothing is shown for one that should take a second or two.
 
+// Short, because it shares a line with the label and the amount: ~12s, ~3m.
 const format = (ms) => {
   const seconds = Math.max(1, Math.round(ms / 1000));
-  return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  return seconds < 60 ? `~${seconds}s` : `~${Math.round(seconds / 60)}m`;
 };
 
 const PowCountdown = ({ prefix = ' ' }) => {
-  const [progress, setProgress] = useState(null);
+  // This page's own proof of work, or the background page's
+  // (wallet/blockService.js), which is where it runs while a timed unlock lasts.
+  const [own, setOwn] = useState(null);
+  const [host, setHost] = useState(null);
+  const progress = own || host;
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    const stop = onPowProgress(setProgress);
-    return () => { stop(); };
+    const stopOwn = onPowProgress(setOwn);
+    const stopHost = onHostState((state) => setHost(state?.pow || null));
+    return () => { stopOwn(); stopHost(); };
   }, []);
   useEffect(() => {
     if (!progress) return undefined;
@@ -31,7 +38,7 @@ const PowCountdown = ({ prefix = ' ' }) => {
   return (
     <span className="pow-countdown">
       {prefix}
-      {left > 0 ? `about ${format(left)} left` : 'taking longer than usual'}
+      {left > 0 ? `${format(left)} left` : 'taking longer'}
     </span>
   );
 };
