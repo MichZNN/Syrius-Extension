@@ -2,6 +2,36 @@
 
 ## 0.3.6
 
+New
+- The lock screen says when a newer release is out, in one quiet line, and
+  only then.
+- About's Update row updates the wallet as far as the platform allows: a
+  browser-managed install is updated and reloaded; an unpacked Chrome or
+  Brave install downloads the new ZIP to unzip over its folder.
+- The popup reopens on the screen it closed on, with what had been typed,
+  when it closes by losing focus. Not after the wallet locks.
+- Accelerator-Z phases: Max beside ZNN and QSR fills in what the project has
+  left, and more is refused before the block is sent.
+
+Changed
+- Blocks in flight are followed in a line just above the tab bar, which peeks
+  up when one leaves and slides down when the last one settles. A failed one
+  stays there with its reason until dismissed.
+- Sends, receives and every other block report there and on Home, not in
+  toasts. Other actions keep their toasts.
+
+Fixed
+- Two sends started one after the other, each paying with proof of work: the
+  second failed. They now take turns and both land, with no retry.
+- After the popup reopened on its last screen, Back went nowhere: the screens
+  before it are kept too.
+- A custom token's pending send read "N base units" in the activity list: it
+  now shows the token's symbol and decimals, as its history row does.
+- About's privacy policy link pointed at a branch that does not exist.
+- A token id search that failed while starting its workers left them running.
+- Loading indicators are announced to screen readers.
+- The production package carries the notices of the vendored fonts and icons.
+
 Transaction journal
 
 - A send that is interrupted is no longer a send that may be signed twice.

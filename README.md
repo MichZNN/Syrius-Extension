@@ -6,14 +6,17 @@ Keys are generated and encrypted on your machine and never leave it. The
 extension talks to a Zenon node of your choosing, and to web pages through an
 injected provider that does nothing without being asked first.
 
-Version **0.3.5**, Manifest V3, Chrome or Brave 112 or later.
+Version **0.3.6**, Manifest V3, Chrome or Brave 112 or later.
 [What changed](CHANGELOG.md).
 
 ## Features
 
 - **Wallet**: create or import a recovery phrase, several named addresses,
   balances of every ZTS token, an approximate value in dollars.
-- **Send and receive**, with a history that names what each block did.
+- **Send and receive**, with a history that names what each block did. Every
+  signed block is recorded before it is sent, and one account's sends take
+  turns, so several sent back to back all land, and an interrupted one is
+  settled rather than signed twice.
 - **Delegate, stake, fuse plasma**, and collect the rewards.
 - **Tokens**: issue, mint, burn and update your own ZTS tokens.
 - **Operator modes** (Settings): pillar management with rewards and
@@ -21,13 +24,20 @@ Version **0.3.5**, Manifest V3, Chrome or Brave 112 or later.
 - **Sites**: a `window.zenon` provider with per-site, per-account consent, and
   message signing compatible with desktop Syrius.
 - **Settings**: nodes and chain identifier, auto-lock, auto-receive, theme,
-  explorer, backup phrase.
+  explorer, backup phrase, and an Update row when a newer release is out.
+- **Picks up where it left off**: the popup reopens on the screen it closed
+  on, with what had been typed, until the wallet locks.
 
 ## Install
 
 From a release: download the ZIP from the
 [releases page](https://github.com/sol-znn/syrius-extension/releases), open
 `chrome://extensions`, turn on Developer mode and drag the ZIP in.
+
+Updating: the lock screen says when a newer release is out, and Settings,
+About, Update downloads its ZIP. Unzip it over the extension's folder and
+press reload on its card in `chrome://extensions`; the wallet and its settings
+are kept.
 
 From source (Node.js 24, npm 10):
 

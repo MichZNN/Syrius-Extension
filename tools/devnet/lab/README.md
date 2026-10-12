@@ -39,6 +39,18 @@ the devnet mnemonic's index 1 (`z1qq6eg8n43g032hanpsfp02qcdmv7zfj3y2lt5d`) has
 is the spork address, and the genesis carries three fuses of 10,000 QSR owned
 by index 1.
 
+## An account that pays with proof of work
+
+Index 1's fuses mean its blocks never need proof of work. For a test that
+does, fund another index from it and point the harness there:
+
+```sh
+node tools/devnet/lab/fund.js 7 50        # 50 ZNN to index 7; refuses any chain but 321
+node utils/dev-harness.js start --instance lab --node ws://127.0.0.1:45998 --chain 321 --address-index 7
+```
+
+The receive, and every send after it, generates plasma in the wallet.
+
 ## Pointing the harness at it
 
 ```sh
