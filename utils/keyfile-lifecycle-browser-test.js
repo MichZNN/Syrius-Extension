@@ -18,7 +18,14 @@ const changedPassword = password();
 const incorrectPassword = password();
 const walletName = 'qualification-created';
 const importedName = 'qualification-imported';
-const quote = JSON.stringify;
+// JSON for splicing into the code evaluated in the page, with the characters
+// JSON leaves raw that still mean something to a script parser escaped too.
+const unsafeCharacters = {
+  '<': '\\u003C', '>': '\\u003E', '/': '\\u002F', '\\': '\\\\', '\b': '\\b', '\f': '\\f',
+  '\n': '\\n', '\r': '\\r', '\t': '\\t', '\0': '\\0', '\u2028': '\\u2028', '\u2029': '\\u2029',
+};
+const quote = (value) => JSON.stringify(value)
+  .replace(/[<>\b\f\n\r\t\0\u2028\u2029]/g, (character) => unsafeCharacters[character]);
 let browser, browserStarting, page, phrase, stage = 'package validation';
 const results = [];
 const report = { package_version: null, package_tree_sha256: null, cases: results };

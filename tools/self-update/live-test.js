@@ -73,8 +73,16 @@ const zipFolder = (folder, transform) => {
 
   const server = http.createServer((request, response) => {
     response.setHeader('access-control-allow-origin', '*');
-    if (request.url === `/${archive}`) return response.end(zip);
-    if (request.url === `/${archive}.sha256`) return response.end(sum);
+    // Typed, so nothing served here is ever read as a page.
+    response.setHeader('x-content-type-options', 'nosniff');
+    if (request.url === `/${archive}`) {
+      response.setHeader('content-type', 'application/zip');
+      return response.end(zip);
+    }
+    if (request.url === `/${archive}.sha256`) {
+      response.setHeader('content-type', 'text/plain; charset=utf-8');
+      return response.end(sum);
+    }
     response.statusCode = 404; return response.end();
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
