@@ -17,6 +17,7 @@ const map = {
   refresh: 'refresh-cw', circle: 'circle', 'circle-dot': 'circle-dot', loader: 'loader-circle',
   zap: 'sparkles', message: 'message-circle', dice: 'dices', party: 'party-popper',
   download: 'download', folder: 'folder',
+  fingerprint: 'fingerprint-pattern', scan: 'scan-line', share: 'share-2', contacts: 'book-user', bell: 'bell',
   'plasma-none': 'battery', 'plasma-low': 'battery-low', 'plasma-average': 'battery-medium', 'plasma-high': 'battery-full',
 };
 const icons = {};

@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Zenon } from 'znn-ts-sdk';
 
 import AlertModal from '../../components/modals/alert-modal';
@@ -13,6 +13,8 @@ import { sortChoices, sortPillars } from '../../services/pillar/sort';
 import vault from '../../services/wallet/vault';
 import { formatAmount } from '../../services/utils/format';
 import { notify } from '../../services/utils/notify';
+import { fail } from '../../services/utils/errors';
+import useLinkPrefill from '../../services/utils/linkPrefill';
 
 // Delegation.
 //
@@ -143,6 +145,18 @@ const Delegate = () => {
       'Collecting rewards',
       'Rewards collected'
     );
+
+  // A syrius://delegate?pillar= link asks, as desktop Syrius does, once the
+  // pillar is known to exist. Asked once; the answer is the person's.
+  const link = useLinkPrefill();
+  const linkAsked = useRef(false);
+  useEffect(() => {
+    if (linkAsked.current || !link.pillar || !pillars) return;
+    linkAsked.current = true;
+    if (pillars.some((pillar) => pillar.name === link.pillar)) delegate(link.pillar);
+    else notify.error(fail(132, { name: link.pillar }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pillars]);
 
   const hasRewards =
     formatAmount(rewards.znn, 8) !== '0' || formatAmount(rewards.qsr, 8) !== '0';

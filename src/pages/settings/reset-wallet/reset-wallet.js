@@ -17,6 +17,7 @@ import { invalidateAccountCache } from '../../../services/hooks/useAccount';
 import lockWallet from '../../../services/wallet/lock';
 import vault from '../../../services/wallet/vault';
 import { fail } from '../../../services/utils/errors';
+import app from '../../../services/utils/app';
 
 // Removing a wallet from this browser.
 //
@@ -95,6 +96,8 @@ const ResetWallet = () => {
       dispatch(resetWalletState());
       dispatch(resetPendingTransactions());
       await locking;
+      // Its password must not outlive it in the phone's keystore.
+      await app()?.biometric.disable(walletName);
       if (operation.current !== active) return;
 
       notify.success(`Removed ${walletName}`);

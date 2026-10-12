@@ -9,6 +9,7 @@ import { notify } from '../../../services/utils/notify';
 import { explorerChoices } from '../../../services/utils/explorer';
 import { applyTheme, themeChoices } from '../../../services/utils/theme';
 import { modes } from '../../../services/utils/menu';
+import app from '../../../services/utils/app';
 
 // The settings index.
 //
@@ -134,6 +135,7 @@ const Settings = () => {
           })}
         </div>
         <SettingsItem icon="link" title="Connected sites" url="connected-sites" tone="info" />
+        <SettingsItem icon="contacts" title="Address book" url="contacts" />
         <SettingsItem icon="zap" title="Zap a random alien" url="zap" tone="highlight" />
         <SettingsItem icon="sign" title="Sign message" url="sign-message" />
         <div className="settings-item is-control">
@@ -192,6 +194,7 @@ const Settings = () => {
             <div className="settings-group">
               <SettingsItem icon="key" title="Backup phrase" url="export-mnemonic" tone="warning" />
               <SettingsItem icon="password" title="Password" url="change-password" />
+              {app() && <SettingsItem icon="fingerprint" title="Fingerprint unlock" url="biometric" />}
             </div>
 
             <label className="setting-row">

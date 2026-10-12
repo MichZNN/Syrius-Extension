@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
 
 import {
@@ -9,6 +9,7 @@ import {
 import { copyToClipboard, notify } from '../../../services/utils/notify';
 import { truncateAddress } from '../../../services/utils/format';
 import usePopupState from '../../../services/utils/popupState';
+import useLinkPrefill from '../../../services/utils/linkPrefill';
 
 // Signing a message by hand.
 //
@@ -41,6 +42,12 @@ const SignMessage = () => {
   const { address } = useSelector((state) => state.wallet);
 
   const [message, setMessage] = usePopupState('sign.message', '');
+  // A syrius://sign-message link fills the box; signing is still a press here.
+  const link = useLinkPrefill();
+  useEffect(() => {
+    if (link.message) setMessage(link.message);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [signed, setSigned] = useState(null);
   const [isSigning, setIsSigning] = useState(false);
 

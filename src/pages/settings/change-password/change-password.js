@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form';
 import { notify } from '../../../services/utils/notify';
 import { validateWalletPassword } from '../../../services/wallet/password';
 import vault from '../../../services/wallet/vault';
+import app from '../../../services/utils/app';
 
 // Changing the wallet password.
 //
@@ -45,6 +46,19 @@ const ChangePassword = () => {
       // A completed change may be followed immediately by a lock. Leave the
       // locked screen in place instead of navigating from an unmounted form.
       if (!vault.isCurrent(lifetime)) return;
+
+      // The fingerprint's stored copy is the old password now. Replace it,
+      // which asks for the fingerprint once; declined, it is removed.
+      const native = app();
+      const walletName = native && vault.getWalletName();
+      if (native && (await native.biometric.enabled(walletName))) {
+        try {
+          await native.biometric.enable(walletName, newPassword);
+        } catch (error) {
+          await native.biometric.disable(walletName);
+          notify.info('Fingerprint unlock is off. Turn it on again in Settings.');
+        }
+      }
 
       notify.success('Password changed');
       navigate('/tabs/settings', { replace: true });

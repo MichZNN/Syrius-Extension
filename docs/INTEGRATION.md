@@ -4,6 +4,10 @@ The extension injects `window.zenon` into every page, before the page's own
 scripts run. It exposes nothing about the wallet until the person approves the
 origin, and it never signs anything without asking.
 
+The Android app has no `window.zenon`; a page or app there asks with a
+`syrius://request` link and gets the answer at a callback URL
+([Requests from another app](APP-REQUESTS.md)).
+
 ```js
 // The provider is injected at document_start, but a script that runs even
 // earlier can wait for it.

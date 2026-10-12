@@ -16,6 +16,32 @@ New
   when it closes by losing focus. Not after the wallet locks.
 - Accelerator-Z phases: Max beside ZNN and QSR fills in what the project has
   left, and more is refused before the block is sent.
+- An address book (Settings), offered on Send with the last five recipients.
+
+Android app (sideload)
+- The wallet as an Android app, with desktop Syrius's `syrius://` links and
+  `syrius://request` for other apps to ask for a connection or a signature
+  ([docs/APP-REQUESTS.md](docs/APP-REQUESTS.md)).
+- Fingerprint unlock, kept in the Android Keystore and turned on per wallet
+  in Settings after the password.
+- QR scanning on Send, through Google Play services' scanner: no camera
+  permission. Share on Receive.
+- Locks after "Lock after" spent away from the app; "On close" locks on
+  leaving it.
+- A notification for an incoming transfer while the app is in the
+  background and still running.
+- No screenshots or app-switcher preview on recovery phrase screens.
+- A `syrius://request` answer goes back to an https address, or to http only
+  on a private network address (localhost, 10/8, 172.16/12, 192.168/16,
+  `.local`).
+- The block status line above the tab bar is taller, with larger text, sized
+  for a finger.
+
+Build
+- `SYRIUS_PLATFORM=firefox` builds a Firefox package into `build-firefox/`,
+  and `android` the app's web files into `build-android/`; Chrome's stays in
+  `build/`. Firefox is not released yet: connecting sites does not work there
+  yet.
 
 Changed
 - Blocks in flight are followed in a line just above the tab bar, which peeks

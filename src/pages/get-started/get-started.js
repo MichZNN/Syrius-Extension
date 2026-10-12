@@ -12,6 +12,7 @@ import { loadStorageWalletNames, sanitizeWalletName } from '../../services/utils
 import { copyToClipboard, notify } from '../../services/utils/notify';
 import { completeUnlock } from '../../services/wallet/bootstrap';
 import Icon from '../../components/icon/icon';
+import useSecureScreen from '../../services/hooks/useSecureScreen';
 
 // Creating a wallet.
 //
@@ -25,6 +26,7 @@ import Icon from '../../components/icon/icon';
 const steps = ['Choose a password', 'Your recovery phrase', 'Confirm the phrase'];
 
 const GetStarted = () => {
+  useSecureScreen();
   const navigate = useNavigate();
   const dispatch = useDispatch();
 

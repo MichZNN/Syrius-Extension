@@ -10,6 +10,7 @@ import { validateWalletPassword, saveWalletWithPassword } from '../../services/w
 import { loadStorageWalletNames, sanitizeWalletName } from '../../services/utils/utils';
 import { notify } from '../../services/utils/notify';
 import { completeUnlock } from '../../services/wallet/bootstrap';
+import useSecureScreen from '../../services/hooks/useSecureScreen';
 
 // Importing a wallet from its recovery phrase.
 //
@@ -27,6 +28,7 @@ import { completeUnlock } from '../../services/wallet/bootstrap';
 const normalise = (phrase) => phrase.trim().toLowerCase().replace(/\s+/g, ' ');
 
 const Recovery = () => {
+  useSecureScreen();
   const navigate = useNavigate();
   const dispatch = useDispatch();
 

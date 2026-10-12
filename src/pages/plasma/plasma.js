@@ -24,6 +24,7 @@ import { notify } from '../../services/utils/notify';
 import Icon from '../../components/icon/icon';
 import { fail } from '../../services/utils/errors';
 import usePopupState from '../../services/utils/popupState';
+import useLinkPrefill from '../../services/utils/linkPrefill';
 
 // Plasma.
 //
@@ -82,6 +83,20 @@ const Plasma = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address]);
+
+  // A syrius://fuse link: after the default above, so its address wins.
+  const link = useLinkPrefill();
+  useEffect(() => {
+    if (link.address) {
+      setRecipient(link.address);
+      setValue('recipientAddressField', link.address, { shouldValidate: true });
+    }
+    if (link.amount) {
+      setAmount(link.amount);
+      setValue('toFuseQsrField', link.amount, { shouldValidate: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

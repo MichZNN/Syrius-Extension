@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useMemo, useRef } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Primitives } from 'znn-ts-sdk';
 import { useForm } from 'react-hook-form';
@@ -16,9 +16,13 @@ import {
   toBigNumber,
 } from '../../../services/utils/format';
 import { notify } from '../../../services/utils/notify';
-import { znnZts } from '../../../services/wallet/account';
+import { qsrZts, znnZts } from '../../../services/wallet/account';
+import useLinkPrefill from '../../../services/utils/linkPrefill';
 import { fail } from '../../../services/utils/errors';
 import usePopupState from '../../../services/utils/popupState';
+import { addRecentRecipient, getContacts, getRecentRecipients } from '../../../services/utils/storage';
+import app from '../../../services/utils/app';
+import Icon from '../../../components/icon/icon';
 
 // Sending.
 //
@@ -80,10 +84,19 @@ const Send = () => {
   // A token picked on the screen that opened this one wins over a kept one.
   // Kept values (utils/popupState.js) are the form library's too, or it would
   // call them missing.
+  // A syrius:// link (platform/linkRoutes.js) wins over both: it says what
+  // the person tapped just now.
+  const link = useLinkPrefill();
   useEffect(() => {
     if (location.state?.currentSelectedToken) setSelectedToken(location.state.currentSelectedToken);
-    if (amount) setValue('sendAmountField', amount, { shouldValidate: true });
-    if (recipient) setValue('recipientAddressField', recipient, { shouldValidate: true });
+    const linkToken = { znn: znnZts, qsr: qsrZts }[link.zts?.toLowerCase()] || (/^zts1[0-9a-z]{20,}$/.test(link.zts || '') ? link.zts : null);
+    if (linkToken) setSelectedToken(linkToken);
+    if (link.amount) setAmount(link.amount);
+    if (link.address) setRecipient(link.address);
+    const startAmount = link.amount || amount;
+    const startRecipient = link.address || recipient;
+    if (startAmount) setValue('sendAmountField', startAmount, { shouldValidate: true });
+    if (startRecipient) setValue('recipientAddressField', startRecipient, { shouldValidate: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -125,6 +138,36 @@ const Send = () => {
       return true;
     } catch (err) {
       return 'That is not a valid Zenon address';
+    }
+  };
+
+  const fillRecipient = (value) => {
+    setRecipient(value);
+    setValue('recipientAddressField', value, { shouldValidate: true });
+    setPicking(false);
+  };
+
+  // The address book and the last few recipients, under the field.
+  const [picking, setPicking] = useState(false);
+  const contacts = useMemo(() => (picking ? getContacts() : []), [picking]);
+  const recent = useMemo(() => (picking ? getRecentRecipients() : []), [picking]);
+  const nameOf = (value) => contacts.find((entry) => entry.address === value)?.name;
+
+  // A QR code holding an address fills the field; one holding a syrius://
+  // link is followed, as if it had been tapped.
+  const scan = async () => {
+    try {
+      const text = (await app().scan())?.trim();
+      if (!text) return;
+      if (/^syrius:/i.test(text)) {
+        window.syriusAppLinks?.receive(text);
+        return;
+      }
+      const found = text.match(/z1[0-9a-z]{38}/);
+      if (found && validateRecipient(found[0]) === true) fillRecipient(found[0]);
+      else notify.error(fail(134));
+    } catch (error) {
+      notify.error(error);
     }
   };
 
@@ -172,6 +215,7 @@ const Send = () => {
         },
       });
 
+      addRecentRecipient(review.recipient);
       setAmount('');
       setRecipient('');
       reset();
@@ -266,21 +310,58 @@ const Send = () => {
         </div>
 
         <div className="custom-control">
-          <input
-            {...register('recipientAddressField', { required: true, validate: validateRecipient })}
-            className={`w-100 custom-label ${
-              errors.recipientAddressField ? 'custom-label-error' : ''
-            }`}
-            placeholder="Recipient address"
-            value={recipient}
-            onChange={(event) => {
-              setRecipient(event.target.value);
-              setValue('recipientAddressField', event.target.value, { shouldValidate: true });
-            }}
-            type="text"
-            spellCheck="false"
-            autoComplete="off"
-          />
+          <div className={`input-with-button w-100 ${app() ? 'has-two' : ''}`}>
+            <input
+              {...register('recipientAddressField', { required: true, validate: validateRecipient })}
+              className={`w-100 custom-label ${
+                errors.recipientAddressField ? 'custom-label-error' : ''
+              }`}
+              placeholder="Recipient address"
+              value={recipient}
+              onChange={(event) => {
+                setRecipient(event.target.value);
+                setValue('recipientAddressField', event.target.value, { shouldValidate: true });
+              }}
+              type="text"
+              spellCheck="false"
+              autoComplete="off"
+            />
+            <div className="input-icon-buttons">
+              {app() && (
+                <button type="button" className="input-icon-button" aria-label="Scan QR code" onClick={scan}>
+                  <Icon name="scan" size={18} />
+                </button>
+              )}
+              <button
+                type="button"
+                className={`input-icon-button ${picking ? 'is-active' : ''}`}
+                aria-label="Address book"
+                aria-expanded={picking}
+                onClick={() => setPicking(!picking)}
+              >
+                <Icon name="contacts" size={18} />
+              </button>
+            </div>
+          </div>
+          {picking && (
+            <div className="recipient-picker">
+              {!contacts.length && !recent.length && <div className="text-gray text-xs">None yet</div>}
+              {recent.length > 0 && <div className="recipient-picker-title">Recent</div>}
+              {recent.map((value) => (
+                <button type="button" key={`r-${value}`} className="recipient-option" onClick={() => fillRecipient(value)}>
+                  {nameOf(value) && <span className="recipient-name">{nameOf(value)}</span>}
+                  <span className="mono">{value.slice(0, 10)}…{value.slice(-6)}</span>
+                </button>
+              ))}
+              {contacts.length > 0 && <div className="recipient-picker-title">Contacts</div>}
+              {contacts.map((entry) => (
+                <button type="button" key={`c-${entry.address}`} className="recipient-option" onClick={() => fillRecipient(entry.address)}>
+                  <span className="recipient-name">{entry.name}</span>
+                  <span className="mono">{entry.address.slice(0, 10)}…{entry.address.slice(-6)}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <div className={`input-error ${errors.recipientAddressField ? '' : 'invisible'}`}>
             {errors.recipientAddressField?.message || 'Address is required'}
           </div>

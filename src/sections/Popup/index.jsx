@@ -21,9 +21,13 @@ applyTheme(getSettings().theme);
 // The class lets the stylesheet fit that window instead of pinning it. It is
 // set here rather than in the screen so it survives the trip through the
 // password screen, and applies before the first paint.
-if (window.location.hash.startsWith('#/site-integration')) {
+// The app (Android, iOS) fills the screen the same way, and is-app sizes its
+// touch targets for a finger rather than a pointer.
+const isApp = ['android', 'ios'].includes(process.env.SYRIUS_PLATFORM);
+if (window.location.hash.startsWith('#/site-integration') || isApp) {
   document.body.classList.add('standalone-window');
 }
+if (isApp) document.body.classList.add('is-app');
 
 // The Update tab shows the popup's frame in the middle of the tab (Popup.scss).
 if (window.location.hash.startsWith('#/update')) {

@@ -14,6 +14,7 @@ import MenuHeader from '../../pages/menu/menu-header/menu-header';
 import MenuTabs from '../../pages/menu/menu-tabs/menu-tabs';
 import OutgoingWatch from '../../components/outgoing-watch/outgoing-watch';
 import JournalNotice from '../../components/journal-notice/journal-notice';
+import AppWatch from '../../components/app-watch/app-watch';
 import { saveRoute } from '../../services/utils/popupState';
 
 import Settings from '../../pages/settings/settings/settings';
@@ -21,6 +22,8 @@ import ChangeNode from '../../pages/settings/change-node/change-node';
 import ExportMnemonic from '../../pages/settings/export-mnemonic/export-mnemonic';
 import ChangeAddress from '../../pages/settings/change-address/change-address';
 import ChangePassword from '../../pages/settings/change-password/change-password';
+import Biometric from '../../pages/settings/biometric/biometric';
+import Contacts from '../../pages/settings/contacts/contacts';
 import ConnectedSites from '../../pages/settings/connected-sites/connected-sites';
 import SignMessage from '../../pages/settings/sign-message/sign-message';
 import ResetWallet from '../../pages/settings/reset-wallet/reset-wallet';
@@ -49,6 +52,8 @@ const subScreens = {
   '/tabs/settings/change-node': 'Node',
   '/tabs/settings/export-mnemonic': 'Backup phrase',
   '/tabs/settings/change-password': 'Password',
+  '/tabs/settings/biometric': 'Fingerprint unlock',
+  '/tabs/settings/contacts': 'Address book',
   '/tabs/settings/connected-sites': 'Connected sites',
   '/tabs/settings/sign-message': 'Sign message',
   '/tabs/settings/reset-wallet': 'Remove wallet',
@@ -73,6 +78,12 @@ const TabsLayout = () => {
   useEffect(() => {
     saveRoute(location.pathname, location.state, window.history.state?.idx);
   }, [location.key, location.pathname, location.state]);
+  // In the app, syrius:// links wait for these screens: they mean the wallet
+  // is unlocked (platform/appLinks.js).
+  useEffect(() => {
+    window.syriusAppLinks?.setReady(true);
+    return () => window.syriusAppLinks?.setReady(false);
+  }, []);
   const address = useSelector((state) => state.wallet.address);
   // A row appearing, settling or failing is each a reason to look again now
   // rather than at the next poll.
@@ -106,6 +117,8 @@ const TabsLayout = () => {
           <Route path="settings/change-node" element={<ChangeNode />} />
           <Route path="settings/export-mnemonic" element={<ExportMnemonic />} />
           <Route path="settings/change-password" element={<ChangePassword />} />
+          <Route path="settings/biometric" element={<Biometric />} />
+          <Route path="settings/contacts" element={<Contacts />} />
           <Route path="settings/connected-sites" element={<ConnectedSites />} />
           <Route path="settings/sign-message" element={<SignMessage />} />
           <Route path="settings/reset-wallet" element={<ResetWallet />} />
@@ -130,6 +143,7 @@ const TabsLayout = () => {
       {/* Follows sent blocks on every screen; peeks up above the tab bar
           away from Home. */}
       <OutgoingWatch />
+      <AppWatch />
       {!subScreenTitle && <MenuTabs />}
     </div>
   );

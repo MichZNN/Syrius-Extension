@@ -45,6 +45,14 @@ const catalog = {
   127: 'Downloading the release needs access to GitHub.',
   128: 'Writing the update needs access to the folder.',
   129: 'Not a usable release archive: {detail}',
+  // The app's stand-in for the extension API (platform/mobileShim.js)
+  130: 'Not available in the app.',
+  131: 'No response from the wallet background',
+  132: 'No pillar is named {name}.',
+  133: 'Give the contact a name.',
+  134: 'That QR code holds no Zenon address.',
+  135: 'Fingerprints changed on this phone. Unlock with the password and turn fingerprint unlock on again.',
+  136: 'Installing the QR scanner. Try again in a moment.',
 
   // The wallet
   200: 'Wrong password.',

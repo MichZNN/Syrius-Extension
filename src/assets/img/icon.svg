@@ -1,0 +1,49 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- The toolbar icon (icon-128.png) as a vector, for sizes a 128px PNG cannot
+     fill: the Android launcher and splash (tools/icons/gen-app-icons.mjs).
+     Shapes are logo.svg's at half scale, which icon-128.png matches; the
+     gradient stops are sampled from icon-128.png itself. -->
+<path d="M29.5 44.47L64 2.16V64L29.5 44.47Z" fill="url(#main-green)"/>
+<path d="M29.5 21.69L64 2.16L29.5 44.47V21.69Z" fill="url(#left-green)"/>
+<path d="M98.5 21.69L64 2.16V41.22L98.5 21.69Z" fill="url(#right-green)"/>
+<path d="M98.5 83.53L64 125.84V64L98.5 83.53Z" fill="url(#main-blue)"/>
+<path d="M98.5 106.31L64 125.84L98.5 83.53V106.31Z" fill="url(#right-blue)"/>
+<path d="M29.5 106.31L64 125.84V86.78L29.5 106.31Z" fill="url(#left-blue)"/>
+<defs>
+<linearGradient id="main-green" x1="64" y1="40" x2="29.5" y2="40" gradientUnits="userSpaceOnUse">
+<stop stop-color="#02FF37"/>
+<stop offset="0.6" stop-color="#02FF1C"/>
+<stop offset="1" stop-color="#03D80E"/>
+</linearGradient>
+<linearGradient id="left-green" x1="41.5" y1="30.2" x2="29.5" y2="21.4" gradientUnits="userSpaceOnUse">
+<stop stop-color="#03B103"/>
+<stop offset="0.5" stop-color="#037A03"/>
+<stop offset="1" stop-color="#035303"/>
+</linearGradient>
+<linearGradient id="right-green" x1="64" y1="21.69" x2="98.5" y2="21.69" gradientUnits="userSpaceOnUse">
+<stop stop-color="#02B102"/>
+<stop offset="0.25" stop-color="#03DF03"/>
+<stop offset="0.48" stop-color="#02FF02"/>
+<stop offset="1" stop-color="#03FF03"/>
+</linearGradient>
+<linearGradient id="main-blue" x1="64" y1="90" x2="98.5" y2="90" gradientUnits="userSpaceOnUse">
+<stop stop-color="#09B6FF"/>
+<stop offset="0.17" stop-color="#0AADFF"/>
+<stop offset="0.41" stop-color="#0E9CFF"/>
+<stop offset="0.64" stop-color="#1184E8"/>
+<stop offset="1" stop-color="#1E6AC0"/>
+</linearGradient>
+<linearGradient id="right-blue" x1="86.5" y1="97.8" x2="98.5" y2="106.6" gradientUnits="userSpaceOnUse">
+<stop stop-color="#1F67BB"/>
+<stop offset="1" stop-color="#285491"/>
+</linearGradient>
+<linearGradient id="left-blue" x1="29.5" y1="106.31" x2="64" y2="106.31" gradientUnits="userSpaceOnUse">
+<stop stop-color="#05CBFF"/>
+<stop offset="0.3" stop-color="#0DB6FF"/>
+<stop offset="0.54" stop-color="#15A1FF"/>
+<stop offset="0.77" stop-color="#1F7ED9"/>
+<stop offset="0.94" stop-color="#2463B2"/>
+<stop offset="1" stop-color="#2662B0"/>
+</linearGradient>
+</defs>
+</svg>

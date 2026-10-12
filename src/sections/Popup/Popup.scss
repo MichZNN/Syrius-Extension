@@ -856,6 +856,130 @@ button:disabled {
   }
 }
 
+// Icon buttons inside the end of a field: scan, address book.
+.input-icon-buttons {
+  position: absolute;
+  right: 2px;
+  display: flex;
+}
+
+.input-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: color var(--motion), background var(--motion);
+
+  &:hover,
+  &.is-active {
+    color: var(--foreground);
+    background: var(--hover);
+  }
+}
+
+.input-with-button.has-two .custom-label {
+  padding-right: 88px;
+}
+
+body.is-app .input-icon-button {
+  width: 44px;
+  height: 44px;
+}
+
+body.is-app .input-with-button.has-two .custom-label {
+  padding-right: 96px;
+}
+
+.recipient-picker {
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.recipient-picker-title {
+  padding: 6px 8px 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.recipient-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--hover);
+  }
+
+  .mono {
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+}
+
+body.is-app .recipient-option {
+  min-height: 44px;
+}
+
+.contacts-list {
+  margin-bottom: 16px;
+}
+
+.contacts-empty {
+  padding: 12px;
+}
+
+.contact-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 4px 4px 4px 12px;
+
+  .mono {
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+}
+
+.contact-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.recipient-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .switch {
   appearance: none;
   width: 36px;
@@ -1167,6 +1291,35 @@ button:disabled {
   text-align: center;
   margin-top: 12px;
   font-size: 12px;
+}
+
+.biometric-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 0;
+  color: var(--primary);
+
+  span {
+    color: var(--foreground);
+  }
+}
+
+.receive-share {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+// The app's second way in, under Unlock.
+.unlock-fingerprint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 // A newer release, said once and quietly, under everything else.
@@ -2627,13 +2780,17 @@ button.settings-item {
 //
 // Toasts
 //
+// The width of whatever holds it, 10px in from each side: 340 in the popup,
+// the screen in the app and the approval window. A fixed 340 left a gap on a
+// phone, and Toastify's centring transform would move a full-width one.
 .Toastify__toast-container--bottom-center {
-  width: 340px;
+  width: auto;
   padding: 0;
   left: 10px;
   right: 10px;
   bottom: 10px;
   margin: 0;
+  transform: none;
 }
 
 .Toastify__toast {
@@ -4154,6 +4311,26 @@ $spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   &:hover,
   &:focus-visible {
     color: var(--foreground);
+  }
+}
+
+// On a phone the popup's 30px strip is too small to read or to dismiss.
+body.is-app {
+  .outgoing-strip {
+    height: 48px;
+    padding: 0 16px;
+    font-size: 15px;
+
+    .icon {
+      width: 20px;
+      height: 20px;
+    }
+  }
+
+  .outgoing-strip-dismiss {
+    width: 48px;
+    height: 48px;
+    margin-right: -16px;
   }
 }
 

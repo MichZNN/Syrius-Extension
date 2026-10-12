@@ -1,0 +1,12 @@
+{
+  "appId": "network.zenon.syrius",
+  "appName": "Syrius",
+  "webDir": "build-android",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}
