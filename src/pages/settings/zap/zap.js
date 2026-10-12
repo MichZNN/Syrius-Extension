@@ -21,7 +21,9 @@ import { blocksFor, defaultMessage, defaults, findAlien, messageError, messageMa
 
 // How many of this wallet's own addresses are kept out of the draw.
 const ownAddresses = 16;
-const nodeSelectionNotice = 'The recipient is picked from activity reported by your connected node. A node can influence who receives the Zap.';
+// Said once, where the address is confirmed (issue #38): the draw is only as
+// honest as the node that reported the blocks.
+const nodeSelectionNotice = 'Picked from what your node reports, so the node can steer it.';
 
 const Zap = () => {
   const navigate = useNavigate();
@@ -117,8 +119,6 @@ const Zap = () => {
             <Icon name="dice" size={18} className={finding ? 'is-rolling' : ''} />
           </button>
         </div>
-
-        <p className="approval-note">{nodeSelectionNotice}</p>
 
         <div className="field-row">
           <label className="field">
