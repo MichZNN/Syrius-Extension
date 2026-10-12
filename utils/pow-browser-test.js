@@ -134,7 +134,7 @@ const firefox = async () => {
   const { browser, stderr } = launch(process.env.FIREFOX_PATH, ['--headless', '--no-remote', '--profile', profile, '--remote-debugging-port', String(port), '--remote-allow-system-access']);
   let socket;
   try {
-    for (let i = 0; i < 100 && !socket; i++) {
+    for (let i = 0; i < 150 && !socket; i++) {
       try {
         const candidate = new WebSocket(`ws://127.0.0.1:${port}/session`);
         await new Promise((resolve, reject) => { candidate.onopen = resolve; candidate.onerror = reject; });
