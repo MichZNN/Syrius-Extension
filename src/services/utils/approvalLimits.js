@@ -2,9 +2,13 @@ import { fail } from './errors';
 // Admission policy shared by the isolated relay and worker. The browser has
 // already decoded a message when these checks run; this bounds wallet work,
 // not all browser-process traffic or allocation.
+//
+// A tab is bounded as well as an origin (issue #40): a page that frames many
+// origins could otherwise fill the whole queue, and raise a new window every
+// `globalAttention` by taking the next origin each time.
 const limits = Object.freeze({ bytes: 128 * 1024, depth: 32, nodes: 20000,
-  pending: 16, perOrigin: 2, activeHandlers: 32, ttl: 30 * 60 * 1000,
-  globalAttention: 5000, originAttention: 30000, history: 64 });
+  pending: 16, perOrigin: 2, perTab: 4, activeHandlers: 32, ttl: 30 * 60 * 1000,
+  globalAttention: 5000, originAttention: 30000, tabAttention: 30000, history: 64 });
 const invalid = () => Object.assign(fail(810), { code: -32602 });
 const busy = () => Object.assign(fail(811), { code: -32005 });
 const validResponseId = id => (typeof id === 'string' && id.length > 0 && id.length <= 128) ||

@@ -45,7 +45,7 @@ const watchdog = setTimeout(() => { console.error('Native approval queue checks 
   const pages = [await createPage(), await createPage()];
   const windowId = await evaluate(pages[0], 'chrome.windows.getCurrent().then(value=>value.id)');
   const base = { responseId: 'native', documentId: 'doc-a', type: 'signAndSendBlock', params: { data: { type: 'Buffer', data: Array(16384).fill(255) }, amount: '0' }, tabId: 1, frameId: 0, origin: 'https://fixture.invalid', title: '', favicon: '', ...documentFields() };
-  const results = await Promise.all(Array.from({ length: 17 }, (_, i) => evaluate(pages[i % 2], `${i % 3 === 0 ? "worker('add'," : 'requests.add('}${JSON.stringify({ ...base, responseId: i, origin: 'https://slot-' + i + '.invalid' })}).then(value=>({ok:true,id:value.id}),error=>({ok:false,error:String(error)}))`)));
+  const results = await Promise.all(Array.from({ length: 17 }, (_, i) => evaluate(pages[i % 2], `${i % 3 === 0 ? "worker('add'," : 'requests.add('}${JSON.stringify({ ...base, responseId: i, tabId: 10 + i, origin: 'https://slot-' + i + '.invalid' })}).then(value=>({ok:true,id:value.id}),error=>({ok:false,error:String(error)}))`)));
   assert.equal(results.filter(x=>x.ok).length,16); assert.equal(results.filter(x=>!x.ok).length,1);
   const rows = await evaluate(pages[0], 'requests.list()'); assert.equal(rows.length,16);
   assert(rows.every(row=>row.params.data.data.length===16384 && row.params.data.data.every(x=>x===255)));

@@ -295,7 +295,7 @@ const internalMethods = {
       checkDeadline();
       // Save this optional convenience before permission activation. A held
       // window lock or storage write must not leave a new grant behind.
-      try { await requests.allowFollowup(request.origin, request.expiresAt); }
+      try { await requests.allowFollowup(request.origin, request.expiresAt, request.tabId); }
       catch (error) { console.error('Unable to save approval follow-up allowance', error); }
       checkDeadline();
       if (request.type === 'connect') {

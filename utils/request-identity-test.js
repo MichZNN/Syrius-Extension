@@ -68,7 +68,7 @@ const entry = (responseId = 'same', documentId = 'doc-a', type = 'signMessage') 
 const relaxedLimits = load => id => {
   if (!id.endsWith('/utils/approvalLimits')) return undefined;
   const real = load(path.join('src', 'services', 'utils', 'approvalLimits.js'));
-  return { ...real, limits: Object.freeze({ ...real.limits, pending: 1000, perOrigin: 1000, globalAttention: 0, originAttention: 0 }) };
+  return { ...real, limits: Object.freeze({ ...real.limits, pending: 1000, perOrigin: 1000, perTab: 1000, globalAttention: 0, originAttention: 0, tabAttention: 0 }) };
 };
 const fixture = () => {
   const session = {

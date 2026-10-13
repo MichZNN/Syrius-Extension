@@ -61,7 +61,7 @@ const signed = signature => ({ address: account, publicKey: '07', signature, mes
 // frames and second tabs below use a second origin.
 const realLimits = loader({})('src/services/utils/approvalLimits.js');
 const relaxedLimits = id => (id.endsWith('/utils/approvalLimits')
-  ? { ...realLimits, limits: Object.freeze({ ...realLimits.limits, pending: 1000, perOrigin: 1000, globalAttention: 0, originAttention: 0 }) }
+  ? { ...realLimits, limits: Object.freeze({ ...realLimits.limits, pending: 1000, perOrigin: 1000, perTab: 1000, globalAttention: 0, originAttention: 0, tabAttention: 0 }) }
   : undefined);
 
 const fixture = () => {

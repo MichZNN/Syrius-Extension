@@ -57,8 +57,9 @@ const watchdog = setTimeout(() => { console.error('Native identity checks timed 
   assert.equal(await evaluate(pages[0], `worker('resolve',${JSON.stringify({ ...winner, claimId: 'other' })})`), null);
   const fresh = await createPage();
   assert.equal(await evaluate(fresh, `requests.checkClaim(${JSON.stringify(winner)})`), true, 'fresh module realm sees durable ownership');
-  // One origin may hold two requests (#10), so each concurrent add is its own origin.
-  await Promise.all(Array.from({ length: 12 }, (_, i) => evaluate(pages[i % 2], `${i % 3 === 0 ? "worker('add'," : 'requests.add('}${JSON.stringify({ ...base, responseId: i, documentId: 'parallel-' + i, origin: `https://parallel-${i}.invalid` })})`)));
+  // One origin may hold two requests (#10) and one tab four (#40), so each
+  // concurrent add is its own origin in its own tab.
+  await Promise.all(Array.from({ length: 12 }, (_, i) => evaluate(pages[i % 2], `${i % 3 === 0 ? "worker('add'," : 'requests.add('}${JSON.stringify({ ...base, responseId: i, documentId: 'parallel-' + i, tabId: 10 + i, origin: `https://parallel-${i}.invalid` })})`)));
   assert.equal((await evaluate(fresh, 'requests.list()')).length, 14);
   const removed = await evaluate(pages[0], `worker('closeWindow',${windowId})`); assert.equal(removed.length, 1); assert.equal(removed[0].id, a.id);
   assert.equal(await evaluate(fresh, `requests.checkClaim(${JSON.stringify(winner)})`), false);
