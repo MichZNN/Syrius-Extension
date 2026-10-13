@@ -184,6 +184,13 @@ module.exports = {
         loader: 'base64-loader',
         type: 'javascript/auto',
       },
+      // The SDK is one prebundled 5.3 MB module, over AMO's 5 MiB parse limit
+      // on its own. Its two large string constants become modules of their
+      // own, so the vendor split above can separate them (issue #44).
+      ...(platform === 'firefox' ? [{
+        test: (resource) => resource.replace(/\\/g, '/').endsWith('node_modules/znn-ts-sdk/dist/index.js'),
+        loader: path.resolve(__dirname, 'utils/sdk-split-loader.js'),
+      }] : []),
     ],
   },
 
