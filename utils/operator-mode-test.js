@@ -373,6 +373,19 @@ test('zap alien: every address found is as likely as another', async () => {
   }
 });
 
+test('zap draw: every value below n is equally likely, so draws past the last multiple of n are retaken', () => {
+  const feed = (...values) => { let i = 0; return (draw) => { draw[0] = values[i++]; }; };
+  // 2^32 = 3 * 1431655765 + 1: only the top value is beyond a whole multiple.
+  assert.equal(zap.randomBelow(3, feed(0)), 0);
+  assert.equal(zap.randomBelow(3, feed(4294967294)), 2);
+  assert.equal(zap.randomBelow(3, feed(4294967295, 4294967295, 5)), 2);
+  assert.equal(zap.randomBelow(1, feed(4294967295)), 0);
+  assert.equal(zap.randomBelow(2 ** 16, feed(4294967295)), 65535);
+  const counts = [0, 0, 0, 0, 0];
+  for (let i = 0; i < 5000; i += 1) counts[zap.randomBelow(5)] += 1;
+  for (const count of counts) assert.ok(count > 800 && count < 1200, String(counts));
+});
+
 test('zap blocks: plain sends to the alien, the message on the first, the marker alone on the second', () => {
   const both = zap.blocksFor({ to: a2, amounts: { znn: '100000000', qsr: '1000000000' }, message: 'Hello' });
   assert.deepEqual(both.map((part) => [part.symbol, part.amount]), [['ZNN', '100000000'], ['QSR', '1000000000']]);
