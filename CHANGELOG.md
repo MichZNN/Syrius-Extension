@@ -53,9 +53,9 @@ Android and iOS apps (sideload)
 Build
 - `SYRIUS_PLATFORM=firefox` builds a Firefox package into `build-firefox/`,
   and `android` or `ios` the app's web files into `build-app/`; Chrome's
-  stays in `build/`. Release assets list the platform packages and their
-  checksums. Firefox 0.3.6 is available as an unsigned package for temporary
-  installation; connecting sites does not work there yet.
+  stays in `build/`. A release publishes the Chrome, Android, iOS and Firefox
+  packages, each with its checksum. The Firefox package is unsigned for now,
+  for temporary installation only; connecting sites does not work there yet.
 - A Firefox build whose scripts reach AMO's 5 MiB parse limit fails, naming
   the file. The SDK, one 5.3 MB module, is now built for Firefox with its two
   large constants (the proof-of-work script and its wasm) in files of their
