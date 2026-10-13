@@ -56,6 +56,10 @@ Build
   stays in `build/`. CI builds the iOS IPA beside the Chrome package, and a
   release publishes both, each with its checksum. Firefox is not released
   yet: connecting sites does not work there yet.
+- A Firefox build whose scripts reach AMO's 5 MiB parse limit fails, naming
+  the file. The SDK, one 5.3 MB module, is now built for Firefox with its two
+  large constants (the proof-of-work script and its wasm) in files of their
+  own, byte for byte; the largest script is 3.9 MB.
 
 Changed
 - Blocks in flight are followed in a line just above the tab bar, which peeks
@@ -99,6 +103,15 @@ Transaction journal
 - The record is encrypted under a key derived from the wallet's seed, readable
   only while that wallet is unlocked, kept for 24 hours after a block settles,
   limited to 100 per account, and deleted with the wallet.
+- A page that framed several origins could fill the approval queue and raise
+  a new approval window every five seconds by using the next origin each
+  time. A tab now holds at most four pending requests and raises one window
+  per 30 seconds, as an origin does; an approval still earns its follow-up.
+- A sandboxed frame's origin, `null`, is no longer taken for a site: its
+  request is refused before any approval is asked for.
+- On Chrome 112, the oldest the manifest allows, the background page was
+  asked for with a reason only Chrome 113 has. It is no longer asked for
+  there, and the popup does the sending and receiving, as with On close.
 
 ## 0.3.5
 
