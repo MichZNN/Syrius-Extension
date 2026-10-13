@@ -13,15 +13,22 @@ on:
   workflow_dispatch:
     inputs:
       attach_to:
-        description: 'Add the Android and Firefox packages to this existing release (its tag, e.g. v0.3.6)'
+        description: 'Add packages to this existing release (its tag, e.g. v0.3.6)'
         required: false
         default: ''
+      platforms:
+        description: 'Which packages to add'
+        type: choice
+        options: [all, ios, android, firefox]
+        default: all
 
 permissions:
   contents: read
 
 # A run that publishes: a tag, the automatic release branch, or an attach run.
-# Only these sign the Android app and the Firefox add-on.
+# Only these sign the Android app and the Firefox add-on. Each platform builds,
+# signs and publishes on its own, so one that fails, or that Mozilla is still
+# holding, does not keep the others out of a release.
 env:
   RELEASING: ${{ startsWith(github.ref, 'refs/tags/') || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.attach_to != '') }}
 
@@ -326,7 +333,7 @@ jobs:
 
       - name: Build and sign the release APK
         id: package
-        if: env.RELEASING == 'true'
+        if: env.RELEASING == 'true' && inputs.platforms != 'ios' && inputs.platforms != 'firefox'
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           SYRIUS_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -361,7 +368,7 @@ jobs:
           printf 'apk=%s\n' "$apk" >> "$GITHUB_OUTPUT"
 
       - name: Upload Android app artifact
-        if: env.RELEASING == 'true'
+        if: env.RELEASING == 'true' && inputs.platforms != 'ios' && inputs.platforms != 'firefox'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           path: ${{ steps.package.outputs.apk }}
@@ -406,7 +413,7 @@ jobs:
 
       - name: Sign it and write the update manifest
         id: package
-        if: env.RELEASING == 'true'
+        if: env.RELEASING == 'true' && inputs.platforms != 'ios' && inputs.platforms != 'android'
         env:
           WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}
           WEB_EXT_API_SECRET: ${{ secrets.WEB_EXT_API_SECRET }}
@@ -435,7 +442,7 @@ jobs:
           printf 'xpi=%s\n' "$xpi" >> "$GITHUB_OUTPUT"
 
       - name: Upload Firefox add-on artifact
-        if: env.RELEASING == 'true'
+        if: env.RELEASING == 'true' && inputs.platforms != 'ios' && inputs.platforms != 'android'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           path: ${{ steps.package.outputs.xpi }}
@@ -444,7 +451,7 @@ jobs:
           archive: false
 
       - name: Upload Firefox update manifest artifact
-        if: env.RELEASING == 'true'
+        if: env.RELEASING == 'true' && inputs.platforms != 'ios' && inputs.platforms != 'android'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: firefox-updates.json
@@ -453,13 +460,69 @@ jobs:
           retention-days: 30
           archive: false
 
-  # Adds the Android and Firefox packages to a release that was published
-  # without them. Run by hand (workflow_dispatch, attach_to: the tag). It never
-  # replaces a file the release already has.
-  attach:
-    name: Attach Android and Firefox packages
-    if: github.event_name == 'workflow_dispatch' && inputs.attach_to != ''
-    needs: [build, android, firefox]
+  # Adds the iOS app to the release: after the release job on a tag, or by
+  # hand (workflow_dispatch, attach_to: the tag, platforms: ios or all) to a
+  # release published without it. It never replaces a file the release has.
+  publish-ios:
+    name: Publish iOS app
+    if: >-
+      always() && needs.build.result == 'success' && needs.ios.result == 'success' && (
+        needs.release.result == 'success' ||
+        (github.event_name == 'workflow_dispatch' && inputs.attach_to != '' &&
+          (inputs.platforms == 'all' || inputs.platforms == 'ios')))
+    needs: [build, ios, release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+
+    steps:
+      - name: Download iOS app
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.ios.outputs.ipa }}
+          path: release-assets
+          skip-decompress: true
+
+      - name: Add it to the release
+        working-directory: release-assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.attach_to || (startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', needs.build.outputs.manifest_version)) }}
+          MANIFEST_VERSION: ${{ needs.build.outputs.manifest_version }}
+          IPA: ${{ needs.ios.outputs.ipa }}
+        shell: bash
+        run: |
+          if [[ "$TAG_NAME" != "v${MANIFEST_VERSION}" ]]; then
+            echo "::error::This checkout is ${MANIFEST_VERSION}; it cannot add packages to $TAG_NAME."
+            exit 1
+          fi
+          test "$IPA" = "syrius-${MANIFEST_VERSION}-ios-unsigned.ipa" && test -f "$IPA"
+          sha256sum "$IPA" > "${IPA}.sha256"
+          assets=("$IPA" "${IPA}.sha256")
+
+          existing="$(gh release view "$TAG_NAME" --json assets --jq '.assets[].name')"
+          for asset in "${assets[@]}"; do
+            if grep -qxF "$asset" <<< "$existing"; then
+              echo "::error::Release $TAG_NAME already has $asset."
+              exit 1
+            fi
+          done
+          gh release upload "$TAG_NAME" "${assets[@]}"
+
+  # Adds the Android app to the release: after the release job on a tag, or by
+  # hand (workflow_dispatch, attach_to: the tag, platforms: android or all) to a
+  # release published without it. It never replaces a file the release has.
+  publish-android:
+    name: Publish Android app
+    if: >-
+      always() && needs.build.result == 'success' && needs.android.result == 'success' && (
+        needs.release.result == 'success' ||
+        (github.event_name == 'workflow_dispatch' && inputs.attach_to != '' &&
+          (inputs.platforms == 'all' || inputs.platforms == 'android')))
+    needs: [build, android, release]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -474,6 +537,51 @@ jobs:
           path: release-assets
           skip-decompress: true
 
+      - name: Add it to the release
+        working-directory: release-assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.attach_to || (startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', needs.build.outputs.manifest_version)) }}
+          MANIFEST_VERSION: ${{ needs.build.outputs.manifest_version }}
+          APK: ${{ needs.android.outputs.apk }}
+        shell: bash
+        run: |
+          if [[ "$TAG_NAME" != "v${MANIFEST_VERSION}" ]]; then
+            echo "::error::This checkout is ${MANIFEST_VERSION}; it cannot add packages to $TAG_NAME."
+            exit 1
+          fi
+          test "$APK" = "syrius-${MANIFEST_VERSION}-android.apk" && test -f "$APK"
+          sha256sum "$APK" > "${APK}.sha256"
+          assets=("$APK" "${APK}.sha256")
+
+          existing="$(gh release view "$TAG_NAME" --json assets --jq '.assets[].name')"
+          for asset in "${assets[@]}"; do
+            if grep -qxF "$asset" <<< "$existing"; then
+              echo "::error::Release $TAG_NAME already has $asset."
+              exit 1
+            fi
+          done
+          gh release upload "$TAG_NAME" "${assets[@]}"
+
+  # Adds the Firefox add-on to the release: after the release job on a tag, or by
+  # hand (workflow_dispatch, attach_to: the tag, platforms: firefox or all) to a
+  # release published without it. It never replaces a file the release has.
+  publish-firefox:
+    name: Publish Firefox add-on
+    if: >-
+      always() && needs.build.result == 'success' && needs.firefox.result == 'success' && (
+        needs.release.result == 'success' ||
+        (github.event_name == 'workflow_dispatch' && inputs.attach_to != '' &&
+          (inputs.platforms == 'all' || inputs.platforms == 'firefox')))
+    needs: [build, firefox, release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+
+    steps:
       - name: Download Firefox add-on
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -488,14 +596,13 @@ jobs:
           path: release-assets
           skip-decompress: true
 
-      - name: Attach them to the release
+      - name: Add it to the release
         working-directory: release-assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG_NAME: ${{ inputs.attach_to }}
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.attach_to || (startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', needs.build.outputs.manifest_version)) }}
           MANIFEST_VERSION: ${{ needs.build.outputs.manifest_version }}
-          APK: ${{ needs.android.outputs.apk }}
           XPI: ${{ needs.firefox.outputs.xpi }}
         shell: bash
         run: |
@@ -503,27 +610,27 @@ jobs:
             echo "::error::This checkout is ${MANIFEST_VERSION}; it cannot add packages to $TAG_NAME."
             exit 1
           fi
-          test "$APK" = "syrius-${MANIFEST_VERSION}-android.apk"
-          test "$XPI" = "syrius-extension-${MANIFEST_VERSION}-firefox.xpi"
-          test -f "$APK" && test -f "$XPI" && test -f updates.json
-          sha256sum "$APK" > "${APK}.sha256"
+          test "$XPI" = "syrius-extension-${MANIFEST_VERSION}-firefox.xpi" && test -f "$XPI" && test -f updates.json
           sha256sum "$XPI" > "${XPI}.sha256"
+          assets=("$XPI" "${XPI}.sha256" updates.json)
 
           existing="$(gh release view "$TAG_NAME" --json assets --jq '.assets[].name')"
-          for asset in "$APK" "${APK}.sha256" "$XPI" "${XPI}.sha256" updates.json; do
+          for asset in "${assets[@]}"; do
             if grep -qxF "$asset" <<< "$existing"; then
               echo "::error::Release $TAG_NAME already has $asset."
               exit 1
             fi
           done
-          gh release upload "$TAG_NAME" "$APK" "${APK}.sha256" "$XPI" "${XPI}.sha256" updates.json
+          gh release upload "$TAG_NAME" "${assets[@]}"
 
+  # Creates the release with the Chrome/Brave package. The other platforms add
+  # theirs to it (publish-ios, publish-android, publish-firefox).
   release:
     name: Publish GitHub release
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       startsWith(github.ref, 'refs/tags/')
-    needs: [build, ios, android, firefox]
+    needs: [build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -538,54 +645,15 @@ jobs:
           path: release-assets
           skip-decompress: true
 
-      - name: Download iOS app
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ needs.ios.outputs.ipa }}
-          path: release-assets
-          skip-decompress: true
-
-      - name: Download Android app
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ needs.android.outputs.apk }}
-          path: release-assets
-          skip-decompress: true
-
-      - name: Download Firefox add-on
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ needs.firefox.outputs.xpi }}
-          path: release-assets
-          skip-decompress: true
-
-      - name: Download Firefox update manifest
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: firefox-updates.json
-          path: release-assets
-          skip-decompress: true
-
-      - name: Recreate release checksums
+      - name: Recreate release checksum
         working-directory: release-assets
         env:
           MANIFEST_VERSION: ${{ needs.build.outputs.manifest_version }}
-          IPA: ${{ needs.ios.outputs.ipa }}
-          APK: ${{ needs.android.outputs.apk }}
-          XPI: ${{ needs.firefox.outputs.xpi }}
         shell: bash
         run: |
-          test "$APK" = "syrius-${MANIFEST_VERSION}-android.apk"
-          test "$XPI" = "syrius-extension-${MANIFEST_VERSION}-firefox.xpi"
-          test -f "$APK" && test -f "$XPI" && test -f updates.json
-          sha256sum "$APK" > "${APK}.sha256"
-          sha256sum "$XPI" > "${XPI}.sha256"
           archive="syrius-extension-${MANIFEST_VERSION}-chrome-brave.zip"
           test -f "$archive"
-          test "$IPA" = "syrius-${MANIFEST_VERSION}-ios-unsigned.ipa"
-          test -f "$IPA"
           sha256sum "$archive" > "${archive}.sha256"
-          sha256sum "$IPA" > "${IPA}.sha256"
 
       - name: Publish GitHub release assets
         env:
@@ -597,10 +665,9 @@ jobs:
         shell: bash
         run: |
           mapfile -t assets < <(find release-assets -maxdepth 1 -type f -print | sort)
-          # The Chrome/Brave ZIP, the iOS IPA, the Android APK and the Firefox
-          # XPI, each with its checksum, and Firefox's update manifest.
-          if (( ${#assets[@]} != 9 )); then
-            echo "::error::Expected exactly nine release assets, found ${#assets[@]}."
+          # The Chrome/Brave ZIP and its checksum.
+          if (( ${#assets[@]} != 2 )); then
+            echo "::error::Expected exactly two release assets, found ${#assets[@]}."
             exit 1
           fi
 
