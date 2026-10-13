@@ -11,9 +11,19 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      attach_to:
+        description: 'Add the Android and Firefox packages to this existing release (its tag, e.g. v0.3.6)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
+
+# A run that publishes: a tag, the automatic release branch, or an attach run.
+# Only these sign the Android app and the Firefox add-on.
+env:
+  RELEASING: ${{ startsWith(github.ref, 'refs/tags/') || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.attach_to != '') }}
 
 concurrency:
   group: extension-build-${{ github.workflow }}-${{ github.ref }}
@@ -273,12 +283,247 @@ jobs:
           retention-days: 30
           archive: false
 
+  # The Android app. A release is signed with the project's key, which only a
+  # tag or an attach run is given; every other run builds the debug APK, to
+  # show the project still compiles, and keeps nothing.
+  android:
+    name: Build Android app
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      apk: ${{ steps.package.outputs.apk }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build the app's web files
+        env:
+          SYRIUS_PLATFORM: android
+        run: npm run build
+
+      - name: Copy them into the Android project
+        run: npx cap sync android
+
+      - name: Build the debug APK
+        if: env.RELEASING != 'true'
+        working-directory: android
+        shell: bash
+        run: |
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Build and sign the release APK
+        id: package
+        if: env.RELEASING == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          SYRIUS_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          SYRIUS_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          SYRIUS_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          if [[ -z "$KEYSTORE_BASE64" || -z "$SYRIUS_KEYSTORE_PASSWORD" || -z "$SYRIUS_KEY_ALIAS" || -z "$SYRIUS_KEY_PASSWORD" ]]; then
+            echo "::error::The Android signing secrets are not set."
+            exit 1
+          fi
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export SYRIUS_KEYSTORE="$RUNNER_TEMP/syrius-release.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$SYRIUS_KEYSTORE"
+          trap 'rm -f "$SYRIUS_KEYSTORE"' EXIT
+
+          (cd android && ./gradlew --no-daemon assembleRelease)
+
+          version="$(node -p "require('./package.json').version")"
+          apk="syrius-${version}-android.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk "$apk"
+
+          # Signed, and with the release key: an unsigned or debug-signed APK
+          # would not install over the last release.
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          test -n "$apksigner"
+          "$apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/apk-certs.txt"
+          if grep -qi 'CN=Android Debug' "$RUNNER_TEMP/apk-certs.txt"; then
+            echo "::error::The APK is signed with a debug key."
+            exit 1
+          fi
+          printf 'apk=%s\n' "$apk" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Android app artifact
+        if: env.RELEASING == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.package.outputs.apk }}
+          if-no-files-found: error
+          retention-days: 30
+          archive: false
+
+  # The Firefox add-on. Firefox installs only an add-on Mozilla has signed, so a
+  # release sends the package to addons.mozilla.org for an unlisted signature;
+  # that happens once per version, on a tag or an attach run only. Every other
+  # run builds and lints the package and keeps nothing.
+  firefox:
+    name: Build Firefox add-on
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      xpi: ${{ steps.package.outputs.xpi }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build the add-on
+        env:
+          SYRIUS_PLATFORM: firefox
+        run: npm run build
+
+      # Self-hosted: the add-on names its own update_url, which a listed one may not.
+      - name: Lint it as addons.mozilla.org does
+        run: npx --yes web-ext@10.7.0 lint --self-hosted --source-dir build-firefox
+
+      - name: Sign it and write the update manifest
+        id: package
+        if: env.RELEASING == 'true'
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.WEB_EXT_API_SECRET }}
+        shell: bash
+        run: |
+          if [[ -z "$WEB_EXT_API_KEY" || -z "$WEB_EXT_API_SECRET" ]]; then
+            echo "::error::The addons.mozilla.org signing secrets are not set."
+            exit 1
+          fi
+          npx --yes web-ext@10.7.0 sign --channel unlisted --source-dir build-firefox \
+            --artifacts-dir "$RUNNER_TEMP/signed" --approval-timeout 1500000
+
+          version="$(node -p "require('./build-firefox/manifest.json').version")"
+          xpi="syrius-extension-${version}-firefox.xpi"
+          mapfile -t signed < <(find "$RUNNER_TEMP/signed" -maxdepth 1 -type f -name '*.xpi')
+          if (( ${#signed[@]} != 1 )); then
+            echo "::error::Expected one signed add-on, found ${#signed[@]}."
+            exit 1
+          fi
+          cp "${signed[0]}" "$xpi"
+          unzip -Z1 "$xpi" | grep -q '^META-INF/mozilla.rsa$'
+
+          # What an installed add-on reads to find its next version (the
+          # manifest's update_url is this file on the latest release).
+          XPI="$xpi" VERSION="$version" REPOSITORY="$GITHUB_REPOSITORY" node utils/firefox-updates.js
+          printf 'xpi=%s\n' "$xpi" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Firefox add-on artifact
+        if: env.RELEASING == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.package.outputs.xpi }}
+          if-no-files-found: error
+          retention-days: 30
+          archive: false
+
+      - name: Upload Firefox update manifest artifact
+        if: env.RELEASING == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: firefox-updates.json
+          path: updates.json
+          if-no-files-found: error
+          retention-days: 30
+          archive: false
+
+  # Adds the Android and Firefox packages to a release that was published
+  # without them. Run by hand (workflow_dispatch, attach_to: the tag). It never
+  # replaces a file the release already has.
+  attach:
+    name: Attach Android and Firefox packages
+    if: github.event_name == 'workflow_dispatch' && inputs.attach_to != ''
+    needs: [build, android, firefox]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+
+    steps:
+      - name: Download Android app
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.android.outputs.apk }}
+          path: release-assets
+          skip-decompress: true
+
+      - name: Download Firefox add-on
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.firefox.outputs.xpi }}
+          path: release-assets
+          skip-decompress: true
+
+      - name: Download Firefox update manifest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: firefox-updates.json
+          path: release-assets
+          skip-decompress: true
+
+      - name: Attach them to the release
+        working-directory: release-assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ inputs.attach_to }}
+          MANIFEST_VERSION: ${{ needs.build.outputs.manifest_version }}
+          APK: ${{ needs.android.outputs.apk }}
+          XPI: ${{ needs.firefox.outputs.xpi }}
+        shell: bash
+        run: |
+          if [[ "$TAG_NAME" != "v${MANIFEST_VERSION}" ]]; then
+            echo "::error::This checkout is ${MANIFEST_VERSION}; it cannot add packages to $TAG_NAME."
+            exit 1
+          fi
+          test "$APK" = "syrius-${MANIFEST_VERSION}-android.apk"
+          test "$XPI" = "syrius-extension-${MANIFEST_VERSION}-firefox.xpi"
+          test -f "$APK" && test -f "$XPI" && test -f updates.json
+          sha256sum "$APK" > "${APK}.sha256"
+          sha256sum "$XPI" > "${XPI}.sha256"
+
+          existing="$(gh release view "$TAG_NAME" --json assets --jq '.assets[].name')"
+          for asset in "$APK" "${APK}.sha256" "$XPI" "${XPI}.sha256" updates.json; do
+            if grep -qxF "$asset" <<< "$existing"; then
+              echo "::error::Release $TAG_NAME already has $asset."
+              exit 1
+            fi
+          done
+          gh release upload "$TAG_NAME" "$APK" "${APK}.sha256" "$XPI" "${XPI}.sha256" updates.json
+
   release:
     name: Publish GitHub release
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       startsWith(github.ref, 'refs/tags/')
-    needs: [build, ios]
+    needs: [build, ios, android, firefox]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -300,13 +545,41 @@ jobs:
           path: release-assets
           skip-decompress: true
 
+      - name: Download Android app
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.android.outputs.apk }}
+          path: release-assets
+          skip-decompress: true
+
+      - name: Download Firefox add-on
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.firefox.outputs.xpi }}
+          path: release-assets
+          skip-decompress: true
+
+      - name: Download Firefox update manifest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: firefox-updates.json
+          path: release-assets
+          skip-decompress: true
+
       - name: Recreate release checksums
         working-directory: release-assets
         env:
           MANIFEST_VERSION: ${{ needs.build.outputs.manifest_version }}
           IPA: ${{ needs.ios.outputs.ipa }}
+          APK: ${{ needs.android.outputs.apk }}
+          XPI: ${{ needs.firefox.outputs.xpi }}
         shell: bash
         run: |
+          test "$APK" = "syrius-${MANIFEST_VERSION}-android.apk"
+          test "$XPI" = "syrius-extension-${MANIFEST_VERSION}-firefox.xpi"
+          test -f "$APK" && test -f "$XPI" && test -f updates.json
+          sha256sum "$APK" > "${APK}.sha256"
+          sha256sum "$XPI" > "${XPI}.sha256"
           archive="syrius-extension-${MANIFEST_VERSION}-chrome-brave.zip"
           test -f "$archive"
           test "$IPA" = "syrius-${MANIFEST_VERSION}-ios-unsigned.ipa"
@@ -324,9 +597,10 @@ jobs:
         shell: bash
         run: |
           mapfile -t assets < <(find release-assets -maxdepth 1 -type f -print | sort)
-          # The Chrome/Brave ZIP and the iOS IPA, each with its checksum.
-          if (( ${#assets[@]} != 4 )); then
-            echo "::error::Expected exactly four release assets, found ${#assets[@]}."
+          # The Chrome/Brave ZIP, the iOS IPA, the Android APK and the Firefox
+          # XPI, each with its checksum, and Firefox's update manifest.
+          if (( ${#assets[@]} != 9 )); then
+            echo "::error::Expected exactly nine release assets, found ${#assets[@]}."
             exit 1
           fi
 

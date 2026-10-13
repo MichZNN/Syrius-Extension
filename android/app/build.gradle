@@ -21,8 +21,22 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // The release key comes from the environment (CI's secrets, or a local
+    // keystore). Without it a release build is left unsigned, not debug-signed.
+    def releaseKeystore = System.getenv('SYRIUS_KEYSTORE')
+    signingConfigs {
+        release {
+            if (releaseKeystore) {
+                storeFile file(releaseKeystore)
+                storePassword System.getenv('SYRIUS_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('SYRIUS_KEY_ALIAS')
+                keyPassword System.getenv('SYRIUS_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            signingConfig releaseKeystore ? signingConfigs.release : null
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

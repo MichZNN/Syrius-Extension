@@ -6,8 +6,8 @@ Keys are generated and encrypted on your machine and never leave it. The
 extension talks to a Zenon node of your choosing, and to web pages through an
 injected provider that does nothing without being asked first.
 
-Version **0.3.6**, Manifest V3, Chrome or Brave 112 or later, and Android and
-iOS apps built from the same source. [What changed](CHANGELOG.md).
+Version **0.3.6**, Manifest V3, Chrome or Brave 112 or later, Firefox 140 or
+later, and Android and iOS apps built from the same source. [What changed](CHANGELOG.md).
 
 ## Features
 
@@ -59,9 +59,23 @@ npm run build
 
 Then **Load unpacked** and pick the `build` folder.
 
+### Firefox
+
+Each release has a `syrius-extension-<version>-firefox.xpi`, signed by Mozilla
+for installing outside its store. Open the file in Firefox 140 or later and
+confirm. Firefox then updates it from later releases by itself.
+
+```bash
+SYRIUS_PLATFORM=firefox npm run build   # into build-firefox/
+```
+
+A build from source is unsigned: load it from `about:debugging`, This Firefox,
+Load Temporary Add-on.
+
 ### Android
 
-Sideload only for now: no store listing and no signed release yet. The app is
+Sideload only for now: no store listing. Each release has a signed
+`syrius-<version>-android.apk`; open it on the phone to install. The app is
 `network.zenon.syrius` and needs Android 7 or later; scanning uses Google Play
 services' scanner, so it needs no camera permission.
 

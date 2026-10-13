@@ -19,7 +19,7 @@ const otherCommit = 'b'.repeat(40);
 const tag = sha => ({ name: 'v0.0.0', commit: { sha } });
 
 const run = ({ automatic = false, existing = false, creationFails = false,
-  assets = 4, pages = [[tag(candidate)]], apiFails = false, targetSha = candidate } = {}) => {
+  assets = 9, pages = [[tag(candidate)]], apiFails = false, targetSha = candidate } = {}) => {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'syrius-release-assets-'));
   try {
     fs.mkdirSync(path.join(scratch, 'release-assets'));
@@ -162,8 +162,9 @@ test('tag missing remotely refuses publication', () => {
   noPublication(result);
   assert.match(result.stdout, /missing from the remote/);
 });
-// Four: the Chrome/Brave ZIP and the iOS IPA, each with its checksum.
-for (const assets of [0, 1, 2, 3, 5]) {
+// Nine: the Chrome/Brave ZIP, the iOS IPA, the Android APK and the Firefox
+// XPI, each with its checksum, and Firefox's update manifest.
+for (const assets of [0, 1, 4, 8, 10]) {
   test(`invalid ${assets}-file package refuses publication before GitHub access`, () => {
     const result = run({ assets });
     noPublication(result);

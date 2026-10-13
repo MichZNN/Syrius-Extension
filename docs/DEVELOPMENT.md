@@ -130,7 +130,13 @@ repo's own, and never a shared network:
 to the development branches. A successful push to `main` creates the matching
 version tag and publishes the Chrome/Brave ZIP and the unsigned iOS IPA, each
 with its SHA-256 checksum; the IPA is built on a macOS runner in the same
-workflow, so a release waits for both. Bump
+workflow, so a release waits for both. A release also carries the Android APK,
+signed with the project's key, and the Firefox XPI, which the workflow sends to
+addons.mozilla.org for an unlisted signature, with `updates.json` for Firefox's
+own updater. Those two need the repository's `ANDROID_*` and `WEB_EXT_*`
+secrets, and are signed only on a release run: Mozilla signs a version once.
+To add them to a release published without them, run the workflow by hand with
+`attach_to` set to its tag. Bump
 `src/manifest.json`, `package.json` and `package-lock.json` together before
 merging a release. To use the tag-triggered path manually instead of the
 automatic `main` release:
