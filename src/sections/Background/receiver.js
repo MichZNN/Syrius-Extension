@@ -42,6 +42,10 @@ const apply = async () => {
   if (chrome.offscreen) {
     // Creating one that exists, or closing one that does not, is refused;
     // either way the state asked for is the state there is.
+    // The WORKERS reason is Chrome 113's; the manifest allows 112 (issue #43).
+    // There the page is not asked for: with no background page the popup does
+    // the work itself, as it does with On close (wallet/blockService.js).
+    if (want && !chrome.offscreen.Reason?.WORKERS) return;
     if (want) {
       await chrome.offscreen.createDocument({
         url: path,
