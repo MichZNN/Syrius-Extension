@@ -61,9 +61,15 @@ Then **Load unpacked** and pick the `build` folder.
 
 ### Firefox
 
-Each release has a `syrius-extension-<version>-firefox.xpi`, signed by Mozilla
-for installing outside its store. Open the file in Firefox 140 or later and
-confirm. Firefox then updates it from later releases by itself.
+Check the release assets for the Firefox package's signing status. A
+Mozilla-signed `syrius-extension-<version>-firefox.xpi` can be installed in
+Firefox 140 or later by opening the file and confirming. Signed installs
+can update from later signed releases when the update manifest is available.
+
+The 0.3.6 release currently includes
+`syrius-extension-0.3.6-firefox-unsigned.xpi`. Load it from `about:debugging`,
+**This Firefox**, **Load Temporary Add-on**. Temporary add-ons are removed
+when Firefox closes; keep the wallet's recovery phrase backed up.
 
 ```bash
 SYRIUS_PLATFORM=firefox npm run build   # into build-firefox/
