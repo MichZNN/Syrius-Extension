@@ -34,7 +34,7 @@
     "@capacitor/privacy-screen": "^2.0.1",
     "@capacitor/share": "^8.0.3",
     "@capgo/capacitor-native-biometric": "^8.8.1",
-    "@reduxjs/toolkit": "^1.8.1",
+    "@reduxjs/toolkit": "^2.13.0",
     "babel-preset-react": "^6.24.1",
     "base64-loader": "^1.0.0",
     "bigint-buffer": "file:vendor/bigint-buffer",
