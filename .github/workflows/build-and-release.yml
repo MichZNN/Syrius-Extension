@@ -297,8 +297,8 @@ jobs:
     name: Build Android app
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    outputs:
-      apk: ${{ steps.package.outputs.apk }}
+    # No file-name output: GitHub drops an output that contains a secret's
+    # value, and the key alias is part of the name. The publish job derives it.
 
     steps:
       - name: Check out repository
@@ -384,8 +384,6 @@ jobs:
     name: Build Firefox add-on
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    outputs:
-      xpi: ${{ steps.package.outputs.xpi }}
 
     steps:
       - name: Check out repository
@@ -533,7 +531,7 @@ jobs:
       - name: Download Android app
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: ${{ needs.android.outputs.apk }}
+          name: syrius-${{ needs.build.outputs.manifest_version }}-android.apk
           path: release-assets
           skip-decompress: true
 
@@ -544,7 +542,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.attach_to || (startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', needs.build.outputs.manifest_version)) }}
           MANIFEST_VERSION: ${{ needs.build.outputs.manifest_version }}
-          APK: ${{ needs.android.outputs.apk }}
+          APK: syrius-${{ needs.build.outputs.manifest_version }}-android.apk
         shell: bash
         run: |
           if [[ "$TAG_NAME" != "v${MANIFEST_VERSION}" ]]; then
@@ -585,7 +583,7 @@ jobs:
       - name: Download Firefox add-on
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: ${{ needs.firefox.outputs.xpi }}
+          name: syrius-extension-${{ needs.build.outputs.manifest_version }}-firefox.xpi
           path: release-assets
           skip-decompress: true
 
@@ -603,7 +601,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.attach_to || (startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', needs.build.outputs.manifest_version)) }}
           MANIFEST_VERSION: ${{ needs.build.outputs.manifest_version }}
-          XPI: ${{ needs.firefox.outputs.xpi }}
+          XPI: syrius-extension-${{ needs.build.outputs.manifest_version }}-firefox.xpi
         shell: bash
         run: |
           if [[ "$TAG_NAME" != "v${MANIFEST_VERSION}" ]]; then
