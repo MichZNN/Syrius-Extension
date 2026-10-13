@@ -8,7 +8,12 @@
 
 # production
 /build
+/build-*
+/dist
 *.zip
+*.xpi
+*.apk
+*.ipa
 
 # misc
 .DS_Store
@@ -37,3 +42,13 @@ desktop.ini
 AGENTS.md
 .codex
 .plans
+
+# Session handoff notes are working files, never committed.
+HANDOFF*.md
+
+# Signing keys: never in the repository, whatever they are named.
+*.jks
+*.keystore
+*.p12
+.env.*
+!.env.example

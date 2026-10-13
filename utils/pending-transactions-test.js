@@ -5,6 +5,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const babel = require('@babel/core');
+const { journalStubs } = require('./fixtures/journal-stub');
 const React = require('react');
 const root = path.join(__dirname, '..');
 const compiled = new Map();
@@ -32,6 +33,8 @@ const loader = (override, environment = {}) => {
     const requireModule = (name) => {
       const replacement = override(name);
       if (replacement !== undefined) return replacement;
+      // The journal has its own suite; see fixtures/journal-stub.js.
+      const journaled = journalStubs(name); if (journaled !== undefined) return journaled;
       if (!name.startsWith('.')) return require(name);
       const target = path.resolve(path.dirname(filename), name);
       return load(path.extname(target) ? target : target + '.js');
@@ -304,7 +307,13 @@ const dashboardFixture = (history, options = {}) => {
       const replacement = f.override(name); if (replacement !== undefined) return replacement;
       if (name === 'react') return hooks.react;
       if (name === 'react-redux') return { useDispatch: () => reducer.dispatch };
-      if (name.endsWith('/wallet/vault')) return { getSigningKeyPair: async () => ({}) };
+      if (name.endsWith('/wallet/vault')) return { getSigningKeyPair: async () => ({}), getSelectedIndex: () => 0 };
+      // No background page: the popup runs the job, one block straight to the
+      // fixture's send, as the journal stub's publisher does.
+      if (name.endsWith('/wallet/blockService')) return { hostReady: async () => false, hostSend: async () => false };
+      if (name.endsWith('/wallet/blockJobs')) {
+        return { __esModule: true, default: (job, { onPow } = {}) => f.zenon.send(job.templates[0], {}, onPow) };
+      }
       if (name === './useAccount') return { invalidateAccountCache: () => {} };
       if (name.endsWith('/utils/notify')) return { notify: { success: () => {}, error: () => {} } };
       if (name.endsWith('/utils/errors')) return { readableError: String };

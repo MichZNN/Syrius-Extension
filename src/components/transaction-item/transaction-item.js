@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux';
 
 import ExternalLinkIcon from '../../animated-icons/external-link/external-link';
 import Icon from '../icon/icon';
+import PowCountdown from '../pow-countdown/pow-countdown';
 import { copyToClipboard } from '../../services/utils/notify';
 import { formatAmount, truncateAddress } from '../../services/utils/format';
 import { transactionUrl, currentExplorerLabel } from '../../services/utils/explorer';
@@ -72,15 +73,6 @@ const TransactionItem = ({
         <div className="transaction-line">
           <span className="transaction-label">
             {label}
-            {/* Proof of work takes real seconds and says so in words, because a
-                silent pulse leaves "is it stuck?" unanswered. It replaces the
-                unconfirmed dot rather than sitting next to it: a block still
-                being signed is not yet waiting on the network. */}
-            {isGeneratingPlasma && (
-              <span className="plasma-note" role="status">
-                Generating plasma…
-              </span>
-            )}
             {/* Only while the network has not settled it. A permanent badge on
                 every row would be noise; this one goes away on its own. */}
             {isUnconfirmed && !isGeneratingPlasma && !isFailed && (
@@ -98,6 +90,18 @@ const TransactionItem = ({
             </span>
           )}
         </div>
+
+        {/* Proof of work takes real seconds and says so in words, because a
+            silent pulse leaves "is it stuck?" unanswered. It replaces the
+            unconfirmed dot rather than sitting next to it: a block still
+            being signed is not yet waiting on the network. Its own line, so
+            the countdown never pushes the amount off the row. */}
+        {isGeneratingPlasma && (
+          <div className="plasma-note" role="status">
+            Generating plasma…
+            <PowCountdown />
+          </div>
+        )}
 
         <button
           type="button"

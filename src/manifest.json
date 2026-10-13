@@ -1,5 +1,5 @@
 {
-  "version": "0.3.5",
+  "version": "0.3.6",
   "manifest_version": 3,
   "minimum_chrome_version": "112",
   "name": "Syrius — Zenon Wallet",
@@ -30,7 +30,12 @@
     "default_title": "Syrius",
     "default_popup": "popup.html"
   },
-  "permissions": ["storage", "alarms", "webNavigation"],
+  "permissions": ["storage", "alarms", "webNavigation", "offscreen"],
+  "optional_host_permissions": [
+    "https://github.com/*",
+    "https://objects.githubusercontent.com/*",
+    "https://release-assets.githubusercontent.com/*"
+  ],
   "icons": {
     "128": "icon-128.png"
   },

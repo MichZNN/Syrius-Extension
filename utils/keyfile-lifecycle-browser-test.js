@@ -18,7 +18,14 @@ const changedPassword = password();
 const incorrectPassword = password();
 const walletName = 'qualification-created';
 const importedName = 'qualification-imported';
-const quote = JSON.stringify;
+// JSON for splicing into the code evaluated in the page, with the characters
+// JSON leaves raw that still mean something to a script parser escaped too.
+const unsafeCharacters = {
+  '<': '\\u003C', '>': '\\u003E', '/': '\\u002F', '\\': '\\\\', '\b': '\\b', '\f': '\\f',
+  '\n': '\\n', '\r': '\\r', '\t': '\\t', '\0': '\\0', '\u2028': '\\u2028', '\u2029': '\\u2029',
+};
+const quote = (value) => JSON.stringify(value)
+  .replace(/[<>\b\f\n\r\t\0\u2028\u2029]/g, (character) => unsafeCharacters[character]);
 let browser, browserStarting, page, phrase, stage = 'package validation';
 const results = [];
 const report = { package_version: null, package_tree_sha256: null, cases: results };
@@ -151,10 +158,9 @@ const unlock = async (value, success) => {
     assert([12, 24].includes(phrase.split(' ').length), 'Generated phrase has supported length');
     await click('#agree_phrase');
     await clickText('Continue');
-    await until(`Boolean(${element('.secret-words .secret-word')})`, 'phrase confirmation');
-    for (const word of phrase.split(' ')) {
-      assert(await evaluate(`(() => { const el = [...document.querySelectorAll('.secret-words .secret-word')].find(e => e.textContent.trim() === ${quote(word)}); if (!el) return false; el.click(); return true; })()`), 'Generated word can be confirmed');
-    }
+    await until(`document.querySelectorAll('.phrase-quiz').length === 3`, 'phrase confirmation');
+    // Each question names a position ("Choose the 7th word"); press that word.
+    assert(await evaluate(`(() => { const words = ${quote(phrase)}.split(' '); return [...document.querySelectorAll('.phrase-quiz')].every((question) => { const position = Number(question.querySelector('legend').textContent.match(/\\d+/)[0]); const button = [...question.querySelectorAll('.phrase-quiz-option')].find((option) => option.textContent.trim() === words[position - 1]); if (!button) return false; button.click(); return true; }); })()`), 'Generated phrase can be confirmed');
     // A one-shot storage-boundary fault follows real encryption. It does not
     // replace Argon2, AES, the SDK, or the application's save callback.
     await evaluate(`(() => { globalThis.__qualificationWriteFailed = false; globalThis.__restoreQualificationStorage = Storage.prototype.setItem; Storage.prototype.setItem = function(key, value) { if (key === 'znn.ts-wallet') { globalThis.__qualificationWriteFailed = true; Storage.prototype.setItem = globalThis.__restoreQualificationStorage; throw new DOMException('Synthetic test write failure', 'QuotaExceededError'); } return globalThis.__restoreQualificationStorage.call(this, key, value); }; return true; })()`);

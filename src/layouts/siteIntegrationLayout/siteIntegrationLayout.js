@@ -348,7 +348,7 @@ const SiteIntegrationLayout = () => {
       Primitives.TokenStandard.parse(tokenStandard), toBigNumber(normalizeBaseUnits(amount)));
     return blockResult(await send(template, { assertRequest, expiresAt: selected.expiresAt,
       binding, onSubmitted, addressIndex: binding.scope.index }));
-  }, 'Transaction sent');
+  });
   // The only approval here that does not touch the network: no plasma, no
   // block, nothing to broadcast.
   const approveSignMessage = () => approve((selected, assertRequest, binding) =>
@@ -361,7 +361,7 @@ const SiteIntegrationLayout = () => {
     if (!prepared) return undefined;
     return approve(async (selected, assertRequest, binding, onSubmitted) =>
       blockResult(await send(null, { assertRequest, expiresAt: selected.expiresAt,
-        binding, onSubmitted, addressIndex: binding.scope.index, prepared })), 'Block sent');
+        binding, onSubmitted, addressIndex: binding.scope.index, prepared })));
   };
 
   if (request === undefined) {

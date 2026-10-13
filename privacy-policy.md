@@ -1,7 +1,7 @@
 # Privacy Policy for Syrius Extension
 
 **Effective Date:** July 28, 2025
-**Last Updated:** October 5, 2026
+**Last Updated:** October 12, 2026
 
 ## Scope
 
@@ -25,12 +25,39 @@ to the window that unlocked it. Locking or expiry revokes the unlock authority
 and removes the saved unlock record. These controls do not guarantee secure
 erasure from browser or operating-system memory.
 
+Timed sessions can also run a receiver in the extension's own background
+page, so incoming transfers and sends started in the wallet can continue
+after the popup closes. Automatic receiving can be turned off in Settings.
+The receiver follows the existing unlock deadline instead of renewing it;
+an **On close** session does not open this receiver.
+
 Other local records include preferences, node URLs, wallet and address labels,
 connected-site origins and account permissions. Temporary approval requests
 contain the requesting origin, document metadata and request parameters and
 are held in session storage until completion, cancellation or expiry.
 These records are not all encrypted. Removing a wallet cleans its associated
 metadata and permissions; browser extension removal clears its local storage.
+
+The address book stores contact names and addresses locally, and the wallet
+also remembers up to five recent recipient addresses. These convenience
+records are not password-encrypted.
+
+The extension also remembers navigation within the wallet and opted-in form
+drafts, including recipient addresses, amounts and message text, in
+`chrome.storage.session`. These drafts are not password-encrypted. They let
+the popup reopen where it closed during the same unlock. Locking or expiry
+invalidates that restore; the next unlock does not restore the previous
+lease's drafts, and a browser restart clears session storage. Password and
+recovery-phrase fields do not opt into draft storage. This does not guarantee
+secure erasure from browser or operating-system memory.
+
+The wallet also keeps a record of the account blocks it has signed and sent:
+the signed block, the account, an identifier of the network and whether the
+node has confirmed it. It exists so that an interrupted send can be checked
+against the node instead of being signed a second time. It is encrypted with a
+key derived from the wallet's own recovery seed, so it can be read only while
+that wallet is unlocked. A record is deleted 24 hours after its outcome is
+known, and all of a wallet's records are deleted when the wallet is removed.
 
 ## Network requests
 
@@ -42,10 +69,17 @@ metadata and permissions; browser extension removal clears its local storage.
 - **CoinGecko:** USD price requests identify the supported ZNN and QSR tokens.
   The price URL does not include a wallet address or balance. CoinGecko still
   receives the connection's network metadata, including the IP address.
-- **GitHub:** opening Settings, About asks GitHub's public API for this
-  repository's newest release tag, at most once in six hours. The request
-  carries no wallet data. GitHub receives the connection's network metadata,
-  including the IP address.
+- **GitHub:** the lock screen and Settings, About ask GitHub's public API for
+  this repository's newest release tag. A valid release-version response is cached
+  locally for six hours when storage succeeds; an unsuccessful check or failed
+  cache write can be retried on a later lock-screen or About visit. The request carries no
+  wallet data. GitHub receives the connection's network metadata, including the
+  IP address.
+- **Updating an unpacked install:** pressing Update now downloads the release
+  ZIP and its checksum from GitHub, after the browser asks for that access. The
+  folder chosen for updates is remembered in the extension's own storage until
+  "Forget update folder" in About, which also gives the access back. Nothing
+  about the wallet is sent.
 - **Requesting-site icons:** an approval screen can load a site's favicon URL.
   The icon server receives the browser request and its network metadata.
 - **Block explorers:** opening an explorer link sends the linked public address
@@ -69,7 +103,9 @@ The Manifest V3 extension requests:
   unlock and approval records;
 - `alarms` for session and approval expiry;
 - `webNavigation` to bind requests and events to the browser's current document
-  and invalidate stale navigation contexts.
+  and invalidate stale navigation contexts;
+- `offscreen` to run the background receiver and its proof-of-work workers
+  while a timed unlock lasts.
 
 Document tracking supports authorization checks. The reviewed source does not
 upload a browsing-history log to a maintainer service. The browser may display

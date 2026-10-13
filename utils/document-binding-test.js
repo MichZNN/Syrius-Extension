@@ -8,6 +8,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const babel = require('@babel/core');
+const { journalStubs } = require('./fixtures/journal-stub');
 const React = require('react');
 global.window = { crypto: require('node:crypto').webcrypto }; global.self = global.window;
 const sdkStorage = new Map();
@@ -31,6 +32,8 @@ const loader = (environment, override = () => undefined) => {
     if (!compiled.has(filename)) compiled.set(filename, compile(path.relative(root, filename)));
     const requireModule = id => {
       const replacement = override(id); if (replacement !== undefined) return replacement;
+      // The journal has its own suite; see fixtures/journal-stub.js.
+      const journaled = journalStubs(id); if (journaled !== undefined) return journaled;
       if (!id.startsWith('.')) return require(id);
       const target = path.resolve(path.dirname(filename), id);
       return load(path.extname(target) ? target : target + '.js');
@@ -58,7 +61,7 @@ const signed = signature => ({ address: account, publicKey: '07', signature, mes
 // frames and second tabs below use a second origin.
 const realLimits = loader({})('src/services/utils/approvalLimits.js');
 const relaxedLimits = id => (id.endsWith('/utils/approvalLimits')
-  ? { ...realLimits, limits: Object.freeze({ ...realLimits.limits, pending: 1000, perOrigin: 1000, globalAttention: 0, originAttention: 0 }) }
+  ? { ...realLimits, limits: Object.freeze({ ...realLimits.limits, pending: 1000, perOrigin: 1000, perTab: 1000, globalAttention: 0, originAttention: 0, tabAttention: 0 }) }
   : undefined);
 
 const fixture = () => {

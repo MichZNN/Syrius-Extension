@@ -64,6 +64,7 @@ const BurgerPopover = ({ onNavigate = () => {} }) => {
 
       <Item icon="wallet" onClick={() => go('/tabs/change-address')}>Change address</Item>
       <Item icon="link" onClick={() => go('/tabs/settings/connected-sites')}>Connected sites</Item>
+      <Item icon="zap" onClick={() => go('/tabs/settings/zap')}>Zap a random alien</Item>
       <Item icon="settings" onClick={() => go('/tabs/settings')}>Settings</Item>
       <Item icon="plus" onClick={() => lockThen('/auth/onboarding')}>Add wallet</Item>
       <Item icon="lock" onClick={() => lockThen('/password', { replace: true })}>Lock wallet</Item>

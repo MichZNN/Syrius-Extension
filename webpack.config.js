@@ -8,6 +8,10 @@ const TerserPlugin = require('terser-webpack-plugin');
 
 const ASSET_PATH = process.env.ASSET_PATH || '/';
 const isProduction = (process.env.NODE_ENV || 'development') === 'production';
+const platform = process.env.SYRIUS_PLATFORM || 'chrome';
+if (!['chrome', 'firefox', 'android', 'ios'].includes(platform)) {
+  throw new Error(`SYRIUS_PLATFORM must be chrome, firefox, android or ios, not ${platform}`);
+}
 
 const alias = {
   // Pinned to this project's copies: these are polyfills for node built-ins,
@@ -15,6 +19,52 @@ const alias = {
   'process/browser': require.resolve('process/browser.js'),
   'crypto-browserify': require.resolve('crypto-browserify'),
 };
+
+// Chrome's package keeps `build/`, which CI, the dev harness and the browser
+// tests all load. Every other platform builds beside it, so making a Firefox
+// package never replaces the Chrome one. The two apps share `build-app/`,
+// because Capacitor reads one webDir for both; each is built just before its
+// `cap sync`.
+const isApp = platform === 'android' || platform === 'ios';
+const outputDir = path.resolve(__dirname, platform === 'chrome' ? 'build' : isApp ? 'build-app' : `build-${platform}`);
+
+// src/manifest.json is Chrome's. Firefox reads the same Manifest V3 with three
+// differences: no background service worker (an event page runs the same
+// bundle), a fixed add-on ID with its minimum version and update manifest, and
+// the data collection declaration AMO requires, which is none. The GitHub host
+// permissions are dropped: they exist only for the unpacked Chrome updater.
+const firefoxId = 'syrius-extension@zenon-network';
+const manifestFor = (manifest) => {
+  if (platform !== 'firefox') return manifest;
+  const {
+    minimum_chrome_version: _chromeOnly,
+    optional_host_permissions: _unpackedUpdater,
+    ...rest
+  } = manifest;
+  return {
+    ...rest,
+    // Firefox has no offscreen documents; its receiver is an iframe in the
+    // background page (sections/Background/receiver.js).
+    permissions: manifest.permissions.filter((permission) => permission !== 'offscreen'),
+    background: { scripts: [manifest.background.service_worker] },
+    browser_specific_settings: {
+      gecko: {
+        id: firefoxId,
+        // 140 is the first to read data_collection_permissions (and the ESR).
+        strict_min_version: '140.0',
+        update_url: 'https://github.com/sol-znn/syrius-extension/releases/latest/download/updates.json',
+        data_collection_permissions: { required: ['none'] },
+      },
+    },
+  };
+};
+
+// The app (android, ios) is one page: the chrome.* shim, then the background
+// script, then the popup (src/platform/mobileShim.js).
+const appManifest = () => ({
+  ...JSON.parse(fileSystem.readFileSync(path.join(__dirname, 'src/manifest.json'), 'utf8')),
+  version: process.env.npm_package_version || require('./package.json').version,
+});
 
 // Load secrets if they exist
 const secretsPath = path.join(__dirname, 'secrets.' + env.NODE_ENV + '.js');
@@ -39,13 +89,19 @@ module.exports = {
     background: path.join(__dirname, './src/sections/Background/index.js'),
     contentScript: path.join(__dirname, './src/sections/Content/index.js'),
     inpage: path.join(__dirname, './src/sections/Inpage/index.js'),
+    ...(isApp && { mobileShim: path.join(__dirname, './src/platform/mobileShim.js') }),
+    // Receives in the background while a timed unlock lasts (sections/Receiver).
+    // The app does that in its own page.
+    ...(!isApp && { receiver: path.join(__dirname, './src/sections/Receiver/index.js') }),
   },
 
   output: {
     filename: '[name].bundle.js',
-    path: path.resolve(__dirname, 'build'),
+    path: outputDir,
     clean: true,
-    publicPath: ASSET_PATH,
+    // Relative in the app, so the same files load from Capacitor's origin or
+    // straight from disk.
+    publicPath: isApp ? './' : ASSET_PATH,
   },
 
   // A published extension ships whatever is in `build`, and a source map of a
@@ -65,15 +121,19 @@ module.exports = {
     splitChunks: {
       // The content script and the injected page script run on every site the
       // user visits, so they must stay standalone — a shared vendor chunk they
-      // cannot load would break them. Only the popup gets one.
-      chunks: (chunk) => chunk.name === 'popup',
+      // cannot load would break them. Only the popup and the receiver page,
+      // which share it, get one.
+      chunks: (chunk) => chunk.name === 'popup' || chunk.name === 'receiver',
       cacheGroups: {
         vendor: {
           // A path test rather than a regex: this repo builds on Windows,
           // where module paths are separated by backslashes.
           test: (module) => (module.resource || '').includes('node_modules'),
           name: 'vendors',
-          chunks: (chunk) => chunk.name === 'popup',
+          chunks: (chunk) => chunk.name === 'popup' || chunk.name === 'receiver',
+          // AMO's validator refuses to parse a script over 5 MB, and the
+          // vendor chunk is 6. Firefox gets it in pieces; Chrome keeps one file.
+          ...(platform === 'firefox' && { name: false, maxSize: 4 * 1024 * 1024 }),
         }
       }
     },
@@ -124,6 +184,13 @@ module.exports = {
         loader: 'base64-loader',
         type: 'javascript/auto',
       },
+      // The SDK is one prebundled 5.3 MB module, over AMO's 5 MiB parse limit
+      // on its own. Its two large string constants become modules of their
+      // own, so the vendor split above can separate them (issue #44).
+      ...(platform === 'firefox' ? [{
+        test: (resource) => resource.replace(/\\/g, '/').endsWith('node_modules/znn-ts-sdk/dist/index.js'),
+        loader: path.resolve(__dirname, 'utils/sdk-split-loader.js'),
+      }] : []),
     ],
   },
 
@@ -168,9 +235,20 @@ module.exports = {
     // the auto-unlock in src/services/utils/devWallet.js as dead code.
     new webpack.EnvironmentPlugin({ SYRIUS_DEV_WALLET: 'false' }),
 
+    // Which package this build is: chrome (Chrome, Brave), firefox, android or
+    // ios. It picks the manifest below and how About updates the wallet
+    // (src/services/utils/selfUpdate.js).
+    new webpack.EnvironmentPlugin({ SYRIUS_PLATFORM: platform }),
+
+    // What chrome.runtime.getManifest() answers in the app.
+    ...(isApp ? [new webpack.DefinePlugin({ 'process.env.SYRIUS_MANIFEST': JSON.stringify(appManifest()) })] : []),
+
     new CopyWebpackPlugin({
       patterns: [
         { from: './LICENSE', to: 'LICENSE', toType: 'file' },
+        { from: './src/assets/fonts/space-grotesk-LICENSE.txt', to: 'space-grotesk-LICENSE.txt', toType: 'file' },
+        { from: './src/assets/fonts/jetbrains-mono-LICENSE.txt', to: 'jetbrains-mono-LICENSE.txt', toType: 'file' },
+        { from: './src/components/icon/lucide-LICENSE.txt', to: 'lucide-LICENSE.txt', toType: 'file' },
         {
           from: path.join(path.dirname(require.resolve('znn-ts-sdk/package.json')), 'dist/index.js.LICENSE.txt'),
           to: 'index.js.LICENSE.txt',
@@ -191,26 +269,26 @@ module.exports = {
         { from: path.join(__dirname, 'utils/zts-search-worker.js'), to: 'zts-search-worker.js', transform: () => require('./utils/zts-search-worker')() },
         {
           from: './src/manifest.json',
-          to: path.resolve(__dirname, 'build'),
+          to: outputDir,
           force: true,
           transform: (content) => {
             return Buffer.from(
-              JSON.stringify({
+              JSON.stringify(manifestFor({
                 description: process.env.npm_package_description,
                 version: process.env.npm_package_version,
                 ...JSON.parse(content.toString()),
-              }, null, 2)
+              }), null, 2)
             );
           },
         },
         {
           from: './src/assets/img/icon-128.png',
-          to: path.resolve(__dirname, 'build'),
+          to: outputDir,
           force: true,
         },
         {
           from: './src/assets/img/icon-34.png',
-          to: path.resolve(__dirname, 'build'),
+          to: outputDir,
           force: true,
         },
       ],
@@ -219,9 +297,26 @@ module.exports = {
     new HtmlWebpackPlugin({
       template: './src/sections/Popup/index.html',
       filename: 'popup.html',
-      chunks: ['vendors', 'popup'],
+      chunks: isApp ? ['mobileShim', 'background', 'vendors', 'popup'] : ['vendors', 'popup'],
+      chunksSortMode: 'manual',
       cache: false,
     }),
+
+    // Capacitor opens index.html; the wallet's own links name popup.html.
+    ...(isApp ? [] : [new HtmlWebpackPlugin({
+      template: './src/sections/Receiver/index.html',
+      filename: 'receiver.html',
+      chunks: ['vendors', 'receiver'],
+      chunksSortMode: 'manual',
+      cache: false,
+    })]),
+    ...(isApp ? [new HtmlWebpackPlugin({
+      template: './src/sections/Popup/index.html',
+      filename: 'index.html',
+      chunks: ['mobileShim', 'background', 'vendors', 'popup'],
+      chunksSortMode: 'manual',
+      cache: false,
+    })] : []),
 
     new webpack.ProvidePlugin({
       Buffer: ['buffer', 'Buffer'],

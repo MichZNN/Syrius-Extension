@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { Primitives } from 'znn-ts-sdk';
 
 import Icon from '../icon/icon';
+import PowCountdown from '../pow-countdown/pow-countdown';
 import useReadContext from '../../services/hooks/useReadContext';
 import { invalidateAccountCache } from '../../services/hooks/useAccount';
 import vault from '../../services/wallet/vault';
@@ -13,14 +14,18 @@ import {
   acceptedRows, createTracker, stripRows, receiveOnce, pollMs, receivePollMs, confirmedShownMs,
 } from '../../services/wallet/outgoingWatch';
 import { getSettings } from '../../services/utils/storage';
-import { notify } from '../../services/utils/notify';
+import { hostReady, hostReceive } from '../../services/wallet/blockService';
+import { clearPendingTransaction } from '../../services/redux/pendingTransactionsSlice';
 
 // Follows this wallet's sent blocks to their momentum on every screen under
 // the tab layout (services/wallet/outgoingWatch.js has the why and the rules).
 //
-// It draws one thing, and only away from Home: a line under the header saying
-// what is in flight. Home lists the same blocks as rows, so there it draws
-// nothing and leaves receiving to Home's own button and progress.
+// It draws one thing, and only away from Home: a line just above the tab bar
+// saying what is in flight. It peeks up when a block leaves and slides back
+// down once the last one has confirmed. Home lists the same blocks as rows, so
+// there it stays down and leaves receiving to Home's own button and progress.
+//
+// Blocks report here and on their rows, never in a toast.
 
 const homePath = '/tabs/dashboard';
 
@@ -28,6 +33,7 @@ const OutgoingWatch = () => {
   const { pathname } = useLocation();
   const address = useSelector((state) => state.wallet.address);
   const items = useSelector((state) => state.pendingTransactions.items);
+  const dispatch = useDispatch();
   const context = useReadContext();
   const tracker = useRef(null);
   if (!tracker.current) tracker.current = createTracker();
@@ -35,6 +41,7 @@ const OutgoingWatch = () => {
   const [, setVersion] = useState(0);
   const redraw = () => setVersion((version) => version + 1);
   const onHome = pathname === homePath;
+  const lastRows = useRef(null);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -109,16 +116,21 @@ const OutgoingWatch = () => {
       if (cancelled || !context.isCurrent() || !count) return;
       emitChainChange('incoming');
       if (home.current || !getSettings().autoReceive) return;
+      // The background page receives while it is there (wallet/blockService.js).
+      if (await hostReady()) {
+        hostReceive();
+        return;
+      }
       try {
         const received = await receiveOnce(async () =>
           receivePendingBlocks(context.zenon, await vault.getSigningKeyPair(), addressObject));
+        // No toast: receiving is block work, and Home's list shows the result.
         if (received > 0) {
-          notify.success(`Received ${received} transaction${received === 1 ? '' : 's'}`);
           invalidateAccountCache();
           emitChainChange('received');
         }
       } catch (error) {
-        notify.error(error);
+        // Tried again on the next look.
       }
     };
     look();
@@ -130,17 +142,33 @@ const OutgoingWatch = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [windowOpen, context.key]);
 
-  if (onHome) return null;
-  const rows = stripRows(items, address, tracker.current);
-  if (!rows.length) return null;
-  const [first, ...rest] = rows;
+  const rows = onHome ? [] : stripRows(items, address, tracker.current);
+  const shown = rows.length > 0;
+  // What it last said stays in place while it slides down.
+  if (shown) lastRows.current = rows;
+  const display = shown ? rows : lastRows.current;
+  const [first, ...rest] = display || [];
 
   return (
-    <div className={`outgoing-strip ${first.done ? 'is-done' : ''}`} role="status">
-      <Icon name={first.done ? 'circle-check' : 'loader'} size={14} className={first.done ? '' : 'spinner'} />
-      <span className="outgoing-strip-label">{first.label}</span>
-      <span className="outgoing-strip-state">{first.state}</span>
-      {rest.length > 0 && <span className="outgoing-strip-more">+{rest.length}</span>}
+    <div className={`outgoing-dock ${shown ? 'is-shown' : ''}`} aria-hidden={!shown}>
+      {first && (
+        <div className={`outgoing-strip ${first.done ? 'is-done' : ''} ${first.failed ? 'is-failed' : ''}`} role="status">
+          <Icon name={first.done ? 'circle-check' : first.failed ? 'circle-x' : 'loader'} size={14}
+            className={first.done || first.failed ? '' : 'spinner'} />
+          <span className="outgoing-strip-label">{first.label}</span>
+          <span className="outgoing-strip-state" title={first.state}>
+            {first.state}
+            {first.state === 'Generating plasma' && <PowCountdown prefix=" · " />}
+          </span>
+          {rest.length > 0 && <span className="outgoing-strip-more">+{rest.length}</span>}
+          {first.failed && shown && (
+            <button type="button" className="outgoing-strip-dismiss" title="Dismiss"
+              onClick={() => dispatch(clearPendingTransaction(first.id))}>
+              <Icon name="close" size={14} />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };

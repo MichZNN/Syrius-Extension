@@ -85,7 +85,7 @@ const fixture = () => {
   const extension = { id: 'fixture', url: 'chrome-extension://fixture/popup.html' };
   const chrome = {
     runtime: { id: 'fixture', getURL: p => 'chrome-extension://fixture/' + p, onMessage: event('message'), onInstalled: event('installed'), onStartup: event('startup') },
-    storage: { session: storage('session', session), local: storage('local', local) },
+    storage: { session: storage('session', session), local: storage('local', local), onChanged: event('storageChanged') },
     windows: { onRemoved: event('windowRemoved'), create: async () => { prompts++; return { id: 10 }; }, getLastFocused: async () => ({}), update: async () => ({}), get: async id => ({ id }), remove: async () => {} },
     tabs: { onRemoved: event('tabRemoved'), sendMessage: async (tabId, message, options) => {
       const route = routes.get(tabId);

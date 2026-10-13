@@ -1,4 +1,4 @@
-import React, { useContext, useRef, useState } from 'react';
+import React, { useContext, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import AlertModal from '../../components/modals/alert-modal';
@@ -24,6 +24,7 @@ import { znnZts, qsrZts } from '../../services/wallet/account';
 import { formatExact, parseAmount } from '../../services/utils/format';
 import { notify } from '../../services/utils/notify';
 import EpochHistory from './epoch-history';
+import usePopupState from '../../services/utils/popupState';
 
 // The Pillar tab (pillar mode).
 //
@@ -102,7 +103,7 @@ const Owned = ({ pillar, onRevoke }) => {
 const Unregistered = ({ znnBalance, qsrBalance, qsrCost, qsrDeposited, onDeposit, onWithdraw }) => {
   const navigate = useNavigate();
   const { znnShort, qsrShort, ready } = registrationShortfall({ znnBalance, qsrDeposited, qsrCost });
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = usePopupState('pillar.amount', '');
 
   const parsed = parseAmount(amount, decimals);
   const tooMuch = parsed !== null && parsed.gt(toBase(qsrBalance).toString());

@@ -13,7 +13,7 @@ const Spinner = () => {
 
   return ReactDOM.createPortal(
     <div className="spinner-backdrop">
-      <div className="spinner-container text-white">
+      <div className="spinner-container text-white" role="status">
         <Icon name="loader" size={26} className="spinner" />
         <div className="spinner-content">{spinnerContent}</div>
       </div>

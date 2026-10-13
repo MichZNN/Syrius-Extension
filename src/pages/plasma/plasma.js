@@ -9,7 +9,7 @@ import useAccount from '../../services/hooks/useAccount';
 import useBackgroundSender from '../../services/hooks/useBackgroundSender';
 import usePagedList from '../../services/hooks/usePagedList';
 import useChainChange from '../../services/hooks/useChainChange';
-import { cancelMany, cancellable, picked, prune, selectAll, toggle, totalOf } from '../../services/plasma/batchCancel';
+import { cancellable, picked, prune, selectAll, toggle, totalOf } from '../../services/plasma/batchCancel';
 import vault from '../../services/wallet/vault';
 import { qsrZts } from '../../services/wallet/account';
 import {
@@ -22,6 +22,8 @@ import {
 import { notify } from '../../services/utils/notify';
 import Icon from '../../components/icon/icon';
 import { fail } from '../../services/utils/errors';
+import usePopupState from '../../services/utils/popupState';
+import useLinkPrefill from '../../services/utils/linkPrefill';
 
 // Plasma.
 //
@@ -49,11 +51,11 @@ const Plasma = () => {
   const { sendInBackground } = useBackgroundSender();
 
   const [addressObject, setAddressObject] = useState(null);
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = usePopupState('plasma.amount', '');
   // Who the plasma is for — fusing is a gift the contract allows to any
   // address, not only your own. Defaults to this account so the common case
   // (fusing for yourself) needs no typing.
-  const [recipient, setRecipient] = useState('');
+  const [recipient, setRecipient] = usePopupState('plasma.recipient', '');
   const [momentumHeight, setMomentumHeight] = useState(0);
   const [plasmaInfo, setPlasmaInfo] = useState(null);
   const [isPlasmaLoading, setIsPlasmaLoading] = useState(false);
@@ -80,6 +82,20 @@ const Plasma = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address]);
+
+  // A syrius://fuse link: after the default above, so its address wins.
+  const link = useLinkPrefill();
+  useEffect(() => {
+    if (link.address) {
+      setRecipient(link.address);
+      setValue('recipientAddressField', link.address, { shouldValidate: true });
+    }
+    if (link.amount) {
+      setAmount(link.amount);
+      setValue('toFuseQsrField', link.amount, { shouldValidate: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -303,19 +319,19 @@ const Plasma = () => {
     });
   }, [entries.items, momentumHeight]);
 
-  const cancelSelected = () => {
+  const cancelSelected = async () => {
     const list = picked(entries.items, selected, momentumHeight);
     if (!list.length) return;
     try {
       const plasma = Zenon.getSingleton().embedded.plasma;
-      const index = vault.getSelectedIndex();
+      // One job of a CancelFuse block per fuse (wallet/blockJobs.js).
+      const templates = await Promise.all(list.map((entry) => plasma.cancel(entry.id)));
       sendInBackground(null, {
         successMessage: `${list.length} fuses cancelled`,
         row: { owner: address, type: 'plasma', icon: 'plasma', counterpartyName: 'Plasma', label: `Cancelling ${list.length} fuses` },
-        send: async () => {
-          const keyPair = await vault.getSigningKeyPair(index);
-          return cancelMany(list.map((entry) => entry.id), async (id) => Zenon.getSingleton().send(await plasma.cancel(id), keyPair));
-        },
+        addressIndex: vault.getSelectedIndex(),
+        templates,
+        kind: 'fuses',
       });
       setSelected([]);
     } catch (err) {

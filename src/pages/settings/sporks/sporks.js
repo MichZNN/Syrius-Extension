@@ -21,6 +21,7 @@ import {
 } from '../../../services/spork/spork';
 import { truncateHash } from '../../../services/utils/format';
 import { notify } from '../../../services/utils/notify';
+import usePopupState from '../../../services/utils/popupState';
 
 // Sporks (Settings): every spork on this chain and whether it is enforced.
 //
@@ -85,7 +86,7 @@ const Sporks = () => {
   const [sporks, setSporks] = useState(null);
   const [height, setHeight] = useState(null);
   const [error, setError] = useState(null);
-  const [form, setForm] = useState({ name: '', description: '' });
+  const [form, setForm] = usePopupState('sporks.form', { name: '', description: '' });
   const [touched, setTouched] = useState(false);
   // The form stays folded behind a button so the list keeps the screen.
   const [creating, setCreating] = useState(false);

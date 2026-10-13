@@ -14,7 +14,7 @@ const SilentSpinner = () => {
   }
 
   return ReactDOM.createPortal(
-    <div className="pow-spinner-container" title={silentSpinnerContent}>
+    <div className="pow-spinner-container" role="status" aria-label={silentSpinnerContent || 'Working…'} title={silentSpinnerContent}>
       <Icon name="loader" size={16} className="pow-spinner" />
     </div>,
     root

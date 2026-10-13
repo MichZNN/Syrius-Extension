@@ -93,6 +93,11 @@ const relay = (message, errorId) => {
 
 // What the SDK and a Zenon node say for the failures a person can act on.
 const known = [
+  // go-zenon's refusals of a block whose place on the account chain is taken
+  // or gone (verifier/errors.go, chain/account_pool.go): another block from
+  // this account got there first, usually from a second device on the same
+  // seed. The wallet's own windows take turns (../wallet/publisher.js).
+  { match: /prevHash exists but it has a cemented block|prevHeight is cemented|previous block is missing|plasma ratio is smaller|hash tie-break is worse/i, id: 321 },
   { match: /not enough plasma|plasma.*insufficient/i, id: 302 },
   { match: /insufficient balance|not enough balance/i, id: 303 },
   { match: /invalid address|address.*invalid|checksum/i, id: 304 },

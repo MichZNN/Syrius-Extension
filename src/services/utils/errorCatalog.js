@@ -34,6 +34,26 @@ const catalog = {
   107: 'no momentum',
   // What a form refused, in the form's own words.
   110: '{text}',
+  // Updating an unpacked install (services/update)
+  120: 'That folder is not this extension. Pick the one it was loaded from.',
+  121: 'That folder is not this extension any more. Choose it again.',
+  122: 'The {version} release could not be downloaded.',
+  123: 'The download does not match its published checksum. Nothing was written.',
+  124: 'The download is not this extension. Nothing was written.',
+  125: 'The download is version {found}, not a newer {version}. Nothing was written.',
+  126: 'No version to update to.',
+  127: 'Downloading the release needs access to GitHub.',
+  128: 'Writing the update needs access to the folder.',
+  129: 'Not a usable release archive: {detail}',
+  // The app's stand-in for the extension API (platform/mobileShim.js)
+  130: 'Not available in the app.',
+  131: 'No response from the wallet background',
+  132: 'No pillar is named {name}.',
+  133: 'Give the contact a name.',
+  134: 'That QR code holds no Zenon address.',
+  135: 'Fingerprints or Face ID changed on this phone. Unlock with the password and turn it on again in Settings.',
+  136: 'Installing the QR scanner. Try again in a moment.',
+  137: 'Generating plasma failed. Try again.',
 
   // The wallet
   200: 'Wrong password.',
@@ -80,6 +100,14 @@ const catalog = {
   318: 'Enter a positive integer number of base units',
   319: '{done} of {total} fuses were cancelled. The rest were not: try them again.',
   320: 'Select a fuse to cancel.',
+  321: 'Another transaction from this account landed first. Nothing was sent. Check the account, then send again.',
+  322: 'This wallet\'s transaction records could not be read. Nothing was sent.',
+  323: 'An earlier transaction from this account has an unknown outcome. The wallet is checking it. Nothing new was signed.',
+  324: 'This account has {count} transactions on record that are not settled yet. Wait for them to confirm.',
+  325: 'Another transaction from this account is still being sent. Try again in a moment.',
+  326: 'This account\'s turn to send passed to another window. Nothing was sent.',
+  327: 'The transaction was sent but the node did not answer. The wallet will check its outcome. Do not send it again.',
+  328: 'The node did not identify its network.',
 
   // Pillars, Accelerator-Z, tokens, sporks
   400: 'Choose Yes, No or Abstain.',

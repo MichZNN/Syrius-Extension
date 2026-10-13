@@ -6,6 +6,7 @@ import vault from '../../../services/wallet/vault';
 import { copyToClipboard, notify } from '../../../services/utils/notify';
 import './export-mnemonic.scss';
 import { fail } from '../../../services/utils/errors';
+import useSecureScreen from '../../../services/hooks/useSecureScreen';
 
 // Revealing the recovery phrase.
 //
@@ -15,6 +16,7 @@ import { fail } from '../../../services/utils/errors';
 // come from the one already open.
 
 const ExportMnemonic = () => {
+  useSecureScreen();
   const [words, setWords] = useState(null);
   const [isChecking, setIsChecking] = useState(false);
 

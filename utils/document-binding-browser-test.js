@@ -109,7 +109,7 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
     '--disable-sync', '--no-first-run', '--no-default-browser-check', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
   let stderr = '', launchError; browser.stderr.on('data', chunk => { stderr += chunk; }); browser.on('error', error => { launchError = error; });
   let debugPort;
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 300; i++) {
     if (launchError) throw launchError;
     const file = path.join(dir, 'profile', 'DevToolsActivePort');
     if (fs.existsSync(file)) { debugPort = Number(fs.readFileSync(file, 'utf8').split('\n')[0]); break; }

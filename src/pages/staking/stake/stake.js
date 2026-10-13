@@ -16,6 +16,8 @@ import fallbackValues from '../../../services/utils/fallbackValues';
 import { formatAmount, formatExact, parseAmount, toBigNumber, toDecimals } from '../../../services/utils/format';
 import { notify } from '../../../services/utils/notify';
 import { fail } from '../../../services/utils/errors';
+import usePopupState from '../../../services/utils/popupState';
+import useLinkPrefill from '../../../services/utils/linkPrefill';
 
 // Staking.
 //
@@ -32,8 +34,8 @@ const Stake = () => {
   const { sendInBackground } = useBackgroundSender();
 
   const [addressObject, setAddressObject] = useState(null);
-  const [amount, setAmount] = useState('');
-  const [duration, setDuration] = useState('');
+  const [amount, setAmount] = usePopupState('stake.amount', '');
+  const [duration, setDuration] = usePopupState('stake.duration', '');
   const [uncollectedQsr, setUncollectedQsr] = useState(0);
 
   const znn = balanceMap[znnZts];
@@ -125,6 +127,22 @@ const Stake = () => {
     }
     return true;
   };
+
+  // A syrius://stake link: the amount, and the lock in months as desktop
+  // Syrius takes it, when it is one of the periods offered here.
+  const link = useLinkPrefill();
+  useEffect(() => {
+    if (link.amount) {
+      setAmount(link.amount);
+      setValue('stakeAmountField', link.amount, { shouldValidate: true });
+    }
+    const seconds = Number(link.duration) * 2592000;
+    if (fallbackValues.stakingDurations.some((entry) => entry.value === seconds)) {
+      setDuration(seconds);
+      setValue('stakeDurationField', seconds, { shouldValidate: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Balances arrive after the first render, so an amount typed against the
   // placeholder zero has to be re-checked when the real one lands.

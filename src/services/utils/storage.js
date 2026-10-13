@@ -18,6 +18,8 @@ const keys = {
   labels: 'syrius.addressLabels',
   settings: 'syrius.settings',
   lastWalletName: 'syrius.lastWalletName',
+  contacts: 'syrius.contacts',
+  recentRecipients: 'syrius.recentRecipients',
 };
 
 const readJson = (key, fallback) => {
@@ -155,6 +157,48 @@ const setLabel = (address, label) => {
 };
 
 //
+// Address book: named addresses to send to, and the last few sent to. Not
+// secret, and not per wallet: a friend's address is the same from any of them.
+//
+const maxContacts = 200;
+const maxRecent = 5;
+
+const getContacts = () => {
+  const stored = readJson(keys.contacts, []);
+  return Array.isArray(stored)
+    ? stored.filter((entry) => entry && typeof entry.name === 'string' && typeof entry.address === 'string')
+    : [];
+};
+
+// One name per address: saving an address again renames it.
+const saveContact = (name, address) => {
+  const trimmed = (name || '').trim().slice(0, 32);
+  if (!trimmed) throw fail(133);
+  const rest = getContacts().filter((entry) => entry.address !== address);
+  const next = [...rest, { name: trimmed, address }]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, maxContacts);
+  if (!writeJson(keys.contacts, next)) throw fail(102);
+  return next;
+};
+
+const removeContact = (address) => {
+  const next = getContacts().filter((entry) => entry.address !== address);
+  if (!writeJson(keys.contacts, next)) throw fail(102);
+  return next;
+};
+
+const getRecentRecipients = () => {
+  const stored = readJson(keys.recentRecipients, []);
+  return Array.isArray(stored) ? stored.filter((entry) => typeof entry === 'string') : [];
+};
+
+// A convenience: a failed write loses nothing that matters.
+const addRecentRecipient = (address) => {
+  writeJson(keys.recentRecipients, [address, ...getRecentRecipients().filter((entry) => entry !== address)].slice(0, maxRecent));
+};
+
+//
 // Settings
 //
 const defaultSettings = {
@@ -208,6 +252,11 @@ export {
   getLabels,
   getLabel,
   setLabel,
+  getContacts,
+  saveContact,
+  removeContact,
+  getRecentRecipients,
+  addRecentRecipient,
   getSettings,
   setSetting,
 };

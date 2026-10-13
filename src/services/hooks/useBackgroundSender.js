@@ -4,8 +4,9 @@ import { Enums, Zenon } from 'znn-ts-sdk';
 
 import vault from '../wallet/vault';
 import { captureHistoryNetwork } from '../wallet/historyObservation';
+import runBlockJob from '../wallet/blockJobs';
+import { hostReady, hostSend } from '../wallet/blockService';
 import { invalidateAccountCache } from './useAccount';
-import { notify } from '../utils/notify';
 import { readableError } from '../utils/errors';
 import { describeOutgoingTemplate } from '../utils/outgoingBlock';
 import {
@@ -28,22 +29,28 @@ import {
 // away. The caller navigates home; the dashboard reads the store and reports
 // progress there.
 //
-// The work still lives in the popup's JavaScript context, so closing the popup
-// window still ends it. Surviving that needs the block to be signed in the
-// service worker, which is a larger change than this one.
+// While a timed unlock lasts the work runs in the background page
+// (wallet/blockService.js), so closing the popup does not end it, and the row
+// comes back with the popup (components/block-sync). With On close, and in the
+// app, the popup runs the same job itself (wallet/blockJobs.js).
 
 const useBackgroundSender = () => {
   const dispatch = useDispatch();
 
   const sendInBackground = useCallback(
-    // `send`, when given, replaces the SDK's fill-in-and-send: a block that
-    // was filled in and searched ahead (services/token/vanity.js) is signed
-    // as it is.
-    (template, { row, addressIndex, successMessage, send } = {}) => {
+    // `templates` (with `kind` and `symbols`, see wallet/blockJobs.js) is a
+    // job of several blocks: a zap, a batch fuse cancel. `send`, when given,
+    // replaces the fill-in-and-send: a block that was filled in and searched
+    // ahead (services/token/vanity.js) is signed as it is, here. A caller's
+    // `successMessage` is no longer shown: blocks report on their row and the
+    // strip, not in toasts.
+    (template, { row, addressIndex, send, templates, kind = 'single', symbols } = {}) => {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const owner = row?.owner;
       const zenon = Zenon.getSingleton();
       const historyContext = captureHistoryNetwork(zenon);
+      const blocks = templates || (template ? [template] : []);
+      const index = Number.isInteger(addressIndex) ? addressIndex : vault.getSelectedIndex();
 
       // The glyph, the type and the contract's name come off the template, so a
       // call site only supplies what it alone knows — the wording, the amount
@@ -53,30 +60,37 @@ const useBackgroundSender = () => {
         startPendingTransaction({
           id,
           status: pendingStatus.sending,
-          ...describeOutgoingTemplate(template),
+          ...describeOutgoingTemplate(blocks[0] || null),
           ...row,
           network: historyContext.network,
         })
       );
 
+      // `PowStatus.generating` is 0, so this has to compare rather than test
+      // for truth — the obvious `if (status)` reads it as "done".
+      const onPow = (status) => {
+        if (status === Enums.PowStatus.generating) {
+          dispatch(updatePendingTransaction({ id, status: pendingStatus.generatingPlasma }));
+        }
+        if (status === Enums.PowStatus.done) {
+          dispatch(updatePendingTransaction({ id, status: pendingStatus.sending }));
+        }
+      };
+
       // Deliberately not awaited. The floating promise is the point: the caller
       // returns to the dashboard while this runs.
       (async () => {
         try {
-          const keyPair = send ? null : await vault.getSigningKeyPair(addressIndex);
+          // The background page takes it when it is there: from here on the
+          // row follows its reports (components/block-sync).
+          if (!send && blocks.length && await hostReady() && await hostSend({
+            id, kind, symbols, addressIndex: index, row,
+            templates: blocks.map((block) => block.toJson()),
+          })) return;
 
-          const signed = send ? await send() : await zenon.send(template, keyPair, (status) => {
-            // `PowStatus.generating` is 0, so this has to compare rather than
-            // test for truth — the obvious `if (status)` reads it as "done".
-            if (status === Enums.PowStatus.generating) {
-              dispatch(
-                updatePendingTransaction({ id, status: pendingStatus.generatingPlasma })
-              );
-            }
-            if (status === Enums.PowStatus.done) {
-              dispatch(updatePendingTransaction({ id, status: pendingStatus.sending }));
-            }
-          });
+          // Recorded before it is sent, and under this account's turn: see
+          // wallet/journal.js.
+          const signed = send ? await send() : await runBlockJob({ kind, symbols, addressIndex: index, templates: blocks }, { onPow });
 
           // The balance on screen is now stale by definition.
           invalidateAccountCache();
@@ -91,13 +105,10 @@ const useBackgroundSender = () => {
                 signed?.address?.toString() === owner ? historyContext.network : null,
             })
           );
-
-          if (successMessage) {
-            notify.success(successMessage);
-          }
         } catch (err) {
-          // The toast is read on the way past; the row is what is still there
-          // afterwards, so the reason goes on both.
+          // No toast for block work: the row on Home and the strip above the
+          // tab bar (components/outgoing-watch) say what happened and keep
+          // saying it until it is dismissed.
           dispatch(
             updatePendingTransaction({
               id,
@@ -105,7 +116,6 @@ const useBackgroundSender = () => {
               error: readableError(err),
             })
           );
-          notify.error(err);
         }
       })();
 

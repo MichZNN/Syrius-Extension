@@ -1,5 +1,118 @@
 # Changelog
 
+## 0.3.6
+
+New
+- The lock screen says when a newer release is out, in one quiet line, and
+  only then.
+- About's Update row updates the wallet as far as the platform allows. A
+  browser-managed install is updated and reloaded. An unpacked Chrome or Brave
+  install opens an Update tab: choose the folder the extension was loaded from
+  once, and Update now downloads the release, checks its published checksum
+  and that it is this extension at the newer version, writes it over the
+  folder and reloads. The folder is remembered; About's "Forget update folder"
+  resets it.
+- The popup reopens on the screen it closed on, with what had been typed,
+  when it closes by losing focus. Not after the wallet locks.
+- Accelerator-Z phases: Max beside ZNN and QSR fills in what the project has
+  left, and more is refused before the block is sent.
+- An address book (Settings), offered on Send with the last five recipients.
+- Zap a random alien is in the menu as well as in Settings.
+- Proof of work runs on up to four cores at once, and "Generating plasma"
+  says about how long it should take, counting down (~12s, ~3m), on a line
+  of its own under the block.
+- Sends and receives run in the background while the wallet is unlocked
+  with "Lock after" set to a time: closing the popup no longer stops them,
+  proof of work included, and Home shows them again, still going, when it
+  reopens. With On close the popup does the work, and closing it stops it.
+- Incoming transfers are received without opening the popup: every account
+  of the unlocked wallet is checked every 30 s. Auto-receive in Settings
+  turns it off. It never extends "Lock after".
+
+Android and iOS apps (sideload)
+- The wallet as an Android app and an unsigned iOS app (each release's IPA,
+  installed with SideStore or AltStore), with desktop Syrius's `syrius://`
+  links and `syrius://request` for other apps to ask for a connection or a
+  signature ([docs/APP-REQUESTS.md](docs/APP-REQUESTS.md)).
+- Fingerprint or Face ID unlock, kept in the Android Keystore or the iOS
+  Keychain and turned on per wallet in Settings after the password.
+- QR scanning on Send (Android), through Google Play services' scanner: no
+  camera permission. Share on Receive.
+- Locks after "Lock after" spent away from the app; "On close" locks on
+  leaving it.
+- A notification for an incoming transfer while the app is in the
+  background and still running.
+- No screenshots or app-switcher preview on recovery phrase screens. iOS
+  allows hiding the preview only.
+- A `syrius://request` answer goes back to an https address, or to http only
+  on a private network address (localhost, 10/8, 172.16/12, 192.168/16,
+  `.local`).
+- The block status line above the tab bar is taller, with larger text, sized
+  for a finger.
+
+Build
+- `SYRIUS_PLATFORM=firefox` builds a Firefox package into `build-firefox/`,
+  and `android` or `ios` the app's web files into `build-app/`; Chrome's
+  stays in `build/`. CI builds the iOS IPA beside the Chrome package, and a
+  release publishes both, each with its checksum. Firefox is not released
+  yet: connecting sites does not work there yet.
+- A Firefox build whose scripts reach AMO's 5 MiB parse limit fails, naming
+  the file. The SDK, one 5.3 MB module, is now built for Firefox with its two
+  large constants (the proof-of-work script and its wasm) in files of their
+  own, byte for byte; the largest script is 3.9 MB.
+
+Changed
+- Blocks in flight are followed in a line just above the tab bar, which peeks
+  up when one leaves and slides down when the last one settles. A failed one
+  stays there with its reason until dismissed.
+- Sends, receives and every other block report there and on Home, not in
+  toasts. Other actions keep their toasts.
+- Confirming a new wallet's recovery phrase asks for three of its words, by
+  position, from four choices each, instead of all 24 in order. The three are
+  different words and no word is offered twice.
+
+Fixed
+- Firefox never generated plasma, so a block that needed proof of work was
+  never sent there. The SDK's worker is a blob: URL, which Firefox's extension
+  pages refuse; the wallet's own worker is a file of the extension.
+- A full address ran past the end of the Send and contact address fields.
+- Two sends started one after the other, each paying with proof of work: the
+  second failed. They now take turns and both land, with no retry.
+- After the popup reopened on its last screen, Back went nowhere: the screens
+  before it are kept too.
+- A custom token's pending send read "N base units" in the activity list: it
+  now shows the token's symbol and decimals, as its history row does.
+- About's privacy policy link pointed at a branch that does not exist.
+- A token id search that failed while starting its workers left them running.
+- Loading indicators are announced to screen readers.
+- The production package carries the notices of the vendored fonts and icons.
+
+Transaction journal
+
+- A send that is interrupted is no longer a send that may be signed twice.
+  Every block is recorded before it is sent; if the popup closes, the
+  connection drops or the node never answers, the wallet looks that block up
+  and, if the node never saw it, sends the same bytes again. It does not sign
+  a replacement on its own.
+- Sends, receives and site-approved sends from one account now take turns,
+  across windows. Two of them can no longer build on the same block and have
+  one refused or displaced. A send you start goes ahead of blocks still
+  waiting to be received.
+- While a sent block's outcome is unknown the dashboard says so, holds that
+  account's next send, and offers to stop waiting.
+- The record is encrypted under a key derived from the wallet's seed, readable
+  only while that wallet is unlocked, kept for 24 hours after a block settles,
+  limited to 100 per account, and deleted with the wallet.
+- A page that framed several origins could fill the approval queue and raise
+  a new approval window every five seconds by using the next origin each
+  time. A tab now holds at most four pending requests and raises one window
+  per 30 seconds, as an origin does; an approval still earns its follow-up.
+- A sandboxed frame's origin, `null`, is no longer taken for a site: its
+  request is refused before any approval is asked for.
+- On Chrome 112, the oldest the manifest allows, the background page was
+  asked for with a reason only Chrome 113 has. It is no longer asked for
+  there, and the popup does the sending and receiving, as with On close.
+
 ## 0.3.5
 
 Redesign
@@ -215,7 +328,7 @@ into a Create-React-App-shaped extension boilerplate it had outgrown, and
 injected into exactly one website.
 
 The reasoning behind each change, and what was measured rather than assumed, is
-in [REFACTOR.md](REFACTOR.md).
+in [REFACTOR.md](docs/REFACTOR.md).
 
 ### Wallet correctness
 

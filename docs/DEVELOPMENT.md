@@ -44,8 +44,8 @@ What each browser fixture establishes: [testing/](testing/).
 `utils/dev-harness.js` runs the extension in a Chrome of its own — separate
 profile, separate debugging port — with a wallet that unlocks itself, so a
 screen can be opened and worked on without clicking through the splash, the
-password and the menus every time. It defaults to the
-[go-zenon devnet](../../go-zenon/docker/devnet) (`ws://localhost:35998`, chain 69)
+password and the menus every time. It defaults to the sibling go-zenon
+checkout's devnet at `../go-zenon/docker/devnet` (`ws://localhost:35998`, chain 69)
 and that repo's committed dev mnemonic, at address index 1.
 
 ```bash
@@ -128,7 +128,9 @@ repo's own, and never a shared network:
 
 `.github/workflows/build-and-release.yml` validates every pull request and push
 to the development branches. A successful push to `main` creates the matching
-version tag and publishes the Chrome/Brave ZIP plus its SHA-256 checksum. Bump
+version tag and publishes the Chrome/Brave ZIP and the unsigned iOS IPA, each
+with its SHA-256 checksum; the IPA is built on a macOS runner in the same
+workflow, so a release waits for both. Bump
 `src/manifest.json`, `package.json` and `package-lock.json` together before
 merging a release. To use the tag-triggered path manually instead of the
 automatic `main` release:

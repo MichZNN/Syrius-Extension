@@ -47,4 +47,24 @@ const describeOutgoingTemplate = (template) => {
   };
 };
 
-export { iconForContract, describeOutgoingTemplate, describePlainSend };
+// The row shown for the block being received right now.
+//
+// It is built from the unreceived block itself rather than from history,
+// because until the receive is signed and published there is nothing in this
+// account's chain to list — which is exactly the stretch where proof of work
+// runs and the wallet looked like it had stopped.
+const describePendingBlock = (block) => {
+  const sender = block.address?.toString() || '';
+  const contract = embeddedContractName(sender);
+
+  return {
+    // A string, so the row can cross from the background page (wallet/blockService.js).
+    amount: block.amount?.toString(),
+    decimals: block.token?.decimals,
+    tokenSymbol: block.token?.symbol || '',
+    address: sender,
+    counterpartyName: contract ? contractDisplayName(contract) : null,
+  };
+};
+
+export { iconForContract, describeOutgoingTemplate, describePlainSend, describePendingBlock };

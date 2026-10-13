@@ -1,6 +1,6 @@
 {
   "name": "syrius-extension",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Syrius extension provides a non-custodial wallet solution for Zenon - Network of Momentum that can run in the browser.",
   "license": "MIT",
   "engines": {
@@ -21,10 +21,19 @@
     "prettier": "prettier --write '**/*.{js,jsx,ts,tsx,json,css,scss,md}'",
     "lint": "eslint src/**/*.js src/**/*.jsx",
     "test": "node utils/contract-calls-test.js",
-    "test:browser": "node utils/live-vault-browser-test.js && node utils/request-identity-browser-test.js && node utils/approval-queue-browser-test.js && node utils/document-binding-browser-test.js && node utils/modal-focus-browser-test.js && node utils/approval-focus-browser-test.js",
-    "test:security": "node utils/pillar-mode-test.js && node utils/operator-mode-test.js && node utils/error-catalog-test.js && node utils/bigint-buffer-test.js && node utils/token-metadata-test.js && node utils/password-policy-test.js && node utils/live-vault-test.js && node utils/session-policy-test.js && node utils/wallet-deletion-test.js && node utils/request-identity-test.js && node utils/approval-context-test.js && node utils/approval-queue-test.js && node utils/prerender-admission-test.js && node utils/approval-operation-test.js && node utils/wallet-scoping-test.js && node utils/block-approval-test.js && node utils/contract-arguments-test.js && node utils/provider-state-test.js && node utils/document-binding-test.js && node utils/pending-transactions-test.js && node utils/account-read-context-test.js && node utils/chain-id-test.js && node utils/wallet-save-test.js"
+    "test:browser": "node utils/live-vault-browser-test.js && node utils/request-identity-browser-test.js && node utils/approval-queue-browser-test.js && node utils/document-binding-browser-test.js && node utils/modal-focus-browser-test.js && node utils/approval-focus-browser-test.js && node utils/pow-browser-test.js",
+    "test:security": "node utils/pillar-mode-test.js && node utils/operator-mode-test.js && node utils/error-catalog-test.js && node utils/token-search-test.js && node utils/bigint-buffer-test.js && node utils/token-metadata-test.js && node utils/password-policy-test.js && node utils/live-vault-test.js && node utils/session-policy-test.js && node utils/wallet-deletion-test.js && node utils/transaction-journal-test.js && node utils/request-identity-test.js && node utils/approval-context-test.js && node utils/approval-queue-test.js && node utils/prerender-admission-test.js && node utils/approval-operation-test.js && node utils/wallet-scoping-test.js && node utils/block-approval-test.js && node utils/contract-arguments-test.js && node utils/provider-state-test.js && node utils/document-binding-test.js && node utils/pending-transactions-test.js && node utils/account-read-context-test.js && node utils/chain-id-test.js && node utils/wallet-save-test.js && node utils/popup-state-test.js && node utils/self-update-test.js && node utils/phrase-quiz-test.js && node utils/app-links-test.js && node utils/sdk-split-test.js && node utils/receiver-fallback-test.js"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/app-launcher": "^8.0.1",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/ios": "^8.5.3",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@capacitor/privacy-screen": "^2.0.1",
+    "@capacitor/share": "^8.0.3",
+    "@capgo/capacitor-native-biometric": "^8.8.1",
     "@reduxjs/toolkit": "^1.8.1",
     "babel-preset-react": "^6.24.1",
     "base64-loader": "^1.0.0",
@@ -58,6 +67,7 @@
     "@babel/preset-env": "^7.16.11",
     "@babel/preset-react": "^7.16.7",
     "@babel/preset-stage-2": "^7.8.3",
+    "@capacitor/cli": "^8.5.3",
     "@types/chrome": "^0.0.177",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.1",
@@ -110,6 +120,9 @@
     "qs": "^6.16.0",
     "@ethersproject/providers": {
       "ws": "^8.21.3"
+    },
+    "xcode": {
+      "uuid": "^11.1.1"
     }
   }
 }

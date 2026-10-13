@@ -9,6 +9,7 @@ import publicNodeUrl from '../../services/utils/publicNodeUrl';
 import nativeNavigation from '../../services/utils/nativeNavigation';
 import { targetFrom, validRequest, isLive, deliver, requestEnded } from '../../services/utils/documentBinding';
 import { fail } from '../../services/utils/errors';
+import syncReceiver from './receiver';
 
 // The service worker.
 //
@@ -294,7 +295,7 @@ const internalMethods = {
       checkDeadline();
       // Save this optional convenience before permission activation. A held
       // window lock or storage write must not leave a new grant behind.
-      try { await requests.allowFollowup(request.origin, request.expiresAt); }
+      try { await requests.allowFollowup(request.origin, request.expiresAt, request.tabId); }
       catch (error) { console.error('Unable to save approval follow-up allowance', error); }
       checkDeadline();
       if (request.type === 'connect') {
@@ -496,6 +497,10 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(autoLockAlarm, { periodInMinutes: 1 });
 });
 
+// A worker (or Firefox background page) that starts while a timed unlock
+// lasts picks the receiver up again.
+syncReceiver();
+
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create(autoLockAlarm, { periodInMinutes: 1 });
 });
@@ -507,6 +512,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   try { await requests.prune(); }
   catch (error) { console.error('Unable to expire wallet approvals', error); }
   const generation = await sessionLease.expire();
+  // The receiver page opens with a timed unlock and closes with it.
+  syncReceiver();
   if (generation) {
     await selection.transaction(async stored => {
       const record = selection.current(stored);

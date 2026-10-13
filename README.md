@@ -6,14 +6,17 @@ Keys are generated and encrypted on your machine and never leave it. The
 extension talks to a Zenon node of your choosing, and to web pages through an
 injected provider that does nothing without being asked first.
 
-Version **0.3.5**, Manifest V3, Chrome or Brave 112 or later.
-[What changed](CHANGELOG.md).
+Version **0.3.6**, Manifest V3, Chrome or Brave 112 or later, and Android and
+iOS apps built from the same source. [What changed](CHANGELOG.md).
 
 ## Features
 
 - **Wallet**: create or import a recovery phrase, several named addresses,
   balances of every ZTS token, an approximate value in dollars.
-- **Send and receive**, with a history that names what each block did.
+- **Send and receive**, with a history that names what each block did. Every
+  signed block is recorded before it is sent, and one account's sends take
+  turns, so several sent back to back all land, and an interrupted one is
+  settled rather than signed twice.
 - **Delegate, stake, fuse plasma**, and collect the rewards.
 - **Tokens**: issue, mint, burn and update your own ZTS tokens.
 - **Operator modes** (Settings): pillar management with rewards and
@@ -21,13 +24,29 @@ Version **0.3.5**, Manifest V3, Chrome or Brave 112 or later.
 - **Sites**: a `window.zenon` provider with per-site, per-account consent, and
   message signing compatible with desktop Syrius.
 - **Settings**: nodes and chain identifier, auto-lock, auto-receive, theme,
-  explorer, backup phrase.
+  explorer, backup phrase, and an Update row when a newer release is out.
+- **Picks up where it left off**: the popup reopens on the screen it closed
+  on, with what had been typed, until the wallet locks.
+- **Address book** (Settings), offered on Send with the last five recipients.
+- **Works in the background**: while the wallet is unlocked, sends and
+  receives carry on with the popup closed, proof of work included, and
+  incoming transfers are received on every account without opening it.
+- **Android and iOS apps**: fingerprint or Face ID unlock, Share on Receive,
+  a notification for incoming transfers, and desktop Syrius's `syrius://`
+  links, including `syrius://request` for another app to ask for a connection
+  or a signature. QR scanning on Send is Android only for now.
 
 ## Install
 
 From a release: download the ZIP from the
 [releases page](https://github.com/sol-znn/syrius-extension/releases), open
 `chrome://extensions`, turn on Developer mode and drag the ZIP in.
+
+Updating: the lock screen says when a newer release is out. Settings, About,
+Update opens a tab where you choose the folder the extension was loaded from,
+once; Update now then writes the checked release into it and reloads. The
+wallet and its settings are kept. "Forget update folder" in About resets the
+choice, and "Download the ZIP instead" is there for doing it by hand.
 
 From source (Node.js 24, npm 10):
 
@@ -40,6 +59,42 @@ npm run build
 
 Then **Load unpacked** and pick the `build` folder.
 
+### Android
+
+Sideload only for now: no store listing and no signed release yet. The app is
+`network.zenon.syrius` and needs Android 7 or later; scanning uses Google Play
+services' scanner, so it needs no camera permission.
+
+A debug APK from source needs JDK 21 and the Android SDK as well:
+
+```bash
+SYRIUS_PLATFORM=android npm run build   # into build-app/
+npx cap sync android
+cd android && ./gradlew clean assembleDebug
+```
+
+The APK is `android/app/build/outputs/apk/debug/app-debug.apk`.
+`node tools/app-links/serve.mjs` serves a page of `syrius://` links and
+requests to open on the phone ([tools/app-links](tools/app-links/README.md)).
+
+### iOS
+
+Each release has an unsigned `syrius-<version>-ios-unsigned.ipa`. Apple lets
+an app onto an iPhone only once it is signed, and a free Apple ID's signature
+lasts seven days, so install it with [SideStore](https://sidestore.io) or
+[AltStore](https://altstore.io): either signs it with your Apple ID and renews
+it on the phone before the seven days are up. The app is
+`network.zenon.syrius` and needs iOS 15 or later.
+
+CI builds the IPA on a macOS runner beside the Chrome package, and a release
+publishes both. Building it yourself needs a Mac with Xcode:
+
+```bash
+SYRIUS_PLATFORM=ios npm run build       # into build-app/
+npx cap sync ios
+npx cap open ios                        # then build and run from Xcode
+```
+
 ## Documentation
 
 | | |
@@ -47,6 +102,7 @@ Then **Load unpacked** and pick the `build` folder.
 | [Development](docs/DEVELOPMENT.md) | Build, tests, the dev harness, releasing |
 | [Setup](docs/SETUP.md) | A checkout that passes the same checks as CI |
 | [Integrating a site](docs/INTEGRATION.md) | The `window.zenon` API, signatures, request limits, consent |
+| [Requests from another app](docs/APP-REQUESTS.md) | `syrius://request` and its callback, for web apps and apps on Android |
 | [Security notes](docs/SECURITY.md) | Where keys live, what a connection grants, locking |
 | [Release checklist](docs/RELEASE-CHECKLIST.md) | Gates for a release candidate |
 | [Browser test notes](docs/testing/) | What each browser fixture establishes |
@@ -59,8 +115,11 @@ Then **Load unpacked** and pick the `build` folder.
 | | |
 |---|---|
 | `src/` | The extension: `pages`, `components`, `layouts`, `services`, `sections` (popup, worker, content scripts) |
+| `src/platform/` | The app's side: the `chrome.*` stand-in, `syrius://` links and requests, fingerprint, scanner, notifications |
+| `android/` | The Capacitor Android project, with the app's own QR scanner plugin |
+| `ios/` | The Capacitor iOS project |
 | `utils/` | The build, the dev harness and the test suites |
-| `tools/` | Developer tools: the local test chain, deliberate-regression lists, probes |
+| `tools/` | Developer tools: the local test chain, the phone link page, icon generators, deliberate-regression lists, probes |
 | `vendor/` | Vendored dependencies |
 | `docs/` | Everything in the table above |
 

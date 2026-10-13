@@ -2,7 +2,8 @@ import React from 'react';
 import QRCode from 'react-qr-code';
 import { useSelector } from 'react-redux';
 
-import { copyToClipboard } from '../../../services/utils/notify';
+import { copyToClipboard, notify } from '../../../services/utils/notify';
+import app from '../../../services/utils/app';
 import { getLabel } from '../../../services/utils/storage';
 import Icon from '../../../components/icon/icon';
 
@@ -35,6 +36,18 @@ const Receive = () => {
       </button>
 
       <p className="text-gray text-xs">Send any Zenon token to this address</p>
+
+      {/* In the app, the phone's own share sheet: a message, a mail, another app. */}
+      {app() && (
+        <button
+          type="button"
+          className="button secondary w-100 receive-share"
+          onClick={() => app().share({ title: 'My Zenon address', text: address }).catch(notify.error)}
+        >
+          <Icon name="share" size={16} />
+          Share
+        </button>
+      )}
     </div>
   );
 };

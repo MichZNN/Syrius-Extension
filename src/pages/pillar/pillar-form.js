@@ -17,6 +17,7 @@ import {
 } from '../../services/pillar/rules';
 import { notify } from '../../services/utils/notify';
 import { fail } from '../../services/utils/errors';
+import usePopupState from '../../services/utils/popupState';
 
 // Registering a pillar, and updating one: the same four settings, plus the
 // name when it is new. An update rewrites all four, so the confirmation lists
@@ -42,7 +43,7 @@ const PillarForm = ({ mode }) => {
   const { sendInBackground } = useBackgroundSender();
 
   const current = mode === 'update' ? location.state?.pillar : null;
-  const [form, setForm] = useState(() => ({
+  const [form, setForm] = usePopupState(`pillar.${mode}`, () => ({
     name: current?.name || '',
     producerAddress: current?.producerAddress || '',
     withdrawAddress: current?.withdrawAddress || address || '',

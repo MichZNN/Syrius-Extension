@@ -192,6 +192,21 @@ test('projects: go-zenon\'s limits, and links opened only as https', () => {
   assert.equal(rules.projectLink('forum.zenon.org/t/1'), 'https://forum.zenon.org/t/1');
 });
 
+test('phases: what is left of the project, as checkPhaseFunds counts it', () => {
+  const u = rules.unit;
+  const phase = (znn, qsr, status = 2) => ({ phase: { znnFundsNeeded: (znn * u).toString(), qsrFundsNeeded: (qsr * u).toString(), status } });
+  const project = { znnFundsNeeded: (1000n * u).toString(), qsrFundsNeeded: (8000n * u).toString(), phases: [phase(300n, 2000n), phase(200n, 1000n, 0)] };
+  // Adding counts every phase; updating replaces the last one.
+  assert.deepEqual(rules.phaseFundsLeft(project, 'add'), { znn: 500n * u, qsr: 5000n * u });
+  assert.deepEqual(rules.phaseFundsLeft(project, 'update'), { znn: 700n * u, qsr: 6000n * u });
+  assert.deepEqual(rules.phaseFundsLeft({ ...project, phases: [] }, 'add'), { znn: 1000n * u, qsr: 8000n * u });
+  // Never negative, and a missing figure is none left.
+  assert.deepEqual(rules.phaseFundsLeft({ ...project, phases: [phase(1200n, 9000n)] }, 'add'), { znn: 0n, qsr: 0n });
+  assert.deepEqual(rules.phaseFundsLeft({}, 'add'), { znn: 0n, qsr: 0n });
+  const page = require('node:fs').readFileSync(path.join(root, 'src/pages/pillar/az-form.js'), 'utf8');
+  assert.equal(page.split("onClick={() => fillMax('").length - 1, 2, 'a Max beside ZNN and QSR');
+});
+
 test('what a pillar can vote on: projects in voting, and an active project\'s open phase', () => {
   const projects = [
     { id: 'p1', name: 'Voting', status: 0, phases: [] },
@@ -397,7 +412,7 @@ test('settings: Extension starts open, Modes and Wallet closed, and a closed sec
   const aboveModes = page.slice(page.indexOf('<div className="page">'), page.indexOf("id: 'modes'"));
   // Links and the two choices among them, in the owner's order.
   assert.deepEqual([...aboveModes.matchAll(/<SettingsItem icon="[a-z-]+" title="([^"]+)"|className="settings-item-title">([^<]+)</g)].map((m) => m[1] || m[2]),
-    ['Node', 'Explorer', 'Connected sites', 'Zap a random alien', 'Sign message', 'Theme', 'About']);
+    ['Node', 'Explorer', 'Connected sites', 'Zap a random alien', 'Sign message', 'Address book', 'Theme', 'About']);
   // The explorer's choices are named short enough for the row, and each has a name.
   const { explorerChoices } = load('src/services/utils/explorer.js', cache);
   for (const choice of explorerChoices) assert.ok(choice.short && choice.short.length <= 14, choice.key);

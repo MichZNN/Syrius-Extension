@@ -42,6 +42,20 @@ const authorizationMetadata = (tokenStandard) => {
   });
 };
 
+// How a token is labelled on screen, like the Tokens tab and the activity
+// list: a custom token takes the symbol and decimals from the node's token
+// data. What is signed never reads these; the amount and the confirmation use
+// authorizationMetadata, which knows only ZNN and QSR.
+const displayMetadata = (token) => {
+  const metadata = authorizationMetadata(token.tokenStandard);
+  if (metadata.isNative) return { symbol: metadata.symbol, decimals: metadata.decimals };
+  const { symbol, decimals } = token;
+  return {
+    symbol: typeof symbol === 'string' && symbol.trim() ? symbol : 'Custom token',
+    decimals: Number.isInteger(decimals) && decimals >= 0 ? decimals : 0,
+  };
+};
+
 const parseTransferAmount = (input, tokenStandard) => {
   const metadata = authorizationMetadata(tokenStandard);
   const text = typeof input === 'string' ? input.trim() : '';
@@ -70,4 +84,4 @@ const prepareTransfer = ({ tokenStandard, amount, recipient, owner, balance }) =
   });
 };
 
-export { normalizeBaseUnits, znnZts, qsrZts, nativeTokens, normalizeTokenStandard, authorizationMetadata, parseTransferAmount, prepareTransfer };
+export { normalizeBaseUnits, znnZts, qsrZts, nativeTokens, normalizeTokenStandard, authorizationMetadata, displayMetadata, parseTransferAmount, prepareTransfer };

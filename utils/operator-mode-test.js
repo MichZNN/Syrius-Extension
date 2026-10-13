@@ -373,6 +373,19 @@ test('zap alien: every address found is as likely as another', async () => {
   }
 });
 
+test('zap draw: every value below n is equally likely, so draws past the last multiple of n are retaken', () => {
+  const feed = (...values) => { let i = 0; return (draw) => { draw[0] = values[i++]; }; };
+  // 2^32 = 3 * 1431655765 + 1: only the top value is beyond a whole multiple.
+  assert.equal(zap.randomBelow(3, feed(0)), 0);
+  assert.equal(zap.randomBelow(3, feed(4294967294)), 2);
+  assert.equal(zap.randomBelow(3, feed(4294967295, 4294967295, 5)), 2);
+  assert.equal(zap.randomBelow(1, feed(4294967295)), 0);
+  assert.equal(zap.randomBelow(2 ** 16, feed(4294967295)), 65535);
+  const counts = [0, 0, 0, 0, 0];
+  for (let i = 0; i < 5000; i += 1) counts[zap.randomBelow(5)] += 1;
+  for (const count of counts) assert.ok(count > 800 && count < 1200, String(counts));
+});
+
 test('zap blocks: plain sends to the alien, the message on the first, the marker alone on the second', () => {
   const both = zap.blocksFor({ to: a2, amounts: { znn: '100000000', qsr: '1000000000' }, message: 'Hello' });
   assert.deepEqual(both.map((part) => [part.symbol, part.amount]), [['ZNN', '100000000'], ['QSR', '1000000000']]);
@@ -498,10 +511,13 @@ test('fuses: the page sends what is in the list, after one confirmation, in one 
   const page = require('node:fs').readFileSync(path.join(root, 'src/pages/plasma/plasma.js'), 'utf8').replace(/\r\n/g, '\n').replace(/\s+/g, ' ');
   // Read against the list at the moment of sending, not from what was ticked.
   assert.ok(page.includes('const list = picked(entries.items, selected, momentumHeight); if (!list.length) return;'));
-  assert.ok(page.includes('return cancelMany(list.map((entry) => entry.id), async (id) => Zenon.getSingleton().send(await plasma.cancel(id), keyPair));'));
-  assert.equal(page.split('cancelMany(').length - 1, 1, 'one place sends a batch');
+  // One job of a CancelFuse block per listed fuse, each in its account's turn
+  // (wallet/blockJobs.js, wallet/journal.js).
+  assert.ok(page.includes('const templates = await Promise.all(list.map((entry) => plasma.cancel(entry.id)));'));
+  assert.ok(page.includes("templates, kind: 'fuses',"));
+  assert.equal(page.split("kind: 'fuses'").length - 1, 1, 'one place sends a batch');
   // The key is the one selected when the batch was confirmed.
-  assert.ok(page.includes('const index = vault.getSelectedIndex();') && page.includes('const keyPair = await vault.getSigningKeyPair(index);'));
+  assert.ok(page.includes('addressIndex: vault.getSelectedIndex(),'));
   // Only the dialog starts it.
   assert.equal(page.split('cancelSelected').length - 1, 2, 'defined, and handed to the dialog');
   assert.equal(page.split('confirmCancelSelected').length - 1, 2, 'the dialog opener: defined, and bound to the button');
@@ -777,11 +793,14 @@ test('outgoing watch: the strip names what is moving, in the words the rows use'
     { id: 'pow', label: 'Fuse', state: 'Generating plasma' },
     { id: 'out', label: 'Stake', state: 'Sending' },
     { id: 'wait', label: 'Cancel fuse', state: 'Unconfirmed' },
+    // No toast says why a block failed, so the strip does, until dismissed.
+    { id: 'bad', label: 'Vote', state: 'x', failed: true },
   ]);
   await tracker.check(async () => ({ confirmationDetail: {} }));
-  assert.deepEqual(watch.stripRows(items, a1, tracker).at(-1), { id: 'wait', label: 'Cancel fuse', state: 'Confirmed', done: true });
+  assert.deepEqual(watch.stripRows(items, a1, tracker)[2], { id: 'wait', label: 'Cancel fuse', state: 'Confirmed', done: true });
   clock += watch.confirmedShownMs;
-  assert.deepEqual(watch.stripRows(items, a1, tracker).map((row) => row.id), ['pow', 'out'], 'a confirmed block leaves the strip');
+  assert.deepEqual(watch.stripRows(items, a1, tracker).map((row) => row.id), ['pow', 'out', 'bad'], 'a confirmed block leaves the strip');
+  assert.deepEqual(watch.stripRows([{ ...items[4], error: undefined }], a1, tracker), [{ id: 'bad', label: 'Vote', state: 'Failed', failed: true }]);
   assert.deepEqual(watch.stripRows([], a1, tracker), []);
 });
 
@@ -815,11 +834,14 @@ test('outgoing watch: mounted for every tab screen, silent on Home, and each scr
   const fs = require('node:fs');
   const read = (file) => fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
   const layout = read('src/layouts/tabsLayout/tabsLayout.js');
-  assert.ok(layout.indexOf('<OutgoingWatch />') > 0 && layout.indexOf('<OutgoingWatch />') < layout.indexOf('<Routes'), 'above the routes, so no route unmounts it');
+  const at = layout.indexOf('<OutgoingWatch />');
+  assert.ok(at > layout.indexOf('</Routes>') && layout.indexOf('<OutgoingWatch />', at + 1) < 0, 'outside the routes, so no route unmounts it');
+  assert.ok(at < layout.indexOf('<MenuTabs />'), 'just above the tab bar');
 
   const component = read('src/components/outgoing-watch/outgoing-watch.js');
   assert.ok(component.includes("const homePath = '/tabs/dashboard';"));
-  assert.ok(component.includes('if (onHome) return null;'), 'Home lists the same blocks as rows');
+  assert.ok(component.includes('const rows = onHome ? [] : stripRows('), 'Home lists the same blocks as rows: the strip stays down');
+  assert.ok(!component.includes('notify.'), 'block work reports here, not in toasts');
   assert.ok(component.includes('return context.isCurrent() ? block : null;'), 'an answer from a changed connection is dropped');
   assert.ok(component.includes("if (home.current || !getSettings().autoReceive) return;"), 'Home receives for itself; elsewhere only with the setting on');
   assert.ok(component.includes('receiveOnce(async () =>'));
@@ -842,7 +864,8 @@ test('outgoing watch: mounted for every tab screen, silent on Home, and each scr
   }
 
   const css = read('src/sections/Popup/Popup.scss');
-  assert.match(css, /\.outgoing-strip \{[^}]*flex: 0 0 auto;/, 'takes its own room, never covers a button');
+  assert.match(css, /\.outgoing-dock \{[^}]*grid-template-rows: 0fr;[^}]*flex: 0 0 auto;/, 'takes its own room, never covers a button');
+  assert.ok(!/prefers-reduced-motion/.test(css), 'its motion always runs');
 
   // A send no longer jumps to Home: a tab stays where it is, and a form goes
   // back to the screen that opened it. Send is Home's own form.
@@ -926,6 +949,76 @@ test('about: one request for the tag, kept six hours, and no answer is ever an e
   assert.ok(read('src/layouts/tabsLayout/tabsLayout.js').includes('<Route path="settings/about" element={<About />} />'));
   assert.ok(read('src/pages/settings/settings/settings.js').includes('<SettingsItem icon="info" title="About" url="about" />'));
   assert.ok(read('privacy-policy.md').includes('**GitHub:**'), 'the request is in the privacy policy');
+  // The lock screen says so only when there is something newer, and links
+  // the same constant page.
+  const lock = read('src/pages/dashboard/dashboard-password/dashboard-password.js');
+  assert.ok(lock.includes("releaseState(latest, currentVersion()) === 'update') setUpdate(latest)"));
+  assert.ok(lock.includes('{update && (') && lock.includes('href={releasesUrl}') && !/html_url|tag_name/.test(lock));
+});
+
+test('about: Update applies a browser-managed update and downloads otherwise, per platform', async () => {
+  const { updateNow, statusOf, downloadUrl } = load('src/services/utils/selfUpdate.js', cache);
+  assert.equal(statusOf('update_available'), 'update_available');
+  assert.equal(statusOf({ status: 'no_update', version: '' }), 'no_update');
+  assert.equal(statusOf(['throttled', {}]), 'throttled');
+  assert.equal(statusOf(undefined), 'failed');
+  // Built from the version and the repository constant, never from the answer.
+  const releases = 'https://github.com/sol-znn/syrius-extension/releases';
+  assert.equal(downloadUrl('v0.3.7', 'chrome'), `${releases}/download/v0.3.7/syrius-extension-0.3.7-chrome-brave.zip`);
+  assert.equal(downloadUrl('0.3.7', 'firefox'), `${releases}/download/v0.3.7/syrius-extension-0.3.7-firefox.xpi`);
+  assert.equal(downloadUrl('0.3.7', 'android'), `${releases}/download/v0.3.7/syrius-0.3.7-android.apk`);
+  assert.equal(downloadUrl('0.3.7', 'ios'), `${releases}/tag/v0.3.7`);
+  assert.equal(downloadUrl('0.3.7/../../evil', 'chrome'), `${releases}/latest`);
+  const browser = ({ installType = 'normal', status = 'update_available', ready = true, getSelfThrows = false }) => {
+    const listeners = new Set();
+    const calls = [];
+    global.chrome = {
+      management: { getSelf: (callback) => { if (getSelfThrows) throw new Error('no management'); callback({ installType }); } },
+      runtime: {
+        lastError: undefined,
+        requestUpdateCheck: (callback) => {
+          calls.push('check');
+          callback({ status });
+          if (ready && status === 'update_available') setImmediate(() => listeners.forEach((listener) => listener({ version: '9.9.9' })));
+        },
+        onUpdateAvailable: { addListener: (fn) => listeners.add(fn), removeListener: (fn) => listeners.delete(fn) },
+      },
+    };
+    return calls;
+  };
+  let reloaded = 0;
+  const reload = () => { reloaded += 1; };
+  // Unpacked from a ZIP, or a browser that will not say: never asks.
+  for (const options of [{ installType: 'development' }, { getSelfThrows: true }]) {
+    let calls = browser(options);
+    assert.deepEqual(await updateNow('0.3.7', { target: 'chrome', reload }), { result: 'unzip', url: downloadUrl('0.3.7', 'chrome') });
+    calls = browser(options);
+    assert.deepEqual(await updateNow('0.3.7', { target: 'firefox', reload }), { result: 'download', url: downloadUrl('0.3.7', 'firefox') });
+    assert.deepEqual(calls, []);
+  }
+  // Mobile never asks a browser.
+  for (const target of ['android', 'ios']) {
+    const calls = browser({});
+    assert.deepEqual(await updateNow('0.3.7', { target, reload }), { result: 'download', url: downloadUrl('0.3.7', target) });
+    assert.deepEqual(calls, []);
+  }
+  // Browser-managed: check, wait for it, reload.
+  for (const target of ['chrome', 'firefox']) {
+    browser({});
+    assert.deepEqual(await updateNow('0.3.7', { target, reload }), { result: 'reloading', url: null });
+  }
+  assert.equal(reloaded, 2);
+  for (const [status, expected] of [['no_update', 'not-yet'], ['throttled', 'throttled'], ['weird', 'failed']]) {
+    browser({ status });
+    assert.deepEqual(await updateNow('0.3.7', { target: 'chrome', reload }), { result: expected, url: null });
+  }
+  // Firefox falls back to opening the signed package, which installs over this one.
+  for (const status of ['no_update', 'weird']) {
+    browser({ status });
+    assert.deepEqual(await updateNow('0.3.7', { target: 'firefox', reload }), { result: 'download', url: downloadUrl('0.3.7', 'firefox') });
+  }
+  assert.equal(reloaded, 2, 'reloaded without an update in hand');
+  delete global.chrome;
 });
 
 //

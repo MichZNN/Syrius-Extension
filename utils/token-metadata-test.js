@@ -2,6 +2,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const babel = require('@babel/core');
+const { journalStubs } = require('./fixtures/journal-stub');
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 
@@ -12,6 +13,7 @@ global.localStorage = { getItem: key => memory.get(key) ?? null, setItem: (key, 
 global.chrome = { windows: { getCurrent: async () => ({ id: 1 }) } };
 const sdk = require('znn-ts-sdk');
 const { ethers } = require('ethers');
+const { popupStateStub } = require('./fixtures/popup-state-stub');
 const root = path.join(__dirname, '..');
 const loader = (override = () => undefined) => {
   const cache = new Map();
@@ -28,6 +30,8 @@ const loader = (override = () => undefined) => {
     const resolve = (name) => {
       const replacement = override(name);
       if (replacement !== undefined) return replacement;
+      // The journal has its own suite; see fixtures/journal-stub.js.
+      const journaled = journalStubs(name); if (journaled !== undefined) return journaled;
       if (name.startsWith('.')) {
         const target = path.resolve(path.dirname(filename), name);
         return load(path.extname(target) ? target : `${target}.js`);
@@ -58,6 +62,7 @@ const view = ({ file, states, account }) => {
   let modal;
   const refs = [];
   const sent = [];
+  const rows = [];
   const errors = [];
   const rules = {};
   const effects = [];
@@ -70,11 +75,12 @@ const view = ({ file, states, account }) => {
   };
   const Component = loader(name => {
     if (name === 'react') return mockReact;
+    if (name.endsWith('/utils/popupState')) return popupStateStub(mockReact);
     if (name === 'react-router-dom') return { useNavigate: () => () => {}, useLocation: () => ({}) };
     if (name === 'react-redux') return { useSelector: fn => fn({ wallet: { address: account.address, isUnlocked: true }, connectionParameters: { chainIdentifier: 1, nodeUrl: 'wss://example.invalid' } }) };
     if (name === 'react-hook-form') return { useForm: () => ({ register: (name, options) => { rules[name] = options; return { name }; }, handleSubmit: fn => fn, formState: { errors: {} }, reset: () => {}, setValue: () => {}, trigger: () => {} }) };
     if (name.endsWith('/hooks/useAccount')) return () => account;
-    if (name.endsWith('/hooks/useBackgroundSender')) return () => ({ sendInBackground: template => sent.push(template) });
+    if (name.endsWith('/hooks/useBackgroundSender')) return () => ({ sendInBackground: (template, options) => { sent.push(template); rows.push(options?.row); } });
     // A prepared block approval (#4) is signed as prepared: record that block.
     if (name.endsWith('/hooks/useBlockSender')) return () => ({ send: async (template, options = {}) => {
       const signed = template ?? options.prepared.block; sent.push(signed); return signed; }, isSending: false, isGeneratingPlasma: false });
@@ -105,7 +111,7 @@ const view = ({ file, states, account }) => {
     const effect = effects.filter(item => item.deps?.length === 4 && item.deps[0] === states[0]).at(-1);
     effect.fn(); for (let i = 0; i < 40; i++) await new Promise(resolve => setImmediate(resolve));
   };
-  return { render: () => { cursor = 0; refCursor = 0; effects.length = 0; return Component(); }, prepare, sent, errors, rules, modal: () => modal };
+  return { render: () => { cursor = 0; refCursor = 0; effects.length = 0; return Component(); }, prepare, sent, rows, errors, rules, modal: () => modal };
 };
 // The bound account's key, and a node whose account has no blocks yet.
 const fixtureKey = { getAddress: async () => sdk.Primitives.Address.parse('z1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsggv2f'), getPublicKey: async () => Buffer.alloc(32, 7) };
@@ -174,6 +180,11 @@ const approvalFile = 'src/layouts/siteIntegrationLayout/siteIntegrationLayout.js
     assert.equal(page.sent[0].tokenStandard.toString(), zts);
     assert.equal(page.sent[0].toAddress.toString(), recipient);
     assert.equal(page.errors.length, 0);
+    // The activity row is a display: the token's own symbol and decimals, as
+    // its history row will show once it lands, never "base units".
+    assert.equal(page.rows[0].amount, expected);
+    assert.equal(page.rows[0].tokenSymbol, 'ZNN');
+    assert.equal(page.rows[0].decimals, zts === custom ? 30 : 8);
   }
   const account = { address: recipient, balanceMap: withBaseTokens({ [custom]: entry(custom, 10) }), balances: [] };
   const invalid = view({ file: sendFile, states: [custom, '1.2', recipient], account });

@@ -106,9 +106,14 @@ const recipientsIn = (detailed, skip = () => false) => {
   return found;
 };
 
-const randomBelow = (n) => {
-  const [value] = crypto.getRandomValues(new Uint32Array(1));
-  return Math.floor((value / 2 ** 32) * n);
+// A whole number below `n`, each equally likely. Scaling a 32-bit draw, or
+// taking its remainder, favours some values whenever n does not divide 2^32;
+// draws past the last whole multiple of n are thrown away instead.
+const randomBelow = (n, fill = (draw) => crypto.getRandomValues(draw)) => {
+  const limit = 2 ** 32 - (2 ** 32 % n);
+  const draw = new Uint32Array(1);
+  do { fill(draw); } while (draw[0] >= limit);
+  return draw[0] % n;
 };
 
 const shuffled = (list, random) => {
@@ -226,6 +231,7 @@ const takeNew = (address, hashes) => {
 };
 
 export {
+  randomBelow,
   marker,
   messageMax,
   defaultMessage,

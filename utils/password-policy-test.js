@@ -93,7 +93,8 @@ const page = (file, initial) => {
     if (name.endsWith('/wallet/session')) return { touch: async () => {} };
     if (name.endsWith('/wallet/bootstrap')) return { completeUnlock: async () => {} };
     if (name.endsWith('/utils/notify')) return { notify: { success: () => {}, error: (err) => errors.push(err) } };
-    if (name.endsWith('/utils/utils')) return { loadStorageWalletNames: () => [], sanitizeWalletName: (s) => s, arrayShuffle: (s) => s };
+    if (name.endsWith('/wallet/phraseQuiz')) return load('src/services/wallet/phraseQuiz.js', () => null);
+    if (name.endsWith('/utils/utils')) return { loadStorageWalletNames: () => [], sanitizeWalletName: (s) => s };
     return () => null;
   }).default;
   const render = () => { cursor = 0; return Component(); };
@@ -137,8 +138,9 @@ const pages = [
   // Bypass form validation and invoke every production persistence callback.
   // This also covers creation's separate final confirmation button.
   for (const password of ['abc123', 'Abcd123!']) {
-    const create = page(pages[0][0], [2, 'test-wallet', password, password, store, 'one two', [], ['one', 'two']]);
-    await elements(create.render()).find((el) => el.type === 'button' && el.props.onClick).props.onClick();
+    const quiz = [{ position: 0, options: ['two', 'one'] }, { position: 1, options: ['one', 'two'] }];
+    const create = page(pages[0][0], [2, 'test-wallet', password, password, store, 'one two', quiz, ['one', 'two']]);
+    await elements(create.render()).filter((el) => el.type === 'button' && el.props.onClick).at(-1).props.onClick();
     const recover = page(pages[1][0], [1, 'one two', 'test-wallet', password, password]);
     await elements(recover.render()).find((el) => el.type === 'form').props.onSubmit();
     const change = page(pages[2][0], ['legacy-weak', password, password, false]);

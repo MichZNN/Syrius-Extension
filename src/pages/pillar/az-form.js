@@ -1,3 +1,4 @@
+/* global BigInt */
 import React, { useContext, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
@@ -9,19 +10,24 @@ import { templates } from '../../services/pillar/calls';
 import {
   currentPhase,
   decimals,
+  phaseFundsLeft,
   projectCreationZnn,
   projectDescriptionMaxLength,
   projectError,
   projectNameMaxLength,
 } from '../../services/pillar/rules';
-import { formatExact, parseAmount } from '../../services/utils/format';
+import { formatAmount, formatExact, parseAmount } from '../../services/utils/format';
 import { notify } from '../../services/utils/notify';
+import usePopupState from '../../services/utils/popupState';
 
 // Submitting an Accelerator-Z project, and adding or replacing a phase of one.
 // The contract takes the same five fields for all three, with the same limits
 // (services/pillar/rules.js), so it is one form.
 //
 // Updating a phase replaces it and clears its votes; the confirmation says so.
+//
+// A phase may ask for what the project has left (rules.js phaseFundsLeft):
+// Max fills that in, and more is refused here rather than by the contract.
 
 const titles = { new: 'New project', add: 'Add phase', update: 'Update phase' };
 
@@ -36,7 +42,7 @@ const AzForm = ({ mode: routeMode }) => {
   const mode = routeMode === 'phase' ? location.state?.mode : 'new';
   const editing = mode === 'update' ? currentPhase(project)?.phase : null;
 
-  const [form, setForm] = useState(() => ({
+  const [form, setForm] = usePopupState(`az.${mode}.${project?.id || 'new'}`, () => ({
     name: editing?.name || '',
     description: editing?.description || '',
     url: editing?.url || '',
@@ -51,6 +57,9 @@ const AzForm = ({ mode: routeMode }) => {
   }
 
   const set = (key) => (event) => setForm((previous) => ({ ...previous, [key]: event.target.value }));
+  const left = project ? phaseFundsLeft(project, mode) : null;
+  const plain = (amount) => formatAmount(amount.toString(), decimals, { maxDecimals: decimals, group: false });
+  const fillMax = (key) => setForm((previous) => ({ ...previous, [key]: plain(left[key]) }));
 
   const znn = parseAmount(form.znn || '0', decimals);
   const qsr = parseAmount(form.qsr || '0', decimals);
@@ -61,7 +70,11 @@ const AzForm = ({ mode: routeMode }) => {
     znn: znn?.toString() ?? '-1',
     qsr: qsr?.toString() ?? '-1',
   };
-  const error = znn === null || qsr === null ? 'Enter the amounts as numbers.' : projectError(values);
+  const overLeft = (key, amount) => left && amount !== null && BigInt(amount.toString()) > left[key];
+  const error = znn === null || qsr === null ? 'Enter the amounts as numbers.'
+    : overLeft('znn', znn) ? `At most ${formatAmount(left.znn.toString(), decimals, { maxDecimals: decimals })} ZNN for this phase.`
+      : overLeft('qsr', qsr) ? `At most ${formatAmount(left.qsr.toString(), decimals, { maxDecimals: decimals })} QSR for this phase.`
+        : projectError(values);
 
   const send = () => {
     try {
@@ -140,25 +153,41 @@ const AzForm = ({ mode: routeMode }) => {
         <div className="field-row">
           <label className="field">
             <span className="ledger-label">ZNN</span>
-            <input
-              className="custom-label mono"
-              inputMode="decimal"
-              value={form.znn}
-              onChange={set('znn')}
-              placeholder="0"
-              autoComplete="off"
-            />
+            <div className="input-with-button w-100">
+              <input
+                className="custom-label mono w-100"
+                inputMode="decimal"
+                value={form.znn}
+                onChange={set('znn')}
+                placeholder="0"
+                autoComplete="off"
+              />
+              {left && (
+                <button type="button" className="input-chip-button" onClick={() => fillMax('znn')}
+                  title={`${formatExact(left.znn.toString(), decimals)} ZNN left`}>
+                  Max
+                </button>
+              )}
+            </div>
           </label>
           <label className="field">
             <span className="ledger-label">QSR</span>
-            <input
-              className="custom-label mono"
-              inputMode="decimal"
-              value={form.qsr}
-              onChange={set('qsr')}
-              placeholder="0"
-              autoComplete="off"
-            />
+            <div className="input-with-button w-100">
+              <input
+                className="custom-label mono w-100"
+                inputMode="decimal"
+                value={form.qsr}
+                onChange={set('qsr')}
+                placeholder="0"
+                autoComplete="off"
+              />
+              {left && (
+                <button type="button" className="input-chip-button" onClick={() => fillMax('qsr')}
+                  title={`${formatExact(left.qsr.toString(), decimals)} QSR left`}>
+                  Max
+                </button>
+              )}
+            </div>
           </label>
         </div>
 

@@ -11,7 +11,6 @@ import { parseAmount, truncateAddress } from '../../../services/utils/format';
 import { notify } from '../../../services/utils/notify';
 import vault from '../../../services/wallet/vault';
 import { blocksFor, defaultMessage, defaults, findAlien, messageError, messageMax } from '../../../services/zap/zap';
-import { sendZap } from '../../../services/zap/send';
 
 // Zap (Settings): a small gift to a random address that was active this week.
 //
@@ -22,6 +21,9 @@ import { sendZap } from '../../../services/zap/send';
 
 // How many of this wallet's own addresses are kept out of the draw.
 const ownAddresses = 16;
+// Said once, where the address is confirmed (issue #38): the draw is only as
+// honest as the node that reported the blocks.
+const nodeSelectionNotice = 'Picked from what your node reports, so the node can steer it.';
 
 const Zap = () => {
   const navigate = useNavigate();
@@ -73,7 +75,10 @@ const Zap = () => {
         addressIndex: selectedAddressIndex,
         successMessage: 'Zapped',
         row: { owner: address, label: 'Zapping', amount: blocks[0].amount, decimals: 8, tokenSymbol: blocks[0].symbol },
-        send: () => sendZap(blocks, selectedAddressIndex),
+        // One job of a block per coin (wallet/blockJobs.js).
+        templates: blocks.map((block) => block.template),
+        kind: 'zap',
+        symbols: blocks.map((block) => block.symbol),
       });
       navigate('/tabs/settings');
     } catch (err) {
@@ -89,6 +94,7 @@ const Zap = () => {
         <p>
           Send <b>{parts}</b> to <span className="mono" title={alien.address}>{truncateAddress(alien.address)}</span>?
         </p>
+        <p className="approval-note">{nodeSelectionNotice}</p>
       </AlertModal>
     );
   };

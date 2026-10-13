@@ -1,7 +1,8 @@
 // Which version this is, and whether a newer one has been released.
 //
 // The extension is installed from a ZIP, so the browser never updates it. The
-// About screen asks GitHub for the newest release's tag and compares. The
+// lock screen and the About screen ask GitHub for the newest release's tag and
+// compare; the six-hour cache below is shared, so opening both costs one ask. The
 // request names the repository and nothing about the wallet; it is listed in
 // privacy-policy.md.
 //
@@ -13,7 +14,8 @@
 
 const repositoryUrl = 'https://github.com/sol-znn/syrius-extension';
 const releasesUrl = `${repositoryUrl}/releases`;
-const privacyUrl = `${repositoryUrl}/blob/main/privacy-policy.md`;
+const latestReleaseUrl = `${releasesUrl}/latest`;
+const privacyUrl = `${repositoryUrl}/blob/HEAD/privacy-policy.md`;
 const latestUrl = 'https://api.github.com/repos/sol-znn/syrius-extension/releases/latest';
 
 // GitHub allows an address 60 unauthenticated requests an hour; one answer is
@@ -78,4 +80,4 @@ const releaseState = (latest, current) => {
   return isNewer(latest, current) ? 'update' : 'current';
 };
 
-export { repositoryUrl, releasesUrl, privacyUrl, latestUrl, parseVersion, isNewer, currentVersion, latestVersion, releaseState };
+export { repositoryUrl, releasesUrl, latestReleaseUrl, privacyUrl, latestUrl, parseVersion, isNewer, currentVersion, latestVersion, releaseState };
