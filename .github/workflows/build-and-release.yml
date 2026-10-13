@@ -130,6 +130,9 @@ jobs:
       - name: Check release publication failure paths
         run: node --test utils/release-assets-test.js
 
+      - name: Check package provenance records
+        run: node --test utils/package-provenance-test.js
+
       # The build refuses to package when a pinned notice source drifts; this
       # is the check that the refusal itself still works.
       - name: Check third-party notice generation
@@ -204,6 +207,19 @@ jobs:
 
           sha256sum "$archive" > "${archive}.sha256"
           printf 'archive_name=%s\n' "$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Record Chrome/Brave package provenance
+        env:
+          SYRIUS_PACKAGE: ${{ steps.package.outputs.archive_name }}
+        run: node utils/package-provenance.js "$SYRIUS_PACKAGE" chrome "$(git rev-parse HEAD)" "$(git rev-parse 'HEAD^{tree}')"
+
+      - name: Upload Chrome/Brave package provenance
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ steps.package.outputs.archive_name }}.provenance.json
+          if-no-files-found: error
+          retention-days: 30
+          archive: false
 
       - name: Upload direct Chrome/Brave package artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -281,6 +297,19 @@ jobs:
           cp -R "$app" "$RUNNER_TEMP/ipa/Payload/"
           (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/$ipa" Payload)
           printf 'ipa=%s\n' "$ipa" >> "$GITHUB_OUTPUT"
+
+      - name: Record iOS package provenance
+        env:
+          SYRIUS_PACKAGE: ${{ steps.package.outputs.ipa }}
+        run: node utils/package-provenance.js "$SYRIUS_PACKAGE" ios "$(git rev-parse HEAD)" "$(git rev-parse 'HEAD^{tree}')"
+
+      - name: Upload iOS package provenance
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ steps.package.outputs.ipa }}.provenance.json
+          if-no-files-found: error
+          retention-days: 30
+          archive: false
 
       - name: Upload iOS app artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -367,6 +396,21 @@ jobs:
           fi
           printf 'apk=%s\n' "$apk" >> "$GITHUB_OUTPUT"
 
+      - name: Record Android package provenance
+        if: env.RELEASING == 'true' && inputs.platforms != 'ios' && inputs.platforms != 'firefox'
+        env:
+          SYRIUS_PACKAGE: ${{ steps.package.outputs.apk }}
+        run: node utils/package-provenance.js "$SYRIUS_PACKAGE" android "$(git rev-parse HEAD)" "$(git rev-parse 'HEAD^{tree}')"
+
+      - name: Upload Android package provenance
+        if: env.RELEASING == 'true' && inputs.platforms != 'ios' && inputs.platforms != 'firefox'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ steps.package.outputs.apk }}.provenance.json
+          if-no-files-found: error
+          retention-days: 30
+          archive: false
+
       - name: Upload Android app artifact
         if: env.RELEASING == 'true' && inputs.platforms != 'ios' && inputs.platforms != 'firefox'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -438,6 +482,21 @@ jobs:
           # manifest's update_url is this file on the latest release).
           XPI="$xpi" VERSION="$version" REPOSITORY="$GITHUB_REPOSITORY" node utils/firefox-updates.js
           printf 'xpi=%s\n' "$xpi" >> "$GITHUB_OUTPUT"
+
+      - name: Record Firefox package provenance
+        if: env.RELEASING == 'true' && inputs.platforms != 'ios' && inputs.platforms != 'android'
+        env:
+          SYRIUS_PACKAGE: ${{ steps.package.outputs.xpi }}
+        run: node utils/package-provenance.js "$SYRIUS_PACKAGE" firefox "$(git rev-parse HEAD)" "$(git rev-parse 'HEAD^{tree}')"
+
+      - name: Upload Firefox package provenance
+        if: env.RELEASING == 'true' && inputs.platforms != 'ios' && inputs.platforms != 'android'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ steps.package.outputs.xpi }}.provenance.json
+          if-no-files-found: error
+          retention-days: 30
+          archive: false
 
       - name: Upload Firefox add-on artifact
         if: env.RELEASING == 'true' && inputs.platforms != 'ios' && inputs.platforms != 'android'
