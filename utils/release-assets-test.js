@@ -19,7 +19,7 @@ const otherCommit = 'b'.repeat(40);
 const tag = sha => ({ name: 'v0.0.0', commit: { sha } });
 
 const run = ({ automatic = false, existing = false, creationFails = false,
-  assets = 9, pages = [[tag(candidate)]], apiFails = false, targetSha = candidate } = {}) => {
+  assets = 2, pages = [[tag(candidate)]], apiFails = false, targetSha = candidate } = {}) => {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'syrius-release-assets-'));
   try {
     fs.mkdirSync(path.join(scratch, 'release-assets'));
@@ -95,7 +95,7 @@ for (const automatic of [false, true]) {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.calls.length, 3);
     assert.match(result.calls[1], /^api --paginate repos\/fixture\/extension\/tags\?per_page=100 --jq /);
-    assert.match(result.calls[2], /^release create v0\.0\.0 release-assets\/fixture-0 release-assets\/fixture-1 release-assets\/fixture-2 release-assets\/fixture-3 /);
+    assert.match(result.calls[2], /^release create v0\.0\.0 release-assets\/fixture-0 release-assets\/fixture-1 --/);
     assert.match(result.calls[2], automatic ? new RegExp(`--target ${candidate}`) : /--verify-tag/);
     assert.doesNotMatch(result.calls.join('\n'), /release upload|--clobber/);
   });
@@ -162,9 +162,9 @@ test('tag missing remotely refuses publication', () => {
   noPublication(result);
   assert.match(result.stdout, /missing from the remote/);
 });
-// Nine: the Chrome/Brave ZIP, the iOS IPA, the Android APK and the Firefox
-// XPI, each with its checksum, and Firefox's update manifest.
-for (const assets of [0, 1, 4, 8, 10]) {
+// Two: the Chrome/Brave ZIP and its checksum. The other platforms add theirs
+// to the release in jobs of their own.
+for (const assets of [0, 1, 3, 4]) {
   test(`invalid ${assets}-file package refuses publication before GitHub access`, () => {
     const result = run({ assets });
     noPublication(result);

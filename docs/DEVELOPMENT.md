@@ -127,16 +127,16 @@ repo's own, and never a shared network:
 ## Releasing
 
 `.github/workflows/build-and-release.yml` validates every pull request and push
-to the development branches. A successful push to `main` creates the matching
-version tag and publishes the Chrome/Brave ZIP and the unsigned iOS IPA, each
-with its SHA-256 checksum; the IPA is built on a macOS runner in the same
-workflow, so a release waits for both. A release also carries the Android APK,
-signed with the project's key, and the Firefox XPI, which the workflow sends to
-addons.mozilla.org for an unlisted signature, with `updates.json` for Firefox's
-own updater. Those two need the repository's `ANDROID_*` and `WEB_EXT_*`
-secrets, and are signed only on a release run: Mozilla signs a version once.
-To add them to a release published without them, run the workflow by hand with
-`attach_to` set to its tag. Bump
+to the development branches. A release run (a `v*` tag, or a push to `main`)
+creates the release with the Chrome/Brave ZIP. Each other platform builds and
+adds its own files in jobs of its own, so one that fails does not hold back the
+rest: the unsigned iOS IPA (macOS runner), the Android APK signed with the
+project's key, and the Firefox XPI, which addons.mozilla.org signs (unlisted),
+with `updates.json` for Firefox's own updater. Every file has a SHA-256
+checksum beside it. Android and Firefox need the repository's `ANDROID_*` and
+`WEB_EXT_*` secrets, and sign only on a release run: Mozilla signs a version
+once. To add a platform to a release published without it, run the workflow by
+hand with `attach_to` set to its tag and `platforms` set to that platform. Bump
 `src/manifest.json`, `package.json` and `package-lock.json` together before
 merging a release. To use the tag-triggered path manually instead of the
 automatic `main` release:
