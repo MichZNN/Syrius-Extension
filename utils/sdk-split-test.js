@@ -46,14 +46,17 @@ check('the parts are what the SDK names them', () => {
   assert(valueOf(run(sdk, '?literal=stringPow')).includes('Module'));
 });
 
-const tiny = (pow, wasm) => `var t={1:(_,A)=>{A.stringPow=void 0,A.stringPow=${pow}},2:(_,$a)=>{$a.base64Wasm=void 0,$a.base64Wasm=${wasm}}};`;
+// A two-module stand-in for the SDK, its constants written as given.
+const tiny = (pow, wasm) => ['var t={1:(_,A)=>{A.stringPow=void 0,A.stringPow=', pow, '},2:(_,$a)=>{$a.base64Wasm=void 0,$a.base64Wasm=', wasm, '}};'].join('');
 
 check('escaped quotes and backslashes stay inside the constant', () => {
   const pow = "'a\\'b\\\\'", wasm = '"c\\"d"';
   const source = tiny(pow, wasm);
   assert.equal(valueOf(run(source, '?literal=stringPow')), "a'b\\");
   assert.equal(valueOf(run(source, '?literal=base64Wasm')), 'c"d');
-  assert.equal(run(source), tiny(requestOf('stringPow'), requestOf('base64Wasm')));
+  const main = run(source);
+  assert.equal(main.replace(requestOf('stringPow'), () => pow).replace(requestOf('base64Wasm'), () => wasm), source);
+  assert(!main.includes(pow) && !main.includes(wasm));
 });
 
 check('a missing, repeated or computed constant fails the build', () => {
