@@ -17,7 +17,7 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 // "windows" (separately loaded copies of the module) share.
 const profile = () => {
   const stored = new Map();
-  let chain = Promise.resolve(), now = 1_800_000_000_000;
+  let chain = Promise.resolve(), now = 1_800_000_000_000, requests = 0;
   return {
     stored,
     localStorage: {
@@ -26,10 +26,22 @@ const profile = () => {
       removeItem: (key) => { stored.delete(key); },
     },
     navigator: { locks: { request: (name, operation) => {
+      requests += 1;
       const run = chain.then(() => operation());
       chain = run.then(() => {}, () => {});
       return run;
     } } },
+    // Resolves once a lock request made after this call has come and gone. A
+    // renewal is not awaited by anyone and derives its key before it asks for
+    // the lock, so counting event-loop turns is a guess a slow runner loses.
+    nextLock: async () => {
+      const seen = requests;
+      for (let i = 0; requests === seen; i += 1) {
+        if (i > 2000) throw new Error('No journal write followed');
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      await chain;
+    },
     Date: { now: () => now },
     advance: (ms) => { now += ms; },
   };
@@ -343,8 +355,9 @@ const alice = 'z1qfixtureaccountalice', bob = 'z1qfixtureaccountbob';
     // A live owner renews, so slow proof of work does not lose the turn.
     const slow = await a.journal.begin(zenon, alice);
     shared.advance(40 * 1000);
+    const renewed = shared.nextLock();
     for (const handle of a.intervals) handle.callback();
-    await tick(); await tick(); await tick();
+    await renewed;
     shared.advance(40 * 1000);
     await rejectsWith(b.journal.begin(zenon, alice, { waitMs: 0 }), 'JOURNAL_BUSY');
     await slow.release();
