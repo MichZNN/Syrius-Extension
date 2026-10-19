@@ -44,6 +44,7 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
     cspErrors: 0,
     developerModeEnabled: false,
     persistentInstallReused: false,
+    guardFailure: null,
     guardChecks: { http: false, webSocket: false },
   };
   let browser, socket, proxy, stopPromise, stopped = false, stopping = false, fatalError;
@@ -114,27 +115,33 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
       extensionHost: /^chrome-extension:\/\/([a-p]{32})\//.exec(targetInfo.url || '')?.[1] };
     targets.set(target.targetId, target);
     sessions.set(sessionId, target);
+    let phase;
+    const guarded = (method, ...args) => { phase = method; return cdp(method, ...args); };
     const ready = (async () => {
-      await cdp('Network.enable', {}, sessionId);
-      await cdp('Network.setBlockedURLs', { urls: ['http://*', 'https://*', 'ws://*', 'wss://*'] }, sessionId);
-      await cdp('Network.emulateNetworkConditions', {
+      await guarded('Network.enable', {}, sessionId);
+      await guarded('Network.setBlockedURLs', { urls: ['http://*', 'https://*', 'ws://*', 'wss://*'] }, sessionId);
+      await guarded('Network.emulateNetworkConditions', {
         offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
       }, sessionId);
-      await cdp('Runtime.enable', {}, sessionId);
+      await guarded('Runtime.enable', {}, sessionId);
       if (target.type === 'page') {
-        await cdp('Page.enable', {}, sessionId);
-        await cdp('Debugger.enable', {}, sessionId);
-        await cdp('Log.enable', {}, sessionId);
-        if (setupScript) await cdp('Page.addScriptToEvaluateOnNewDocument', { source: setupScript }, sessionId);
+        await guarded('Page.enable', {}, sessionId);
+        await guarded('Debugger.enable', {}, sessionId);
+        await guarded('Log.enable', {}, sessionId);
+        if (setupScript) await guarded('Page.addScriptToEvaluateOnNewDocument', { source: setupScript }, sessionId);
       }
-      await cdp('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, sessionId);
+      await guarded('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, sessionId);
       stats.guardedTargets++;
-      await cdp('Runtime.runIfWaitingForDebugger', {}, sessionId);
+      await guarded('Runtime.runIfWaitingForDebugger', {}, sessionId);
       return target;
     })();
     target.ready = ready;
-    ready.catch(() => {
-      if (!stopping && !stopped && sessions.has(sessionId)) fatalError = failure('BROWSER_NETWORK_GUARD_FAILED');
+    ready.catch(error => {
+      if (!stopping && !stopped && sessions.has(sessionId)) {
+        // Method/type/code only: never retain target URLs, IDs or payloads.
+        stats.guardFailure ||= { targetType: target.type, phase, code: error.code || 'UNKNOWN' };
+        fatalError = failure('BROWSER_NETWORK_GUARD_FAILED');
+      }
     });
   };
 
