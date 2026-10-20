@@ -255,6 +255,9 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
     fs.mkdirSync(profileDir, { recursive: true });
     fs.rmSync(path.join(profileDir, 'DevToolsActivePort'), { force: true });
     browser = spawn(executable, [
+      // Owned test profiles must not open the user's macOS login keychain.
+      // This affects browser storage only, not the wallet's Argon2/AES code.
+      ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []),
       '--headless=new', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1',
       '--user-data-dir=' + profileDir, '--enable-unsafe-extension-debugging',
       '--proxy-server=http://127.0.0.1:' + proxyPort, '--proxy-bypass-list=<-loopback>',

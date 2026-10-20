@@ -156,6 +156,14 @@ jobs:
           firefox_path="$(command -v firefox || true)"
           CHROMIUM_PATH="$browser_path" FIREFOX_PATH="$firefox_path" npm run test:browser
 
+      - name: Check service worker startup guards
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          browser_path="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          test -n "$browser_path"
+          CHROMIUM_PATH="$browser_path" node utils/service-worker-guard-browser-test.js
+
       - name: Build production extension
         run: npm run build
 
