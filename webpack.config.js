@@ -170,11 +170,6 @@ module.exports = {
         exclude: /node_modules/,
       },
       {
-        test: /\.(ts|tsx)$/,
-        loader: 'ts-loader',
-        exclude: /node_modules/
-      },
-      {
         test: /\.(js|jsx)$/,
         use: ['babel-loader'],
         exclude: /node_modules/,
@@ -206,7 +201,7 @@ module.exports = {
     alias: alias,
     extensions: fileExtensions
       .map(extension => '.' + extension)
-      .concat(['.js', '.jsx', '.ts', '.tsx', '.css']),
+      .concat(['.js', '.jsx', '.css']),
     fallback: {
       "fs": false,
       "stream": require.resolve("stream-browserify"),
