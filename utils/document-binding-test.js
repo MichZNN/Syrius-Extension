@@ -20,7 +20,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve; const promise = new Promise(yes => { resolve = yes; }); return { promise, resolve }; };
 const uuid = () => crypto.randomUUID();
 const pendingKey = 'znn.pendingRequests';
-const compile = file => babel.transformFileSync(path.join(root, file), { presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'], configFile: false, babelrc: false }).code;
+const compile = file => babel.transformFileSync(path.join(root, file), { presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]], configFile: false, babelrc: false }).code;
 const compiled = new Map();
 const loader = (environment, override = () => undefined) => {
   const cache = new Map();

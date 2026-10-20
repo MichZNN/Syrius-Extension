@@ -74,7 +74,7 @@ const compile = () => new Promise((resolve, reject) => {
     output: { path: extension, filename: 'fixture.js' }, devtool: false,
     resolve: { modules: [path.join(root, 'node_modules')] },
     module: { rules: [
-      { test: /\.jsx?$/, exclude: /node_modules/, use: { loader: require.resolve('babel-loader'), options: { presets: [require.resolve('@babel/preset-react')], configFile: false, babelrc: false } } },
+      { test: /\.jsx?$/, exclude: /node_modules/, use: { loader: require.resolve('babel-loader'), options: { presets: [[require.resolve('@babel/preset-react'), { runtime: 'classic' }]], configFile: false, babelrc: false } } },
       { test: /\.svg$/, type: 'asset/resource' },
     ] }, performance: false,
   });

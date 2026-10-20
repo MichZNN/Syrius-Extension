@@ -66,7 +66,7 @@ const windowOf = (shared, { entropy = 'fixture-entropy-one', chain = 69 } = {}) 
     const filename = path.join(root, file);
     if (cache.has(filename)) return cache.get(filename).exports;
     if (!compiled.has(filename)) compiled.set(filename, babel.transformFileSync(filename, {
-      presets: [['@babel/preset-env', { targets: { node: 'current' } }]], configFile: false, babelrc: false,
+      presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }]], configFile: false, babelrc: false,
     }).code);
     const module = { exports: {} };
     cache.set(filename, module);

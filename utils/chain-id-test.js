@@ -7,7 +7,7 @@ const React = require('react');
 
 const load = (file, resolve) => {
   const { code } = babel.transformFileSync(path.join(__dirname, '..', file), {
-    presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'],
+    presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]],
     babelrc: false, configFile: false,
   });
   const module = { exports: {} };

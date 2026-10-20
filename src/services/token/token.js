@@ -17,7 +17,6 @@ import { userAddressError } from '../pillar/rules';
 // themselves sent to the contract: the owner's always, anyone's when the token
 // is burnable. A non-mintable token's burn lowers its max supply as well.
 
-/* global BigInt */
 const tokenAddress = 'z1qxemdeddedxt0kenxxxxxxxxxxxxxxxxh9amk0';
 
 // TokenIssueAmount: 1 ZNN, kept by the contract.

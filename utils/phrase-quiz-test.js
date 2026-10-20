@@ -9,7 +9,7 @@ const path = require('node:path');
 const babel = require('@babel/core');
 
 const filename = path.join(__dirname, '..', 'src/services/wallet/phraseQuiz.js');
-const { code } = babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' } }]], babelrc: false, configFile: false });
+const { code } = babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }]], babelrc: false, configFile: false });
 const mod = { exports: {} };
 new Function('module', 'exports', 'require', code)(mod, mod.exports, require);
 const { makePhraseQuiz, isQuizAnswered, ordinal } = mod.exports;

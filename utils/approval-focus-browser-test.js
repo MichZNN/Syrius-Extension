@@ -79,7 +79,7 @@ queue=[request()];createRoot(document.querySelector('#app-container')).render(<P
       output: { path: extension, filename: 'fixture.js' }, devtool: false, performance: false,
       resolve: { modules: [path.join(root, 'node_modules')], alias: { 'znn-ts-sdk': path.join(extension, 'sdk.js') } },
       module: { rules: [{ test: /\.jsx?$/, exclude: /node_modules/, use: { loader: require.resolve('babel-loader'),
-        options: { presets: [require.resolve('@babel/preset-react')], configFile: false, babelrc: false } } }] } });
+        options: { presets: [[require.resolve('@babel/preset-react'), { runtime: 'classic' }]], configFile: false, babelrc: false } } }] } });
     compiler.run((error, stats) => compiler.close(() => error || stats.hasErrors() ? reject(Error('Compilation failed')) : resolve()));
   });
   stage = 'browser startup';

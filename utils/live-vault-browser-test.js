@@ -10,7 +10,7 @@ const babel = require('@babel/core');
 const root = path.join(__dirname, '..');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'syrius-live-vault-'));
 const ext = path.join(dir, 'extension'); fs.mkdirSync(ext);
-const compile = file => babel.transformFileSync(path.join(root, file), { presets: [['@babel/preset-env', { targets: { chrome: '111' } }], '@babel/preset-react'], babelrc: false, configFile: false }).code;
+const compile = file => babel.transformFileSync(path.join(root, file), { presets: [['@babel/preset-env', { targets: { chrome: '111' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]], babelrc: false, configFile: false }).code;
 // Imports the page replaces (see the page's require below). Everything else a
 // real module imports is the real module, found from its compiled requires.
 const stubbed = id => !id.startsWith('.') || ['/utils/storage', '/wallet/bootstrap', '/redux/walletSlice', '/redux/pendingTransactionsSlice',

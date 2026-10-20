@@ -13,7 +13,7 @@ const storageKey = 'synthetic-wallets';
 const load = (file, resolve, storage) => {
   const filename = path.join(root, file);
   if (!compiled.has(filename)) compiled.set(filename, babel.transformFileSync(filename, {
-    presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'],
+    presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]],
     configFile: false, babelrc: false,
   }).code);
   const module = { exports: {} };

@@ -1,4 +1,3 @@
-/* global BigInt */
 import { Primitives } from 'znn-ts-sdk';
 import abi from './contractCallSchemas.json';
 import { selectorOf, contractDisplayName, describeCall } from './contractCalls';

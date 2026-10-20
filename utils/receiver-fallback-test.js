@@ -11,7 +11,7 @@ const vm = require('node:vm');
 const babel = require('@babel/core');
 
 const file = path.join(__dirname, '..', 'src/sections/Background/receiver.js');
-const { code } = babel.transformFileSync(file, { presets: [['@babel/preset-env', { targets: { node: 'current' } }]], configFile: false, babelrc: false });
+const { code } = babel.transformFileSync(file, { presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }]], configFile: false, babelrc: false });
 
 const load = ({ reasons, record }) => {
   const calls = [];

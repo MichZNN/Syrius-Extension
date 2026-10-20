@@ -208,7 +208,9 @@ const clear = (expected, afterRevoke) => transaction(async (stored) => {
 // address and scope are the record's own, never a caller's, and the snapshot
 // is bound to both identities. Returns the selection generation the event that
 // follows is about.
-const publish = (id, ownerId, value) => use(id, ownerId, async (record) => {
+// `use` is this module's lease transaction, not React 19's hook.
+// eslint-disable-next-line react-hooks/rules-of-hooks
+const publish =(id, ownerId, value) => use(id, ownerId, async (record) => {
   if (record.mode !== 'timed') return { published: false, selectionId: record.selectionId };
   await storage('set', { [publicStateKey]: { ...value, address: record.scope.address, scope: record.scope,
     selectionId: record.selectionId, leaseId: id } });

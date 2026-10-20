@@ -23,7 +23,7 @@ global.atob = (b64) => Buffer.from(b64, 'base64').toString('binary');
 const load = (file) => {
   const filename = path.join(__dirname, '..', file);
   const { code } = babel.transformFileSync(filename, {
-    presets: [['@babel/preset-env', { targets: { node: 'current' } }]],
+    presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }]],
     babelrc: false,
     configFile: false,
   });
