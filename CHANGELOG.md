@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.3.7
+
+New
+- AZ opens at once on the project list stored last time, then reads only
+  what changed on the Accelerator contract since: on mainnet a few blocks
+  and a dozen projects instead of all 201, which took 7 to 10 seconds. A
+  list from another chain, or a gap too long to follow, is read in full.
+- Tap an AZ project to see which pillars voted on it and on each phase, and
+  how.
+- Creating or importing a wallet in the app ends by offering Fingerprint
+  (or Face ID) unlock, where the phone has it set up.
+
+Changed
+- AZ's filters cover every project, not only those already scrolled into
+  the list, and the voted count sits at the right, under the funds.
+- An Android debug build installs beside the release, as
+  `network.zenon.syrius.debug` ("Syrius debug"), instead of blocking it with
+  "App not installed" (#61).
+- Dependencies: React 19 with react-redux 9 (#65), Babel 8 (#52) with
+  ESLint 9 and a flat config, TypeScript 7 (#53; ts-loader removed, as `src`
+  has no TypeScript), html-loader 5 (#64), and minor updates (#63).
+
+Build
+- Release packages carry GitHub build provenance attestations (#59).
+- CI checks site connections on the built Firefox add-on when the runner
+  has Firefox.
+- The native browser fixtures keep their guards on dedicated workers and
+  retain the unpacked install across browser restarts (#62).
+
+Fixed
+- Sites could not connect on Firefox: every request was refused with "The
+  requesting document has left". Firefox reports no document IDs; the
+  wallet now uses a private per-document token from its own content script,
+  checked against the frame's current page, and ended by a navigation, the
+  page leaving or the tab closing.
+
 ## 0.3.6
 
 New
