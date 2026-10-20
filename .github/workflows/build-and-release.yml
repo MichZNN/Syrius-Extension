@@ -167,6 +167,15 @@ jobs:
       - name: Build production extension
         run: npm run build
 
+      # A page open before the install gets the wallet without a reload, once.
+      - name: Check open-tab injection
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          browser_path="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          test -n "$browser_path"
+          CHROMIUM_PATH="$browser_path" node utils/open-tab-injection-browser-test.js
+
       # Every other browser fixture substitutes the SDK boundary, which is how
       # wallet removal stayed broken in production builds while they all passed.
       # This one drives the package just built, with its real Argon2/AES path,

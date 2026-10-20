@@ -4,6 +4,12 @@ The extension injects `window.zenon` into every page, before the page's own
 scripts run. It exposes nothing about the wallet until the person approves the
 origin, and it never signs anything without asking.
 
+A page that was already open when the extension was installed gets
+`window.zenon` then, without a reload, in Chrome and Brave (0.3.7 and later)
+and in Firefox. `zenon#initialized` fires when it arrives. A site that decided
+"not installed" at load should look again when that event fires, or when the
+person clicks Connect, rather than telling them to install it.
+
 The Android app has no `window.zenon`; a page or app there asks with a
 `syrius://request` link and gets the answer at a callback URL
 ([Requests from another app](APP-REQUESTS.md)).

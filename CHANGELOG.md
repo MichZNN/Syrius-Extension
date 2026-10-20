@@ -53,6 +53,16 @@ Build
   retain the unpacked install across browser restarts (#62).
 
 Fixed
+- A page already open when Syrius was installed had no `window.zenon` until
+  it was reloaded, so a site there (az.zenon.foo in Brave, reported against
+  0.3.6) said "Install the Syrius extension". On install and update, Chrome
+  and Brave now give every open page and frame without a provider the relay
+  and `window.zenon`, which fires `zenon#initialized`. A page that already
+  has a provider (its own, or the previous version's after an update) is
+  left alone, and a relay or provider never starts twice in one page. This
+  needs the `scripting` permission and explicit access to http and https
+  pages, which the content scripts already had; the install warning is
+  unchanged. Firefox already injected into open tabs and is unchanged.
 - Sites could not connect on Firefox: every request was refused with "The
   requesting document has left". Firefox reports no document IDs; the
   wallet now uses a private per-document token from its own content script,

@@ -10,6 +10,7 @@ import nativeNavigation from '../../services/utils/nativeNavigation';
 import { targetFrom, validRequest, isLive, deliver, requestEnded } from '../../services/utils/documentBinding';
 import { fail } from '../../services/utils/errors';
 import syncReceiver from './receiver';
+import injectOpenTabs from './openTabs';
 
 // The service worker.
 //
@@ -506,8 +507,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // closed. This is what actually ends a session while nobody is looking.
 const autoLockAlarm = 'znn.autoLock';
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
   chrome.alarms.create(autoLockAlarm, { periodInMinutes: 1 });
+  injectOpenTabs(details).catch(error => console.error('Unable to reach open tabs', error));
 });
 
 // A worker (or Firefox background page) that starts while a timed unlock
