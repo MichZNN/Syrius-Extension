@@ -1,18 +1,11 @@
 import { useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useDispatch } from 'react-redux';
 import { Zenon } from 'znn-ts-sdk';
 
 import app from '../../services/utils/app';
-import lockWallet from '../../services/wallet/lock';
 import vault from '../../services/wallet/vault';
-import { getSettings } from '../../services/utils/storage';
-import { notify } from '../../services/utils/notify';
 import { formatAmount } from '../../services/utils/format';
 import { emitChainChange } from '../../services/wallet/chainEvents';
-import { resetWalletState } from '../../services/redux/walletSlice';
-import { resetPendingTransactions } from '../../services/redux/pendingTransactionsSlice';
-import { invalidateAccountCache } from '../../services/hooks/useAccount';
+import useAppLock from '../../services/hooks/useAppLock';
 import { onBlockReceived } from '../../services/wallet/backgroundReceive';
 
 // What the app does while the wallet is unlocked and the person is elsewhere.
@@ -34,27 +27,8 @@ const pollMs = 20000;
 const shown = 10;
 
 const AppWatch = () => {
-  const navigate = useNavigate();
-  const dispatch = useDispatch();
+  useAppLock();
   const seen = useRef(null);
-
-  useEffect(() => {
-    const native = app();
-    if (!native) return undefined;
-    return native.onLifecycle(async ({ state, own, away }) => {
-      if (state !== 'foreground' || own) return;
-      const minutes = getSettings().autoLockMinutes;
-      if (away < minutes * 60000) return;
-      // As the menu's Lock does (components/burger-popover).
-      try {
-        await lockWallet();
-        invalidateAccountCache();
-        dispatch(resetWalletState());
-        dispatch(resetPendingTransactions());
-        navigate('/password', { replace: true });
-      } catch (error) { notify.error(error); }
-    });
-  }, [dispatch, navigate]);
 
   useEffect(() => {
     const native = app();
