@@ -31,6 +31,7 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
   const stats = {
     guardedTargets: 0,
     guardedWorkers: 0,
+    silentWorkers: 0,
     deniedProxyConnections: 0,
     attemptedRequests: 0,
     blockedRequests: 0,
@@ -144,11 +145,34 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
     target.ready = ready;
     ready.catch(error => {
       if (!stopping && !stopped && sessions.has(sessionId)) {
+        // A service worker that times out having never sent this session a
+        // single message has no process: Chrome keeps listing the worker of
+        // the registration developerPrivate.reload replaced, attaches it again
+        // under each page, and never answers. It was never resumed, so it runs
+        // nothing. It is set aside, and any later message from it fails the
+        // run (heardFrom). Failing on it made this check flaky in CI.
+        if (error.code === 'BROWSER_PROTOCOL_TIMEOUT' && target.type === 'service_worker' && !target.heard) {
+          target.silent = true;
+          stats.silentWorkers++;
+          return;
+        }
         // Method/type/code only: never retain target URLs, IDs or payloads.
         stats.guardFailure ||= { targetType: target.type, phase, code: error.code || 'UNKNOWN' };
         fatalError = failure('BROWSER_NETWORK_GUARD_FAILED');
       }
     });
+  };
+
+  // Every message carrying a session marks its target as heard from. One from
+  // a target set aside as silent means it was alive after all.
+  const heardFrom = sessionId => {
+    const target = sessions.get(sessionId);
+    if (!target) return;
+    target.heard = true;
+    if (target.silent && !stopping && !stopped) {
+      stats.guardFailure ||= { targetType: target.type, phase: 'silent target spoke', code: 'BROWSER_PROTOCOL_TIMEOUT' };
+      fatalError = failure('BROWSER_NETWORK_GUARD_FAILED');
+    }
   };
 
   const openTarget = async () => {
@@ -278,6 +302,7 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
     socket.onmessage = event => {
       let message;
       try { message = JSON.parse(event.data); } catch { fatalError = failure('BROWSER_PROTOCOL_INVALID'); return; }
+      if (message.sessionId) heardFrom(message.sessionId);
       const callback = pending.get(message.id);
       if (callback) {
         pending.delete(message.id);
@@ -374,7 +399,8 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
         const pages = [...productPages].map(id => targets.get(id)).filter(Boolean);
         if (!pages.length) throw failure('BROWSER_RELOAD_PAGE_UNAVAILABLE');
         const old = [...pages, ...sessions.values()].filter(target =>
-          pages.includes(target) || target.extensionHost === extensionId).map(target => ({
+          // A worker never heard from has no context to lose (guardTarget).
+          pages.includes(target) || (target.extensionHost === extensionId && target.heard)).map(target => ({
           sessionId: target.sessionId, generation: target.contextGeneration,
         }));
         // Calling the actual API unloads the extension generation. Loss of the

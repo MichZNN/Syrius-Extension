@@ -35,6 +35,17 @@ Build
   against the rules it amounts to. Fixtures escape the values they write
   into browser code, and the approval test checks the exact accessible name
   instead of a URL substring.
+- The production keyfile check failed at random, in CI and locally: Chrome
+  keeps listing the dead service worker of the install a reload replaced,
+  and the network guard timed out on it. A service worker that has never
+  sent a message and stops answering is now set aside, never resumed, and
+  fails the run the moment it says anything.
+- The license names edgepillar among the copyright holders.
+- `elliptic` (CVE-2025-14505, low) has no fixed release. It concerns
+  secp256k1 ECDSA signing, which the wallet never does: Zenon keys sign
+  with ed25519, and `ethers` is used only to encode and format. One copy is
+  compiled into `znn-ts-sdk`, so it cannot be removed here; the alert is
+  closed as code not used.
 - The native browser fixtures keep their guards on dedicated workers and
   retain the unpacked install across browser restarts (#62).
 
