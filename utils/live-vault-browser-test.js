@@ -122,9 +122,14 @@ sessionLease.deadlineIn = ms => navigator.locks.request('znn.walletSession', asy
 });`;
 fs.writeFileSync(path.join(ext, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Isolated Syrius live vault test', version: '1.0', permissions: ['storage'], background: { service_worker: 'worker.js', type: 'module' } }));
 fs.writeFileSync(path.join(ext, 'worker.js'), workerSource + `\nchrome.runtime.onMessage.addListener((message, sender, reply) => { if (message.kind !== 'lease-test') return false; sessionLease[message.method](...message.args).then(result => reply({result}), error => reply({error:String(error)})); return true; });`);
-fs.copyFileSync(path.join(root, 'node_modules/react/umd/react.production.min.js'), path.join(ext, 'react.js'));
-fs.copyFileSync(path.join(root, 'node_modules/react-dom/umd/react-dom.production.min.js'), path.join(ext, 'react-dom.js'));
-fs.writeFileSync(path.join(ext, 'page.html'), '<html><body><div id="root">Isolated vault test</div><script src="react.js"></script><script src="react-dom.js"></script><script src="page.js"></script></body></html>');
+// React 19 ships no UMD build, so the page's React and ReactDOM globals come
+// from a bundle of the installed packages.
+fs.writeFileSync(path.join(ext, 'react-entry.js'), "globalThis.React = require('react'); globalThis.ReactDOM = require('react-dom/client');");
+const bundleReact = () => new Promise((resolve, reject) => require('webpack')({
+  mode: 'production', entry: path.join(ext, 'react-entry.js'), output: { path: ext, filename: 'react.js' },
+  devtool: false, performance: false, resolve: { modules: [path.join(root, 'node_modules')] },
+}).run((error, stats) => error || stats.hasErrors() ? reject(error || Error(stats.toString('errors-only'))) : resolve()));
+fs.writeFileSync(path.join(ext, 'page.html'), '<html><body><div id="root">Isolated vault test</div><script src="react.js"></script><script src="page.js"></script></body></html>');
 fs.writeFileSync(path.join(ext, 'page.js'), pageScript);
 const browser = spawn(process.env.CHROMIUM_PATH || '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser', ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${path.join(dir, 'profile')}`, '--enable-unsafe-extension-debugging', '--disable-background-networking', '--disable-component-update', '--disable-sync', '--no-first-run', '--no-default-browser-check', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
 let stderr = ''; browser.stderr.on('data', chunk => { stderr += chunk; });
@@ -146,6 +151,7 @@ let socket, cdp;
   let id = 0; const pending = new Map();
   socket.onmessage = event => { const message = JSON.parse(event.data); const callback = pending.get(message.id); if (callback) { pending.delete(message.id); message.error ? callback.reject(Error(JSON.stringify(message.error))) : callback.resolve(message.result); } };
   cdp = (method, params = {}, sessionId) => new Promise((resolve, reject) => { const next = ++id; pending.set(next, { resolve, reject }); socket.send(JSON.stringify({ id: next, method, params, ...(sessionId ? { sessionId } : {}) })); });
+  await bundleReact();
   const loaded = await cdp('Extensions.loadUnpacked', { path: ext });
   const evaluate = async (page, expression) => { const result = await cdp('Runtime.evaluate', { expression: '(async () => (' + expression + '))()', awaitPromise: true, returnByValue: true }, page.sessionId); if (result.exceptionDetails) throw Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text); return result.result.value; };
   const openPage = async () => {

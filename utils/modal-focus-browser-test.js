@@ -52,7 +52,7 @@ const Fixture=()=>{
   const show=(kind='alert',title='Confirm this synthetic action')=>{
     if(kind==='generic')model.openModal(<div>Read this synthetic message.</div>);
     else if(kind==='single')model.openModal(<div title={title}><button id="single-action" onClick={()=>counts.confirmed++}>Confirm</button></div>);
-    else if(kind==='disabled')model.openModal(<div title={title}><button disabled>Disabled</button><button hidden>Hidden</button><fieldset disabled><button>Disabled by fieldset</button></fieldset><span inert=""><button>Inert</button></span><button style={{visibility:'hidden'}}>Invisible</button></div>);
+    else if(kind==='disabled')model.openModal(<div title={title}><button disabled>Disabled</button><button hidden>Hidden</button><fieldset disabled><button>Disabled by fieldset</button></fieldset><span inert><button>Inert</button></span><button style={{visibility:'hidden'}}>Invisible</button></div>);
     else if(kind==='transaction')model.openModal(alert(title,true));
     else if(kind==='long')model.openModal(alert(title,false,true));
     else model.openModal(alert(title));
