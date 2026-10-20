@@ -70,9 +70,11 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
     const next = ++sequence;
     const timer = setTimeout(() => {
       pending.delete(next);
-      reject(failure('BROWSER_PROTOCOL_TIMEOUT'));
+      // The method only, never its parameters: a timeout says which command.
+      reject(Object.assign(failure('BROWSER_PROTOCOL_TIMEOUT'), { method }));
     }, timeoutMs);
     pending.set(next, {
+      sessionId,
       resolve: result => { clearTimeout(timer); fatalError ? reject(fatalError) : resolve(result); },
       reject: () => { clearTimeout(timer); reject(failure('BROWSER_PROTOCOL_FAILED')); },
     });
@@ -306,8 +308,17 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
         guardTarget(message.params).catch(() => { fatalError = failure('BROWSER_NETWORK_GUARD_FAILED'); });
       } else if (message.method === 'Target.detachedFromTarget') {
         const target = sessions.get(message.params.sessionId);
-        if (target?.sessionId === targets.get(target.targetId)?.sessionId) targets.delete(target.targetId);
+        if (target && target.sessionId === targets.get(target.targetId)?.sessionId) targets.delete(target.targetId);
         sessions.delete(message.params.sessionId);
+        // A detached session never answers. Its commands fail now, as a lost
+        // target (BROWSER_PROTOCOL_FAILED), instead of each waiting out its
+        // timeout: the page chrome.runtime.reload() closes may detach without
+        // replying, which reloadExtension expects.
+        for (const [id, call] of pending) {
+          if (call.sessionId !== message.params.sessionId) continue;
+          pending.delete(id);
+          call.reject();
+        }
       } else if (message.method === 'Runtime.executionContextsCleared') {
         const target = sessions.get(message.sessionId);
         if (target) target.contextGeneration++;

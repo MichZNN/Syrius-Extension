@@ -345,6 +345,7 @@ const unlock = async (value, success) => {
     report.passed = false;
     report.failed_stage = stage;
     report.failure_code = error.code || 'ASSERTION_FAILED';
+    if (error.method) report.failure_method = error.method;
     if (browser && page) {
       try { report.failure_observation = await evaluate(`({ route: location.hash.split('?')[0], named_inputs: [...document.querySelectorAll('input[name]')].map(e => e.name), backup_nodes: document.querySelectorAll('.mnemonic-original-word').length, error_toast: Boolean(document.querySelector('.Toastify__toast--error')), injected_write_failed: globalThis.__qualificationWriteFailed === true, create_button_busy: [...document.querySelectorAll('button')].some(e => e.textContent.trim() === 'Creating…') })`); } catch { /* Diagnostics are optional and never include secrets. */ }
       report.network_at_failure = { ...browser.stats };

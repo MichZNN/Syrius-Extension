@@ -39,7 +39,9 @@ Build
   keeps listing the dead service worker of the install a reload replaced,
   and the network guard timed out on it. A service worker that has never
   sent a message and stops answering is now set aside, never resumed, and
-  fails the run the moment it says anything.
+  fails the run the moment it says anything. Commands to a session Chrome
+  has detached now fail at once instead of waiting out 15 seconds, and a
+  timeout names the command that timed out.
 - CI checks that an extension service worker cannot reach the network at
   cold start, after a runtime reload or after a browser restart, and macOS
   test browsers use a mock keychain instead of the login keychain (#68).

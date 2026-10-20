@@ -121,6 +121,7 @@ const cleanup = async () => {
   } catch (error) {
     report.failed_stage = stage;
     report.failure_code = error.code || 'ASSERTION_FAILED';
+    if (error.method) report.failure_method = error.method;
     if (error.guardFailure) report.startup_guard_failure = error.guardFailure;
     if (error.guardChecks) report.startup_guard_checks = error.guardChecks;
     report.passed = false;
