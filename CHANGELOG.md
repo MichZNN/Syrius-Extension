@@ -45,6 +45,12 @@ Build
 - CI checks that an extension service worker cannot reach the network at
   cold start, after a runtime reload or after a browser restart, and macOS
   test browsers use a mock keychain instead of the login keychain (#68).
+- The open-tab check bounds every browser wait, denies all other origins
+  through a proxy of its own, and reloads the extension the way Chrome's
+  developer reload does, confirming the old worker is gone. A new
+  `test:security` script drives each fixture's browser command transport
+  with a fake socket, so a hung or detached session is caught without a
+  browser (#69).
 - The license names edgepillar among the copyright holders.
 - `elliptic` (CVE-2025-14505, low) has no fixed release. It concerns
   secp256k1 ECDSA signing, which the wallet never does: Zenon keys sign
