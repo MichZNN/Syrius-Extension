@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import Icon from '../icon/icon';
 import app, { biometricIcon, biometricName } from '../../services/utils/app';
 import { notify } from '../../services/utils/notify';
+import useAppLock from '../../services/hooks/useAppLock';
 
 // The last step of creating or importing a wallet in the app: unlock it with
 // the phone's biometrics from now on. Offered only where the phone has them
@@ -24,6 +25,7 @@ const shouldOffer = async (walletName) => {
 };
 
 const BiometricOffer = ({ walletName, password, onDone }) => {
+  useAppLock();
   const [isSaving, setIsSaving] = useState(false);
 
   const turnOn = async () => {

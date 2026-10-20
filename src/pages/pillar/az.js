@@ -134,17 +134,16 @@ const VoterList = ({ label, voters }) => (
 
 const Voters = ({ project }) => {
   const [state, setState] = useState({});
-  // Keyed by value: a refresh replaces the project object. Read again when a
-  // tally on the card moves.
+  // The cache replaces a project when it is read again. Ballots can change
+  // without changing any total, so follow that refreshed object too.
   const ids = [project.id, ...(project.phaseIds || [])].join(',');
-  const tallies = [project, ...(project.phases || [])].map((entry) => entry?.votes?.total ?? 0).join(',');
   useEffect(() => {
     let cancelled = false;
     reads.voters(ids.split(','))
       .then((byId) => { if (!cancelled) setState({ byId }); })
       .catch(() => { if (!cancelled) setState({ error: true }); });
     return () => { cancelled = true; };
-  }, [ids, tallies]);
+  }, [ids, project]);
 
   if (state.error) return <p className="empty-note">Could not load</p>;
   if (!state.byId) return <p className="text-gray">Loading…</p>;
