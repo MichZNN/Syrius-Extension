@@ -3184,6 +3184,77 @@ button.settings-item {
   overflow: hidden;
 }
 
+// The whole card opens who voted; the chevron turns to say so.
+.project {
+  cursor: pointer;
+}
+
+.project-toggle {
+  margin-left: auto;
+  min-width: 44px;
+  min-height: 44px;
+
+  svg {
+    transition: rotate 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
+.project.is-expanded {
+  .project-toggle svg {
+    rotate: 90deg;
+  }
+
+  .project-description {
+    display: block;
+    -webkit-line-clamp: unset;
+  }
+}
+
+.voters-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  cursor: auto;
+  animation: item-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.voters {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.voters-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.voters-vote {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+
+  &.is-yes {
+    color: var(--success);
+  }
+
+  &.is-no {
+    color: var(--warning);
+  }
+
+  &.is-abstain {
+    color: var(--muted-foreground);
+  }
+}
+
+.voters-names {
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+
 .votable {
   display: flex;
   flex-direction: column;
@@ -3219,6 +3290,11 @@ button.settings-item {
   gap: 4px 10px;
   color: var(--muted-foreground);
   font-size: 11px;
+}
+
+// Right-aligned under the funds and the bar's end.
+.tally-total {
+  margin-left: auto;
 }
 
 .vote-row {
