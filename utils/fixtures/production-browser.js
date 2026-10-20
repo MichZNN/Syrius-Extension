@@ -34,6 +34,7 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
   const executable = findBrowser();
   const stats = {
     guardedTargets: 0,
+    guardedWorkers: 0,
     deniedProxyConnections: 0,
     attemptedRequests: 0,
     blockedRequests: 0,
@@ -43,6 +44,8 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
     runtimeErrors: 0,
     cspErrors: 0,
     developerModeEnabled: false,
+    persistentInstallReused: false,
+    guardFailure: null,
     guardChecks: { http: false, webSocket: false },
   };
   let browser, socket, proxy, stopPromise, stopped = false, stopping = false, fatalError;
@@ -113,27 +116,39 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
       extensionHost: /^chrome-extension:\/\/([a-p]{32})\//.exec(targetInfo.url || '')?.[1] };
     targets.set(target.targetId, target);
     sessions.set(sessionId, target);
+    let phase;
+    const guarded = (method, ...args) => { phase = method; return cdp(method, ...args); };
     const ready = (async () => {
-      await cdp('Network.enable', {}, sessionId);
-      await cdp('Network.setBlockedURLs', { urls: ['http://*', 'https://*', 'ws://*', 'wss://*'] }, sessionId);
-      await cdp('Network.emulateNetworkConditions', {
-        offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
-      }, sessionId);
-      await cdp('Runtime.enable', {}, sessionId);
-      if (target.type === 'page') {
-        await cdp('Page.enable', {}, sessionId);
-        await cdp('Debugger.enable', {}, sessionId);
-        await cdp('Log.enable', {}, sessionId);
-        if (setupScript) await cdp('Page.addScriptToEvaluateOnNewDocument', { source: setupScript }, sessionId);
+      await guarded('Network.enable', {}, sessionId);
+      await guarded('Network.setBlockedURLs', { urls: ['http://*', 'https://*', 'ws://*', 'wss://*'] }, sessionId);
+      // Dedicated workers reject this page/network-state override. Their own
+      // URL block list and the browser-wide denying proxy remain mandatory;
+      // never resume them until the applicable guards have all succeeded.
+      if (target.type !== 'worker') {
+        await guarded('Network.emulateNetworkConditions', {
+          offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
+        }, sessionId);
       }
-      await cdp('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, sessionId);
+      await guarded('Runtime.enable', {}, sessionId);
+      if (target.type === 'page') {
+        await guarded('Page.enable', {}, sessionId);
+        await guarded('Debugger.enable', {}, sessionId);
+        await guarded('Log.enable', {}, sessionId);
+        if (setupScript) await guarded('Page.addScriptToEvaluateOnNewDocument', { source: setupScript }, sessionId);
+      }
+      await guarded('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, sessionId);
       stats.guardedTargets++;
-      await cdp('Runtime.runIfWaitingForDebugger', {}, sessionId);
+      if (target.type === 'worker') stats.guardedWorkers++;
+      await guarded('Runtime.runIfWaitingForDebugger', {}, sessionId);
       return target;
     })();
     target.ready = ready;
-    ready.catch(() => {
-      if (!stopping && !stopped && sessions.has(sessionId)) fatalError = failure('BROWSER_NETWORK_GUARD_FAILED');
+    ready.catch(error => {
+      if (!stopping && !stopped && sessions.has(sessionId)) {
+        // Method/type/code only: never retain target URLs, IDs or payloads.
+        stats.guardFailure ||= { targetType: target.type, phase, code: error.code || 'UNKNOWN' };
+        fatalError = failure('BROWSER_NETWORK_GUARD_FAILED');
+      }
     });
   };
 
@@ -187,6 +202,7 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
       for (let i = 0; i < 50 && browser.exitCode === null && browser.signalCode === null; i++) await sleep(100);
       shutdownFailed = browser.exitCode === null && browser.signalCode === null;
     }
+    stats.shutdownClean = browser?.exitCode === 0 && !browser?.signalCode;
     socket?.close();
     for (const callback of pending.values()) callback.reject();
     pending.clear();
@@ -318,8 +334,31 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
     stats.developerModeEnabled = configured === true && await evaluate(settings,
       'new Promise(resolve => chrome.developerPrivate.getProfileConfiguration(info => resolve(info.inDeveloperMode)))') === true;
     if (!stats.developerModeEnabled) throw failure('BROWSER_DEVELOPER_PROFILE_UNAVAILABLE');
+    const matchingInstalls = async () => {
+      const listed = await cdp('Extensions.getExtensions');
+      return (listed.extensions || []).filter(extension => typeof extension.path === 'string' &&
+        path.resolve(extension.path) === path.resolve(extensionDir));
+    };
+    let installed = await matchingInstalls();
+    if (installed.length > 1) throw failure('BROWSER_EXTENSION_AMBIGUOUS');
+    if (installed.length === 1) {
+      if (installed[0].enabled !== true) throw failure('BROWSER_EXTENSION_DISABLED');
+      extensionId = installed[0].id;
+      stats.persistentInstallReused = true;
+    } else {
+      extensionId = (await cdp('Extensions.loadUnpacked', { path: extensionDir })).id;
+      if (!/^[a-p]{32}$/.test(extensionId || '')) throw failure('BROWSER_EXTENSION_UNAVAILABLE');
+      // Chrome discards CDP-installed registrations at its next startup. Use
+      // its ordinary developer reload before creating any test wallet data,
+      // then require the same enabled install to survive subsequent starts.
+      const reloaded = await evaluate(settings, 'new Promise(resolve => chrome.developerPrivate.reload(' +
+        JSON.stringify(extensionId) + ', {failQuietly:true,populateErrorForUnpacked:true}, result => resolve(!chrome.runtime.lastError && !result)))');
+      installed = await matchingInstalls();
+      if (!reloaded || installed.length !== 1 || installed[0].id !== extensionId || installed[0].enabled !== true) {
+        throw failure('BROWSER_PERSISTENT_INSTALL_FAILED');
+      }
+    }
     await closePage(settings);
-    extensionId = (await cdp('Extensions.loadUnpacked', { path: extensionDir })).id;
     if (!/^[a-p]{32}$/.test(extensionId || '')) throw failure('BROWSER_EXTENSION_UNAVAILABLE');
     return {
       id: extensionId, openPage, evaluate, cdp, until, closePage, stop, stats,
@@ -347,16 +386,16 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
           throw failure('BROWSER_RELOAD_INVALIDATION_TIMEOUT');
         }
         productPages.clear();
-        // Some Chrome revisions leave a protocol-installed unpacked extension
-        // unavailable after runtime.reload. Re-register the same untouched
-        // directory only after proving that the old generation was unloaded.
-        // This preserves the profile and must preserve the extension identity.
-        const loaded = await cdp('Extensions.loadUnpacked', { path: extensionDir });
-        if (loaded.id !== extensionId) throw failure('BROWSER_EXTENSION_ID_CHANGED');
-        const listed = await cdp('Extensions.getExtensions');
-        if (!listed.extensions?.some(extension => extension.id === extensionId && extension.enabled === true)) {
-          throw failure('BROWSER_RELOAD_UNAVAILABLE');
+        // Wait for the real reload to finish. A new CDP registration would
+        // make this install ephemeral again and hide a failed native reload.
+        const reloadBy = Date.now() + 15000;
+        let available = false;
+        while (!available && Date.now() < reloadBy) {
+          const installed = await matchingInstalls();
+          available = installed.length === 1 && installed[0].id === extensionId && installed[0].enabled === true;
+          if (!available) await sleep(50);
         }
+        if (!available) throw failure('BROWSER_RELOAD_UNAVAILABLE');
         return extensionId;
       },
     };
