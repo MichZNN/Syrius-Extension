@@ -40,6 +40,9 @@ Build
   and the network guard timed out on it. A service worker that has never
   sent a message and stops answering is now set aside, never resumed, and
   fails the run the moment it says anything.
+- CI checks that an extension service worker cannot reach the network at
+  cold start, after a runtime reload or after a browser restart, and macOS
+  test browsers use a mock keychain instead of the login keychain (#68).
 - The license names edgepillar among the copyright holders.
 - `elliptic` (CVE-2025-14505, low) has no fixed release. It concerns
   secp256k1 ECDSA signing, which the wallet never does: Zenon keys sign
