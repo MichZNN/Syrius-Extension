@@ -26,6 +26,9 @@ Build
 - Release packages carry GitHub build provenance attestations (#59).
 - CI checks site connections on the built Firefox add-on when the runner
   has Firefox.
+- Every CI run keeps all four packages: a run that is not a release now
+  keeps the debug APK and the unsigned Firefox add-on too, beside the
+  Chrome/Brave ZIP and the iOS IPA.
 - The native browser fixtures keep their guards on dedicated workers and
   retain the unpacked install across browser restarts (#62).
 
