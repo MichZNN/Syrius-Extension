@@ -374,7 +374,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const target = targetFrom(sender, message);
     if (!target) { sendResponse({ accepted: false, error: errors.disconnected }); return false; }
     if (message.kind === 'bye') {
-      Promise.all([frames.forgetTarget(target), requests.cancelDocument(target)]).catch(() => {});
+      Promise.all([frames.forgetTarget(target), requests.cancelDocument(target), nativeNavigation.release(target)]).catch(() => {});
       sendResponse({ accepted: true }); return false;
     }
     nativeNavigation.capture(target).then(bound => frames.register(bound, permissions.originOf(sender)))
@@ -481,6 +481,19 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
     const affected = request => request.tabId === details.tabId && (details.frameId === 0 || request.frameId === details.frameId);
     Promise.all([requests.cancelWhere(affected), frames.forget(affected)]).catch(() => {});
   });
+});
+
+// On Firefox, which has no document IDs, a committed navigation is what ends
+// the frame's document (at the top, the tab's): its approvals and its event
+// registration go with it. Chrome's native documentId already does this.
+if (nativeNavigation.relayDocuments) chrome.webNavigation.onCommitted.addListener((details) => {
+  if (details.tabId < 0 || details.frameId < 0) return;
+  nativeNavigation.commit(details)
+    .then(ended => Promise.all([requests.cancelWhere(ended), frames.forget(ended)]))
+    .catch(() => {
+      const affected = request => request.tabId === details.tabId && (details.frameId === 0 || request.frameId === details.frameId);
+      Promise.all([requests.cancelWhere(affected), frames.forget(affected)]).catch(() => {});
+    });
 });
 
 // A closed tab has no frames left to deliver to.

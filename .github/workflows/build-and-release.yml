@@ -172,6 +172,17 @@ jobs:
           CHROMIUM_PATH="$browser_path" SYRIUS_EXTENSION_DIR="$PWD/build" \
             node utils/keyfile-lifecycle-browser-test.js
 
+      # Sites on the built Firefox add-on, which has no native document IDs.
+      # Skipped, and said so, on a runner without Firefox.
+      - name: Check Firefox site connections
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          firefox_path="$(command -v firefox || true)"
+          if [ -z "$firefox_path" ]; then echo "No Firefox on this runner: site checks skipped"; exit 0; fi
+          SYRIUS_PLATFORM=firefox npm run build
+          FIREFOX_PATH="$firefox_path" node utils/firefox-site-browser-test.js
+
       - name: Validate and package production build
         id: package
         env:

@@ -43,6 +43,10 @@ const privateToken = () => {
 // dispatch a `prerenderingchange` of its own.
 let active = Boolean(document.documentElement);
 let activation = privateToken();
+// This document's identity where the browser reports none (Firefox): minted
+// once per relay, so per document, and never posted to the page. Chrome's
+// worker uses the sender's native documentId and ignores it.
+const documentToken = privateToken();
 let legacyCounter = 0;
 let activeTransports = 0;
 const outstanding = new Map();
@@ -103,7 +107,7 @@ const sendToBackground = (message, requestToken) => {
     activeTransports++;
   }
   try {
-    chrome.runtime.sendMessage(message, response => {
+    chrome.runtime.sendMessage({ ...message, document: documentToken }, response => {
       if (request) activeTransports--;
       const failure = chrome.runtime.lastError;
       if (requestToken && (failure || response?.accepted !== true)) {
