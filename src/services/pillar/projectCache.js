@@ -1,6 +1,7 @@
 import { sha3_256 } from 'js-sha3';
 
 import { signatures } from '../utils/contractCalls';
+import { fail } from '../utils/errors';
 
 // The Accelerator's projects, kept between visits with the height they were
 // complete at. Ported from syrius-sol (lib/services/accelerator_project_cache.dart).
@@ -90,8 +91,8 @@ const callOf = (data) => {
   return hex.length >= 8 + 64 ? { kind, id: hex.slice(8, 72) } : { kind: 'unknown' };
 };
 
-class NotIncremental extends Error {}
-class SnapshotGone extends Error {}
+// The step from the snapshot cannot be trusted or is not worth making (405),
+// or the node does not have the snapshot's block (406). Both end in the full read.
 
 // The node's order: last update first, ties by id.
 const sorted = (projects) => projects.sort((a, b) =>
@@ -105,7 +106,7 @@ const chainKey = async (request) => {
   const second = (await request('ledger.getMomentumsByHeight', [2, 1]))?.list?.[0];
   if (second) return `${second.chainIdentifier}:${second.previousHash}`;
   const genesis = (await request('ledger.getMomentumsByHeight', [1, 1]))?.list?.[0];
-  if (!genesis) throw new NotIncremental('no momentum');
+  if (!genesis) throw fail(405, { reason: 'no momentum' });
   return `${genesis.chainIdentifier}:${genesis.hash}`;
 };
 
@@ -136,7 +137,7 @@ const touched = (blocks, known) => {
     // a devnet's opening balance. Neither is a call.
     if (block.blockType !== contractReceive) continue;
     const send = block.pairedAccountBlock;
-    if (!send) throw new NotIncremental('a receive with no send');
+    if (!send) throw fail(405, { reason: 'a receive with no send' });
     const call = callOf(send.data);
     if (call.kind === 'create') { projects.add(send.hash); out.add(send.hash); }
     else if (call.kind === 'phase') {
@@ -146,7 +147,7 @@ const touched = (blocks, known) => {
       // An id that is neither a known project nor phase is a refused vote.
       const project = projects.has(call.id) ? call.id : projectOfPhase.get(call.id);
       if (project) out.add(project);
-    } else if (call.kind === 'unknown') throw new NotIncremental('a call the cache does not know');
+    } else if (call.kind === 'unknown') throw fail(405, { reason: 'a call the cache does not know' });
   }
   return out;
 };
@@ -162,26 +163,26 @@ const advance = async (request, entry) => {
   for (let page = 0; page < maxBlockPages; page++) {
     const got = (await request('ledger.getAccountBlocksByHeight', [acceleratorAddress, from, blockPageSize]))?.list || [];
     if (page === 0 && anchored) {
-      if (!got.length) throw new SnapshotGone('the node is behind the snapshot');
-      if (got[0].height !== entry.height || got[0].hash !== entry.hash) throw new SnapshotGone('another block at the snapshot height');
+      if (!got.length) throw fail(406, { reason: 'the node is behind the snapshot' });
+      if (got[0].height !== entry.height || got[0].hash !== entry.hash) throw fail(406, { reason: 'another block at the snapshot height' });
       blocks.push(...got.slice(1));
     } else blocks.push(...got);
     if (got.length < blockPageSize) { complete = true; break; }
     from += blockPageSize;
   }
-  if (!complete) throw new NotIncremental('too many blocks since');
+  if (!complete) throw fail(405, { reason: 'too many blocks since' });
   if (!blocks.length) return entry;
 
   const again = touched(blocks, entry.projects);
   for (const project of entry.projects) if (!isSettled(project)) again.add(project.id);
-  if (again.size > maxRefetch) throw new NotIncremental('too many projects to read again');
+  if (again.size > maxRefetch) throw fail(405, { reason: 'too many projects to read again' });
   const byId = new Map(entry.projects.map((project) => [project.id, project]));
   const ids = [...again];
   for (let i = 0; i < ids.length; i += concurrency) {
     const got = await Promise.all(ids.slice(i, i + concurrency)
       .map((id) => request('embedded.accelerator.getProjectById', [id])));
     for (const project of got) {
-      if (!project?.id) throw new NotIncremental('a project that did not load');
+      if (!project?.id) throw fail(405, { reason: 'a project that did not load' });
       byId.set(project.id, project);
     }
   }
@@ -240,7 +241,7 @@ const load = async (request, onList) => {
   if (stored) {
     try { current = await advance(request, stored); }
     catch (error) {
-      if (error instanceof SnapshotGone) { await drop(key); onList(null); }
+      if (error.errorId === 406) { await drop(key); onList(null); }
       // Anything else: the full read below.
     }
   }

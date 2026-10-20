@@ -74,14 +74,31 @@ const elements = (tree) => {
   if (Array.isArray(tree)) return tree.flatMap(elements);
   return [tree, ...elements(tree.props?.children)];
 };
+// The phone (services/utils/app) as the offer of biometric unlock sees it:
+// f.state.phone is null in a browser, or { available, enabled, enable }.
+const appModule = (f) => ({ __esModule: true, default: () => f.state.phone && { biometric: {
+  available: async () => { if (f.state.phone.available instanceof Error) throw f.state.phone.available; return f.state.phone.available; },
+  enabled: async (name) => { f.state.phone.asked = name; return f.state.phone.enabled; },
+  enable: async (name, secret) => { f.state.phone.stored = [name, secret]; if (f.state.phone.refuse) throw f.state.phone.refuse; },
+} }, biometricName: () => 'Fingerprint', biometricIcon: () => 'fingerprint' });
+const notifyModule = (f) => ({ notify: {
+  error: (error) => f.state.notices.push({ error }), success: (success) => f.state.notices.push({ success }),
+} });
+const offerModule = (f, react = React) => load('src/components/biometric-offer/biometric-offer.js', (name) => {
+  if (name === 'react') return react;
+  if (name.endsWith('/services/utils/app')) return appModule(f);
+  if (name.endsWith('/utils/notify')) return notifyModule(f);
+  return () => null;
+}, f.storage);
 const page = (kind, f) => {
   // Creation's confirmation boundary uses an opaque split sentinel, rather
   // than constructing or rendering a phrase. Only the final save callback runs.
   const sentinel = Object.freeze({});
   const values = kind === 'create'
-    ? [2, 'test-wallet', password, password, f.store, { split: () => [sentinel] }, [{ position: 0, options: [sentinel] }], [sentinel], true, false]
-    : [1, '', 'test-wallet', password, password, false];
+    ? [2, 'test-wallet', password, password, f.store, { split: () => [sentinel] }, [{ position: 0, options: [sentinel] }], [sentinel], true, false, null]
+    : [1, '', 'test-wallet', password, password, false, null];
   const busyIndex = kind === 'create' ? 9 : 5;
+  const offerIndex = busyIndex + 1;
   let cursor = 0;
   const Component = load(kind === 'create' ? 'src/pages/get-started/get-started.js' : 'src/pages/import-recovery/recovery.js', (name) => {
     if (name === 'react') return { ...React, useState: () => {
@@ -97,16 +114,16 @@ const page = (kind, f) => {
     if (name.endsWith('/wallet/bootstrap')) return { completeUnlock: async () => { f.state.unlocks += 1; } };
     if (name.endsWith('/wallet/phraseQuiz')) return load('src/services/wallet/phraseQuiz.js', () => null);
     if (name.endsWith('/utils/utils')) return { sanitizeWalletName: (name) => name, loadStorageWalletNames: () => [] };
-    if (name.endsWith('/utils/notify')) return { notify: {
-      error: (error) => f.state.notices.push({ error }), success: (success) => f.state.notices.push({ success }),
-    } };
+    if (name.endsWith('/utils/notify')) return notifyModule(f);
+    if (name.endsWith('/services/utils/app')) return appModule(f);
+    if (name.endsWith('/biometric-offer/biometric-offer')) return offerModule(f);
     return () => null;
   }, f.storage).default;
   const render = () => { cursor = 0; return Component(); };
   const submit = () => kind === 'create'
     ? elements(render()).filter((element) => element.type === 'button' && element.props.onClick).at(-1).props.onClick()
     : elements(render()).find((element) => element.type === 'form').props.onSubmit();
-  return { submit, isBusy: () => values[busyIndex] };
+  return { submit, render, isBusy: () => values[busyIndex], offerFor: () => values[offerIndex] };
 };
 
 (async () => {
@@ -189,6 +206,48 @@ const page = (kind, f) => {
     assert.equal(f.state.notices.length, 1);
     assert.equal(typeof f.state.notices[0].success, 'string');
     assert.equal(f.state.navigation.length, 1);
+    assert.equal(view.offerFor(), null);
   }
-  console.log('Wallet save checks passed: finite derivation/encryption/write failures, password policy, pinned storage shape/name fallback and actual create/import busy cleanup.');
+
+  // In the app, a new or imported wallet is offered biometric unlock before
+  // the dashboard, only where the phone has it and the wallet does not use it.
+  for (const kind of ['create', 'import']) {
+    const f = fixture(); f.state.phone = { available: true, enabled: false };
+    const view = page(kind, f);
+    await finite(view.submit());
+    assert.equal(f.state.unlocks, 1);
+    assert.equal(f.state.phone.asked, 'test-wallet');
+    assert.equal(f.state.navigation.length, 0, 'went on before the offer');
+    assert.equal(view.offerFor(), 'test-wallet');
+    const offer = elements(view.render()).find((element) => element.props?.walletName);
+    assert.equal(offer.props.walletName, 'test-wallet');
+    assert.equal(offer.props.password, password);
+    offer.props.onDone();
+    assert.deepEqual(f.state.navigation, [['/tabs/dashboard', { replace: true }]]);
+    for (const phone of [{ available: false, enabled: false }, { available: true, enabled: true }, { available: new Error('Synthetic plugin failure') }]) {
+      const g = fixture(); g.state.phone = phone;
+      const other = page(kind, g);
+      await finite(other.submit());
+      assert.equal(other.offerFor(), null);
+      assert.equal(g.state.navigation.length, 1);
+    }
+  }
+  // The offer itself: Turn on stores the password behind the biometric and
+  // goes on; a cancelled prompt stays, with the wallet ready either way.
+  for (const refuse of [null, new Error('Synthetic cancelled prompt')]) {
+    const f = fixture(); f.state.phone = { available: true, enabled: false, refuse };
+    let saving = false, done = 0;
+    const hooks = { ...React, useState: (initial) => [saving ?? initial, (next) => { saving = next; }] };
+    const Offer = offerModule(f, hooks).default;
+    const view = () => elements(Offer({ walletName: 'test-wallet', password, onDone: () => { done += 1; } }));
+    const turnOn = view().find((element) => element.type === 'button' && /Turn on/.test(element.props.children)).props.onClick;
+    await finite(turnOn());
+    assert.deepEqual(f.state.phone.stored, ['test-wallet', password]);
+    assert.equal(done, refuse ? 0 : 1);
+    assert.equal(saving, refuse ? false : true);
+    assert.deepEqual(f.state.notices, [refuse ? { error: refuse } : { success: 'Fingerprint unlock on' }]);
+    const notNow = view().find((element) => element.type === 'button' && element.props.children === 'Not now');
+    notNow.props.onClick(); assert.equal(done, refuse ? 1 : 2);
+  }
+  console.log('Wallet save checks passed: finite derivation/encryption/write failures, password policy, pinned storage shape/name fallback, actual create/import busy cleanup and the biometric unlock offer.');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

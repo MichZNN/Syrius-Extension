@@ -115,6 +115,8 @@ const catalog = {
   402: '{method} takes {count} values',
   403: 'Nothing to update.',
   404: '{name} is taken.',
+  405: 'The stored project list cannot be brought up to date: {reason}',
+  406: 'The node is not on the chain the project list came from: {reason}',
   410: 'A custom id needs fused plasma. Fuse QSR to this address, or issue without one.',
   411: 'This block cannot be searched. Issue without a custom id.',
   412: 'Search canceled.',

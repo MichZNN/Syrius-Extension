@@ -1293,6 +1293,12 @@ body.is-app .recipient-option {
   font-size: 12px;
 }
 
+.biometric-offer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .biometric-state {
   display: flex;
   flex-direction: column;

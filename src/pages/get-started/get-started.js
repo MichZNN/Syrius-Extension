@@ -12,6 +12,8 @@ import { loadStorageWalletNames, sanitizeWalletName } from '../../services/utils
 import { copyToClipboard, notify } from '../../services/utils/notify';
 import { completeUnlock } from '../../services/wallet/bootstrap';
 import Icon from '../../components/icon/icon';
+import BiometricOffer, { shouldOffer } from '../../components/biometric-offer/biometric-offer';
+import { biometricName } from '../../services/utils/app';
 import useSecureScreen from '../../services/hooks/useSecureScreen';
 
 // Creating a wallet.
@@ -41,6 +43,8 @@ const GetStarted = () => {
   const [chosen, setChosen] = useState([]);
   const [hasSavedPhrase, setHasSavedPhrase] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
+  // The saved wallet's name, while the app offers biometric unlock for it.
+  const [offerFor, setOfferFor] = useState(null);
 
   const {
     register,
@@ -100,13 +104,26 @@ const GetStarted = () => {
       // they have already passed.
       await completeUnlock({ walletName: storageName, password, dispatch });
       notify.success('Wallet created');
-      navigate('/tabs/dashboard', { replace: true });
+      if (await shouldOffer(storageName)) setOfferFor(storageName);
+      else navigate('/tabs/dashboard', { replace: true });
     } catch (err) {
       notify.error(err);
     } finally {
       setIsBusy(false);
     }
   };
+
+  if (offerFor) {
+    return (
+      <div className="black-bg onboarding-layout">
+        <div className="onboarding-header">
+          <h1>{biometricName()} unlock</h1>
+        </div>
+        <BiometricOffer walletName={offerFor} password={password}
+          onDone={() => navigate('/tabs/dashboard', { replace: true })} />
+      </div>
+    );
+  }
 
   return (
     <div className="black-bg onboarding-layout">
