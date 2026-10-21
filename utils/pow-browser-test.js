@@ -176,5 +176,6 @@ const watchdog = setTimeout(() => { console.error('Proof of work checks timed ou
   else console.log('Firefox: skipped (set FIREFOX_PATH)');
 })().catch((error) => { console.error(error.stack || String(error)); process.exitCode = 1; }).finally(() => {
   clearTimeout(watchdog);
-  setTimeout(() => fs.rmSync(dir, { recursive: true, force: true }), 500);
+  // Windows keeps a killed browser's profile files locked for a moment.
+  setTimeout(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }), 500);
 });

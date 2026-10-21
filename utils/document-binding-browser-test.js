@@ -3,6 +3,7 @@
 // isolated relay; disposable profile, loopback pages and inert approval results.
 // No vault, key, signing, wallet node or external service is used.
 const assert = require('node:assert/strict');
+const { jsLiteral } = require('./js-literal');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -45,9 +46,9 @@ if(message.method==='prerenderRequests'){prerenderTail.then(async()=>reply((awai
 if(message.method==='hold'){let release;const wait=new Promise(resolve=>{release=resolve;});permissionGate={wait,release,entered:false};reply(true);}
 if(message.method==='entered')reply(Boolean(permissionGate?.entered));if(message.method==='release'){permissionGate?.release();reply(true);}return false;});
 `;
-const bundle = (sources, entry = sources[0], expose) => `(()=>{const factories={${sources.map(file => `${JSON.stringify(file)}:(module,exports,require)=>{${compile(file)}\n}`).join(',')}};
+const bundle = (sources, entry = sources[0], expose) => `(()=>{const factories={${sources.map(file => `${jsLiteral(file)}:(module,exports,require)=>{${compile(file)}\n}`).join(',')}};
 const cache={}; const load=name=>{if(cache[name])return cache[name].exports;const module=cache[name]={exports:{}};
-factories[name](module,module.exports,id=>{let p=new URL(id,'https://bundle/'+name).pathname.slice(1);if(!p.endsWith('.js'))p+='.js';return load(p);});return module.exports;};const exported=load(${JSON.stringify(entry)});${expose ? `globalThis[${JSON.stringify(expose)}]=exported;` : ''}})();`;
+factories[name](module,module.exports,id=>{let p=new URL(id,'https://bundle/'+name).pathname.slice(1);if(!p.endsWith('.js'))p+='.js';return load(p);});return module.exports;};const exported=load(${jsLiteral(entry)});${expose ? `globalThis[${jsLiteral(expose)}]=exported;` : ''}})();`;
 write('worker.js', scheduler + bundle(files));
 for (const [name, section] of [['content.js', 'Content'], ['inpage.js', 'Inpage']]) write(name, bundle(closure(`src/sections/${section}/index.js`)));
 write('manifest.json', JSON.stringify({ manifest_version: 3, name: 'Syrius document lifecycle regression', version: '1.0', minimum_chrome_version: '111',
@@ -60,7 +61,7 @@ write('popup.html', '<!doctype html><title>Inert approval window</title><p>Lifec
 write('control.js', `globalThis.fixture=method=>chrome.runtime.sendMessage({channel:'fixture',method});
 globalThis.internal = async (method,params={})=>{const reply=await chrome.runtime.sendMessage({channel:'internal',method,params});if(reply.error)throw Error(reply.error);return reply.result;};
 globalThis.records=async key=>(await chrome.storage.session.get(key))[key];
-globalThis.unlock=()=>{const now=Date.now(),scope=${JSON.stringify(scope)};return chrome.storage.session.set({
+globalThis.unlock=()=>{const now=Date.now(),scope=${jsLiteral(scope)};return chrome.storage.session.set({
 'znn.unlock':{version:2,id:'lease',revision:'r',walletName:'fixture',minutes:15,mode:'timed',entropy:'fixture',ownerId:'owner',selectedAddressIndex:0,selectionId:'fixture-selection',scope,resumeFrom:null,lastActiveAt:now,expiresAt:now+3600000},
 'znn.publicState':{address:scope.address,scope,selectionId:'fixture-selection',leaseId:'lease',chainId:1,nodeUrl:'wss://node.invalid'}}).then(()=>true);};
 globalThis.current=async request=>{const stored=(await records('znn.pendingRequests'))?.[request.id];
@@ -129,8 +130,8 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
   const control = await open(`chrome-extension://${loaded.id}/control.html`);
   await eventually(() => evaluate(control, 'typeof internal'), v => v === 'function', 'control ready');
   assert.equal(await evaluate(control, 'unlock()'), true);
-  const internal = (method, params = {}) => evaluate(control, `internal(${JSON.stringify(method)},${JSON.stringify(params)})`);
-  const target = (record, payload) => evaluate(control, `target(${JSON.stringify(record)},${JSON.stringify(payload)})`);
+  const internal = (method, params = {}) => evaluate(control, `internal(${jsLiteral(method)},${jsLiteral(params)})`);
+  const target = (record, payload) => evaluate(control, `target(${jsLiteral(record)},${jsLiteral(payload)})`);
   const queue = () => internal('approvals.list');
   const frameRecords = () => evaluate(control, "records('znn.frames')");
   const ready = async (page, url) => eventually(() => evaluate(page, '({url:location.href,ready:typeof zenon})').catch(() => null), v => v?.url === url && v.ready === 'object', 'provider ready');
@@ -143,7 +144,7 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
   // each approved connect is disconnected again unless the step keeps it: the
   // next round must prompt, as it did against a locked wallet.
   const resolve = async (request, { keep = false } = {}) => {
-    const approved = await evaluate(control, `approve(${JSON.stringify(request)},${JSON.stringify(binding)})`);
+    const approved = await evaluate(control, `approve(${jsLiteral(request)},${jsLiteral(binding)})`);
     if (approved && request.type === 'connect' && !keep) await internal('permissions.revoke', { origin: request.origin });
     return approved;
   };
@@ -151,7 +152,7 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
   // still the live one that made it (a claim runs the same check).
   // Read-only, from the control page: the stored record is unchanged, its
   // navigation generations are the current ones, and its relay accepts a probe.
-  const current = request => evaluate(control, `current(${JSON.stringify(request)})`);
+  const current = request => evaluate(control, `current(${jsLiteral(request)})`);
   const page = await open(aOrigin + '/a'); await ready(page, aOrigin + '/a');
   assert.equal(await evaluate(page, 'isSecureContext'), false);
   assert.equal(await evaluate(page, 'typeof crypto.randomUUID'), 'undefined');
@@ -204,7 +205,7 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
   // neither shown nor rejected (a regression the fixtures could not see).
   await evaluate(page, "(window.transfer=null,zenon.sendTransaction({to:'z1qqjnwjjpnue8xmmpanz6csze6tcmtzzdtfsww7',tokenStandard:'zts1znnxxxxxxxxxxxxx9z4ulx',amount:'1'}).then(value=>{transfer={value};},error=>{transfer={error:error.code};}),true)");
   const transfer = await waitRequest(first.tabId); assert.equal(transfer.type, 'sendTransaction');
-  assert.equal(await evaluate(control, `internal('approvals.reject',{identity:approvalIdentity.identityOf(${JSON.stringify(transfer)})})`), true);
+  assert.equal(await evaluate(control, `internal('approvals.reject',{identity:approvalIdentity.identityOf(${jsLiteral(transfer)})})`), true);
   await eventually(() => evaluate(page, 'transfer'), Boolean, 'rejected transfer');
   assert.deepEqual(await evaluate(page, 'transfer'), { error: 4001 }); assert.deepEqual(await queue(), []);
   await internal('permissions.revoke', { origin: aOrigin });
@@ -280,7 +281,8 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
   // Another origin: one origin has one pending connect at a time (#10).
   const second = await open(bOrigin + '/legacy'); await ready(second, bOrigin + '/legacy');
   for (const current of [page, second]) await evaluate(current, "(window.legacy=[],addEventListener('message',e=>{if(e.data?.method==='znn.grantedWalletRead')legacy.push(e.data.data);}),postMessage({method:'znn.requestWalletAccess'},location.origin),true)");
-  const legacy = await eventually(queue, value => value.length === 2, 'two legacy approvals');
+  // Queue insertion precedes asynchronous approval-window presentation.
+  const legacy = await eventually(queue, value => value.length === 2 && value.every(request => shown(request)), 'two shown legacy approvals');
   assert.notEqual(legacy[0].id, legacy[1].id);
   for (const request of legacy) assert.equal(await resolve(request), true);
   for (const current of [page, second]) await eventually(() => evaluate(current, 'legacy'), value => value.length === 1, 'legacy completion');
@@ -288,7 +290,7 @@ const watchdog = setTimeout(() => { console.error('Native document fixture timed
   // adapter. Real page navigation/cancellation must prevent its activation.
   await begin(second); const canceledGrant = await waitRequest();
   await evaluate(control, "fixture('hold')");
-  await evaluate(control, `(window.grantOutcome=null,approve(${JSON.stringify(canceledGrant)},${JSON.stringify(binding)}).then(value=>{grantOutcome={value};},error=>{grantOutcome={error:String(error)};}),true)`);
+  await evaluate(control, `(window.grantOutcome=null,approve(${jsLiteral(canceledGrant)},${jsLiteral(binding)}).then(value=>{grantOutcome={value};},error=>{grantOutcome={error:String(error)};}),true)`);
   await eventually(() => evaluate(control, "fixture('entered')"), Boolean, 'provisional grant write held');
   await cdp('Page.navigate', { url: bOrigin + '/grant-replacement' }, second.sessionId); await ready(second, bOrigin + '/grant-replacement');
   await eventually(() => evaluate(control, "records('znn.pendingRequests')"), value => !Object.values(value || {}).some(r => r.requestToken === canceledGrant.requestToken), 'native departure cancels held grant');

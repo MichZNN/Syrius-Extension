@@ -23,6 +23,14 @@ import { limits, validateEnvelope, validResponseId, busy } from '../../services/
 // is kept working here so sites written against it do not break.
 const inpageTarget = 'znn-inpage';
 const contentTarget = 'znn-contentscript';
+// One relay per document. Besides the manifest's copy, the worker can inject
+// one into a page that was already open (Background/openTabs.js); a second
+// relay would forward every request twice, so it installs nothing. The marker
+// is set on this isolated world's view of the document's window, which the
+// page cannot see or set.
+const relayMarker = '__znnRelay';
+const duplicate = Object.hasOwn(window, relayMarker);
+if (!duplicate) Object.defineProperty(window, relayMarker, { value: true });
 const postToPage = message => window.postMessage(message, window.location.origin);
 // getRandomValues is also available on HTTP pages. randomUUID requires a
 // secure context, while this relay is intentionally injected on HTTP too.
@@ -43,6 +51,10 @@ const privateToken = () => {
 // dispatch a `prerenderingchange` of its own.
 let active = Boolean(document.documentElement);
 let activation = privateToken();
+// This document's identity where the browser reports none (Firefox): minted
+// once per relay, so per document, and never posted to the page. Chrome's
+// worker uses the sender's native documentId and ignores it.
+const documentToken = privateToken();
 let legacyCounter = 0;
 let activeTransports = 0;
 const outstanding = new Map();
@@ -103,7 +115,7 @@ const sendToBackground = (message, requestToken) => {
     activeTransports++;
   }
   try {
-    chrome.runtime.sendMessage(message, response => {
+    chrome.runtime.sendMessage({ ...message, document: documentToken }, response => {
       if (request) activeTransports--;
       const failure = chrome.runtime.lastError;
       if (requestToken && (failure || response?.accepted !== true)) {
@@ -204,7 +216,7 @@ const receivePageMessage = event => {
   }
 };
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+const receiveWorkerMessage = (message, sender, sendResponse) => {
   lifetime.check();
   if (sender.id !== chrome.runtime.id || !message || message.channel !== 'znn') return false;
   const current = active && message.activation === activation;
@@ -239,7 +251,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   sendResponse({ accepted, acceptedAt });
   return false;
-});
+};
 
 // Leaving (pagehide, or the document being rewritten) ends every outstanding
 // request of this activation at once; returning starts a new activation.
@@ -267,11 +279,15 @@ const enter = event => {
   hello();
 };
 const listen = window.addEventListener.bind(window);
-const lifetime = observeDocumentLifetime({
-  onHide: leave, onShow: enter,
-  onReset: () => { leave(); enter({ persisted: true }); },
-  install: () => listen('message', receivePageMessage),
-});
-// Announce this frame so the worker can deliver events to it later, without
-// the worker reading tab URLs (see Background/frames.js).
-hello();
+let lifetime;
+if (!duplicate) {
+  chrome.runtime.onMessage.addListener(receiveWorkerMessage);
+  lifetime = observeDocumentLifetime({
+    onHide: leave, onShow: enter,
+    onReset: () => { leave(); enter({ persisted: true }); },
+    install: () => listen('message', receivePageMessage),
+  });
+  // Announce this frame so the worker can deliver events to it later, without
+  // the worker reading tab URLs (see Background/frames.js).
+  hello();
+}

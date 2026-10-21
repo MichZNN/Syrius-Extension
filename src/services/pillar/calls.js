@@ -112,6 +112,25 @@ const reads = {
     ids.length
       ? request('embedded.accelerator.getPillarVotes', [pillarName, ids])
       : Promise.resolve([]),
+  // Who voted on each of these projects or phases, as { id: [{ name, vote }] }
+  // by pillar name. The node keeps votes by pillar and has no read by project,
+  // so every pillar is asked, 32 at a time over the one socket: about 0.3 s
+  // for mainnet's 97 pillars.
+  voters: async (ids) => {
+    const names = (await reads.allPillars()).map((pillar) => pillar.name).sort((a, b) => a.localeCompare(b));
+    const out = Object.fromEntries(ids.map((id) => [id, []]));
+    for (let i = 0; i < names.length; i += 32) {
+      const batch = names.slice(i, i + 32);
+      const answers = await Promise.all(batch.map((name) => reads.pillarVotes(name, ids)));
+      answers.forEach((list, index) => ids.forEach((id, at) => {
+        if (list?.[at]) out[id].push({ name: batch[index], vote: list[at].vote });
+      }));
+    }
+    return out;
+  },
 };
 
-export { templates, reads, acceleratorAddress };
+// For services/pillar/projectCache, which is handed the node to ask.
+const rpc = request;
+
+export { templates, reads, rpc, acceleratorAddress };

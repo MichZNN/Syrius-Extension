@@ -1,6 +1,7 @@
 'use strict';
 
-// Optional Chromium 112 adapter: CLI load in an owned headful browser.
+// Optional Chromium 112 adapter: owned headful browser, or explicit test-only
+// SYRIUS_LEGACY_HEADLESS=1 for hosts that need Chromium's new headless mode.
 // Early extension startup precedes CDP attachment; only the denying proxy covers that interval.
 // Never include evaluated expressions, protocol payloads, browser console
 // messages, profile contents or exception descriptions in diagnostics.
@@ -25,8 +26,12 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
     throw failure('BROWSER_CONFIGURATION_INVALID');
   }
   const executable = findBrowser();
+  const headless = process.env.SYRIUS_LEGACY_HEADLESS === '1';
+  const reuseProfile = fs.existsSync(path.join(profileDir, 'Default', 'Preferences'));
   const stats = {
     guardedTargets: 0,
+    guardedWorkers: 0,
+    silentWorkers: 0,
     deniedProxyConnections: 0,
     attemptedRequests: 0,
     blockedRequests: 0,
@@ -36,11 +41,13 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
     runtimeErrors: 0,
     cspErrors: 0,
     developerModeEnabled: false,
+    persistentInstallReused: false,
+    guardFailure: null,
     guardChecks: { http: false, webSocket: false },
     earlyExtensionStartupObserved: false,
     startupTransportBoundary: "owned denying proxy established before process spawn; QUIC disabled",
     existingExtensionTargetsBeforeGuard: 0,
-    loadMode: "legacy headful CLI unpacked extension",
+    loadMode: 'legacy ' + (headless ? 'headless ' : 'headful ') + (reuseProfile ? 'retained unpacked extension' : 'CLI unpacked extension'),
   };
   let browser, socket, proxy, stopPromise, stopped = false, stopping = false, fatalError;
   let sequence = 0;
@@ -63,9 +70,11 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
     const next = ++sequence;
     const timer = setTimeout(() => {
       pending.delete(next);
-      reject(failure('BROWSER_PROTOCOL_TIMEOUT'));
+      // The method only, never its parameters: a timeout says which command.
+      reject(Object.assign(failure('BROWSER_PROTOCOL_TIMEOUT'), { method }));
     }, timeoutMs);
     pending.set(next, {
+      sessionId,
       resolve: result => { clearTimeout(timer); fatalError ? reject(fatalError) : resolve(result); },
       reject: () => { clearTimeout(timer); reject(failure('BROWSER_PROTOCOL_FAILED')); },
     });
@@ -110,28 +119,62 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
       extensionHost: /^chrome-extension:\/\/([a-p]{32})\//.exec(targetInfo.url || '')?.[1] };
     targets.set(target.targetId, target);
     sessions.set(sessionId, target);
+    let phase;
+    const guarded = (method, ...args) => { phase = method; return cdp(method, ...args); };
     const ready = (async () => {
-      await cdp('Network.enable', {}, sessionId);
-      await cdp('Network.setBlockedURLs', { urls: ['http://*', 'https://*', 'ws://*', 'wss://*'] }, sessionId);
-      await cdp('Network.emulateNetworkConditions', {
-        offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
-      }, sessionId);
-      await cdp('Runtime.enable', {}, sessionId);
-      if (target.type === 'page') {
-        await cdp('Page.enable', {}, sessionId);
-        await cdp('Debugger.enable', {}, sessionId);
-        await cdp('Log.enable', {}, sessionId);
-        if (setupScript) await cdp('Page.addScriptToEvaluateOnNewDocument', { source: setupScript }, sessionId);
+      await guarded('Network.enable', {}, sessionId);
+      await guarded('Network.setBlockedURLs', { urls: ['http://*', 'https://*', 'ws://*', 'wss://*'] }, sessionId);
+      // Dedicated workers reject this override; retain their URL block list,
+      // the browser-wide denying proxy and the guard-before-resume barrier.
+      if (target.type !== 'worker') {
+        await guarded('Network.emulateNetworkConditions', {
+          offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
+        }, sessionId);
       }
-      await cdp('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, sessionId);
+      await guarded('Runtime.enable', {}, sessionId);
+      if (target.type === 'page') {
+        await guarded('Page.enable', {}, sessionId);
+        await guarded('Debugger.enable', {}, sessionId);
+        await guarded('Log.enable', {}, sessionId);
+        if (setupScript) await guarded('Page.addScriptToEvaluateOnNewDocument', { source: setupScript }, sessionId);
+      }
+      await guarded('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, sessionId);
       stats.guardedTargets++;
-      await cdp('Runtime.runIfWaitingForDebugger', {}, sessionId);
+      if (target.type === 'worker') stats.guardedWorkers++;
+      await guarded('Runtime.runIfWaitingForDebugger', {}, sessionId);
       return target;
     })();
     target.ready = ready;
-    ready.catch(() => {
-      if (!stopping && !stopped && sessions.has(sessionId)) fatalError = failure('BROWSER_NETWORK_GUARD_FAILED');
+    ready.catch(error => {
+      if (!stopping && !stopped && sessions.has(sessionId)) {
+        // A service worker that times out having never sent this session a
+        // single message has no process: Chrome keeps listing the worker of
+        // the registration developerPrivate.reload replaced, attaches it again
+        // under each page, and never answers. It was never resumed, so it runs
+        // nothing. It is set aside, and any later message from it fails the
+        // run (heardFrom). Failing on it made this check flaky in CI.
+        if (error.code === 'BROWSER_PROTOCOL_TIMEOUT' && target.type === 'service_worker' && !target.heard) {
+          target.silent = true;
+          stats.silentWorkers++;
+          return;
+        }
+        // Method/type/code only: never retain target URLs, IDs or payloads.
+        stats.guardFailure ||= { targetType: target.type, phase, code: error.code || 'UNKNOWN' };
+        fatalError = failure('BROWSER_NETWORK_GUARD_FAILED');
+      }
     });
+  };
+
+  // Every message carrying a session marks its target as heard from. One from
+  // a target set aside as silent means it was alive after all.
+  const heardFrom = sessionId => {
+    const target = sessions.get(sessionId);
+    if (!target) return;
+    target.heard = true;
+    if (target.silent && !stopping && !stopped) {
+      stats.guardFailure ||= { targetType: target.type, phase: 'silent target spoke', code: 'BROWSER_PROTOCOL_TIMEOUT' };
+      fatalError = failure('BROWSER_NETWORK_GUARD_FAILED');
+    }
   };
 
   const openTarget = async () => {
@@ -184,6 +227,7 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
       for (let i = 0; i < 50 && browser.exitCode === null && browser.signalCode === null; i++) await sleep(100);
       shutdownFailed = browser.exitCode === null && browser.signalCode === null;
     }
+    stats.shutdownClean = browser?.exitCode === 0 && !browser?.signalCode;
     socket?.close();
     for (const callback of pending.values()) callback.reject();
     pending.clear();
@@ -213,9 +257,13 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
     fs.rmSync(path.join(profileDir, 'DevToolsActivePort'), { force: true });
 
     browser = spawn(executable, [
+      // Owned test profiles must not open the user's macOS login keychain.
+      // This affects browser storage only, not the wallet's Argon2/AES code.
+      ...(process.platform === 'darwin' ? ['--use-mock-keychain'] : []),
+      ...(headless ? ['--headless=new', '--enable-automation', '--disable-gpu'] : []),
       '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1',
-      '--user-data-dir=' + profileDir, '--load-extension=' + extensionDir,
-      '--disable-extensions-except=' + extensionDir,
+      '--user-data-dir=' + profileDir,
+      ...(reuseProfile ? [] : ['--load-extension=' + extensionDir, '--disable-extensions-except=' + extensionDir]),
       '--proxy-server=http://127.0.0.1:' + proxyPort, '--proxy-bypass-list=<-loopback>',
       '--disable-quic', '--disable-background-networking', '--disable-component-update',
       '--disable-sync', '--no-first-run', '--no-default-browser-check', 'about:blank',
@@ -259,6 +307,7 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
     socket.onmessage = event => {
       let message;
       try { message = JSON.parse(event.data); } catch { fatalError = failure('BROWSER_PROTOCOL_INVALID'); return; }
+      if (message.sessionId) heardFrom(message.sessionId);
       const callback = pending.get(message.id);
       if (callback) {
         pending.delete(message.id);
@@ -269,8 +318,17 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
         guardTarget(message.params).catch(() => { fatalError = failure('BROWSER_NETWORK_GUARD_FAILED'); });
       } else if (message.method === 'Target.detachedFromTarget') {
         const target = sessions.get(message.params.sessionId);
-        if (target?.sessionId === targets.get(target.targetId)?.sessionId) targets.delete(target.targetId);
+        if (target && target.sessionId === targets.get(target.targetId)?.sessionId) targets.delete(target.targetId);
         sessions.delete(message.params.sessionId);
+        // A detached session never answers. Its commands fail now, as a lost
+        // target (BROWSER_PROTOCOL_FAILED), instead of each waiting out its
+        // timeout: the page chrome.runtime.reload() closes may detach without
+        // replying, which reloadExtension expects.
+        for (const [id, call] of pending) {
+          if (call.sessionId !== message.params.sessionId) continue;
+          pending.delete(id);
+          call.reject();
+        }
       } else if (message.method === 'Runtime.executionContextsCleared') {
         const target = sessions.get(message.sessionId);
         if (target) target.contextGeneration++;
@@ -333,6 +391,19 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
     const installed = await evaluate(settings, 'new Promise(resolve => chrome.developerPrivate.getExtensionsInfo({includeDisabled:true,includeTerminated:true}, info => resolve(info.filter(extension => extension.name === ' + JSON.stringify(expectedName) + ').map(extension => ({id:extension.id,state:extension.state})))))');
     if (installed?.length !== 1 || !['ENABLED', 'enabled'].includes(installed[0].state)) throw failure('BROWSER_EXTENSION_UNAVAILABLE');
     extensionId = installed[0].id;
+    if (!reuseProfile) {
+      // Convert the first CLI registration through the ordinary developer
+      // reload before test data exists. A restart then supplies no CLI load
+      // flag, so it must retain the existing enabled installation itself.
+      const reloaded = await evaluate(settings, 'new Promise(resolve => chrome.developerPrivate.reload(' +
+        JSON.stringify(extensionId) + ', {failQuietly:true,populateErrorForUnpacked:true}, result => resolve(!chrome.runtime.lastError && !result)))');
+      const retained = await evaluate(settings, 'new Promise(resolve => chrome.developerPrivate.getExtensionsInfo({includeDisabled:true,includeTerminated:true}, info => resolve(info.filter(extension => extension.id === ' + JSON.stringify(extensionId) + ').map(extension => extension.state))))');
+      if (!reloaded || retained?.length !== 1 || !['ENABLED', 'enabled'].includes(retained[0])) {
+        throw failure('BROWSER_PERSISTENT_INSTALL_FAILED');
+      }
+    } else {
+      stats.persistentInstallReused = true;
+    }
     await closePage(settings);
     if (!/^[a-p]{32}$/.test(extensionId || '')) throw failure('BROWSER_EXTENSION_UNAVAILABLE');
     return {
@@ -342,7 +413,8 @@ const startBrowser = async ({ extensionDir, profileDir, setupScript = '' }) => {
         const pages = [...productPages].map(id => targets.get(id)).filter(Boolean);
         if (!pages.length) throw failure('BROWSER_RELOAD_PAGE_UNAVAILABLE');
         const old = [...pages, ...sessions.values()].filter(target =>
-          pages.includes(target) || target.extensionHost === extensionId).map(target => ({
+          // A worker never heard from has no context to lose (guardTarget).
+          pages.includes(target) || (target.extensionHost === extensionId && target.heard)).map(target => ({
           sessionId: target.sessionId, generation: target.contextGeneration,
         }));
         // Calling the actual API unloads the extension generation. Loss of the

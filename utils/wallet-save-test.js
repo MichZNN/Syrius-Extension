@@ -13,7 +13,7 @@ const storageKey = 'synthetic-wallets';
 const load = (file, resolve, storage) => {
   const filename = path.join(root, file);
   if (!compiled.has(filename)) compiled.set(filename, babel.transformFileSync(filename, {
-    presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'],
+    presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]],
     configFile: false, babelrc: false,
   }).code);
   const module = { exports: {} };
@@ -31,7 +31,8 @@ const finite = async (promise) => {
 };
 const fixture = () => {
   const state = { encrypted: { opaqueEncryptedValue: { version: 1 } }, existing: { retained: { opaqueEncryptedValue: 'retained' } },
-    writes: [], encryptions: [], reads: 0, derivations: 0, commits: 0, notices: [], unlocks: 0, navigation: [] };
+    writes: [], encryptions: [], reads: 0, derivations: 0, commits: 0, notices: [], unlocks: 0, navigation: [],
+    lockEffects: [], lifecycle: new Set(), locks: 0, autoLockMinutes: 0 };
   const store = { getKeyPair: () => ({ getAddress: async () => {
     state.derivations += 1;
     if (state.deriveError) throw state.deriveError;
@@ -74,14 +75,48 @@ const elements = (tree) => {
   if (Array.isArray(tree)) return tree.flatMap(elements);
   return [tree, ...elements(tree.props?.children)];
 };
+// The phone (services/utils/app) as the offer of biometric unlock sees it:
+// f.state.phone is null in a browser, or { available, enabled, enable }.
+const appModule = (f) => ({ __esModule: true, default: () => f.state.phone && { biometric: {
+  available: async () => { if (f.state.phone.available instanceof Error) throw f.state.phone.available; return f.state.phone.available; },
+  enabled: async (name) => { f.state.phone.asked = name; return f.state.phone.enabled; },
+  enable: async (name, secret) => { f.state.phone.stored = [name, secret]; if (f.state.phone.refuse) throw f.state.phone.refuse; },
+}, onLifecycle: (listener) => { f.state.lifecycle.add(listener); return () => f.state.lifecycle.delete(listener); },
+}, biometricName: () => 'Fingerprint', biometricIcon: () => 'fingerprint' });
+const notifyModule = (f) => ({ notify: {
+  error: (error) => f.state.notices.push({ error }), success: (success) => f.state.notices.push({ success }),
+} });
+// The real shared lock hook with inert wallet/phone boundaries. Lifecycle
+// effects are committed explicitly below and cleaned up on unmount.
+const appLockModule = (f) => load('src/services/hooks/useAppLock.js', (name) => {
+  if (name === 'react') return { useEffect: (effect) => f.state.lockEffects.push(effect) };
+  if (name === 'react-router-dom') return { useNavigate: () => (...args) => f.state.navigation.push(args) };
+  if (name === 'react-redux') return { useDispatch: () => () => {} };
+  if (name.endsWith('/utils/app')) return appModule(f);
+  if (name.endsWith('/wallet/lock')) return { __esModule: true, default: async () => { f.state.locks++; } };
+  if (name.endsWith('/utils/storage')) return { getSettings: () => ({ autoLockMinutes: f.state.autoLockMinutes }) };
+  if (name.endsWith('/utils/notify')) return notifyModule(f);
+  if (name.endsWith('/redux/walletSlice')) return { resetWalletState: () => ({}) };
+  if (name.endsWith('/redux/pendingTransactionsSlice')) return { resetPendingTransactions: () => ({}) };
+  if (name === './useAccount') return { invalidateAccountCache: () => {} };
+  throw new Error('Unexpected lock-hook dependency: ' + name);
+}, f.storage);
+const offerModule = (f, react = { ...React, useState: (initial) => [initial, () => {}] }) => load('src/components/biometric-offer/biometric-offer.js', (name) => {
+  if (name === 'react') return react;
+  if (name.endsWith('/services/utils/app')) return appModule(f);
+  if (name.endsWith('/utils/notify')) return notifyModule(f);
+  if (name.endsWith('/hooks/useAppLock')) return appLockModule(f);
+  return () => null;
+}, f.storage);
 const page = (kind, f) => {
   // Creation's confirmation boundary uses an opaque split sentinel, rather
   // than constructing or rendering a phrase. Only the final save callback runs.
   const sentinel = Object.freeze({});
   const values = kind === 'create'
-    ? [2, 'test-wallet', password, password, f.store, { split: () => [sentinel] }, [{ position: 0, options: [sentinel] }], [sentinel], true, false]
-    : [1, '', 'test-wallet', password, password, false];
+    ? [2, 'test-wallet', password, password, f.store, { split: () => [sentinel] }, [{ position: 0, options: [sentinel] }], [sentinel], true, false, null]
+    : [1, '', 'test-wallet', password, password, false, null];
   const busyIndex = kind === 'create' ? 9 : 5;
+  const offerIndex = busyIndex + 1;
   let cursor = 0;
   const Component = load(kind === 'create' ? 'src/pages/get-started/get-started.js' : 'src/pages/import-recovery/recovery.js', (name) => {
     if (name === 'react') return { ...React, useState: () => {
@@ -97,16 +132,16 @@ const page = (kind, f) => {
     if (name.endsWith('/wallet/bootstrap')) return { completeUnlock: async () => { f.state.unlocks += 1; } };
     if (name.endsWith('/wallet/phraseQuiz')) return load('src/services/wallet/phraseQuiz.js', () => null);
     if (name.endsWith('/utils/utils')) return { sanitizeWalletName: (name) => name, loadStorageWalletNames: () => [] };
-    if (name.endsWith('/utils/notify')) return { notify: {
-      error: (error) => f.state.notices.push({ error }), success: (success) => f.state.notices.push({ success }),
-    } };
+    if (name.endsWith('/utils/notify')) return notifyModule(f);
+    if (name.endsWith('/services/utils/app')) return appModule(f);
+    if (name.endsWith('/biometric-offer/biometric-offer')) return offerModule(f);
     return () => null;
   }, f.storage).default;
   const render = () => { cursor = 0; return Component(); };
   const submit = () => kind === 'create'
     ? elements(render()).filter((element) => element.type === 'button' && element.props.onClick).at(-1).props.onClick()
     : elements(render()).find((element) => element.type === 'form').props.onSubmit();
-  return { submit, isBusy: () => values[busyIndex] };
+  return { submit, render, isBusy: () => values[busyIndex], offerFor: () => values[offerIndex] };
 };
 
 (async () => {
@@ -189,6 +224,92 @@ const page = (kind, f) => {
     assert.equal(f.state.notices.length, 1);
     assert.equal(typeof f.state.notices[0].success, 'string');
     assert.equal(f.state.navigation.length, 1);
+    assert.equal(view.offerFor(), null);
   }
-  console.log('Wallet save checks passed: finite derivation/encryption/write failures, password policy, pinned storage shape/name fallback and actual create/import busy cleanup.');
+
+  // In the app, a new or imported wallet is offered biometric unlock before
+  // the dashboard, only where the phone has it and the wallet does not use it.
+  for (const kind of ['create', 'import']) {
+    const f = fixture(); f.state.phone = { available: true, enabled: false };
+    const view = page(kind, f);
+    await finite(view.submit());
+    assert.equal(f.state.unlocks, 1);
+    assert.equal(f.state.phone.asked, 'test-wallet');
+    assert.equal(f.state.navigation.length, 0, 'went on before the offer');
+    assert.equal(view.offerFor(), 'test-wallet');
+    const offer = elements(view.render()).find((element) => element.props?.walletName);
+    assert.equal(offer.props.walletName, 'test-wallet');
+    assert.equal(offer.props.password, password);
+    offer.props.onDone();
+    assert.deepEqual(f.state.navigation, [['/tabs/dashboard', { replace: true }]]);
+    for (const phone of [{ available: false, enabled: false }, { available: true, enabled: true }, { available: new Error('Synthetic plugin failure') }]) {
+      const g = fixture(); g.state.phone = phone;
+      const other = page(kind, g);
+      await finite(other.submit());
+      assert.equal(other.offerFor(), null);
+      assert.equal(g.state.navigation.length, 1);
+    }
+  }
+  // The offer itself: Turn on stores the password behind the biometric and
+  // goes on; a cancelled prompt stays, with the wallet ready either way.
+  for (const refuse of [null, new Error('Synthetic cancelled prompt')]) {
+    const f = fixture(); f.state.phone = { available: true, enabled: false, refuse };
+    let saving = false, done = 0;
+    const hooks = { ...React, useState: (initial) => [saving ?? initial, (next) => { saving = next; }] };
+    const Offer = offerModule(f, hooks).default;
+    const view = () => elements(Offer({ walletName: 'test-wallet', password, onDone: () => { done += 1; } }));
+    const turnOn = view().find((element) => element.type === 'button' && /Turn on/.test(element.props.children)).props.onClick;
+    await finite(turnOn());
+    assert.deepEqual(f.state.phone.stored, ['test-wallet', password]);
+    assert.equal(done, refuse ? 0 : 1);
+    assert.equal(saving, refuse ? false : true);
+    assert.deepEqual(f.state.notices, [refuse ? { error: refuse } : { success: 'Fingerprint unlock on' }]);
+    const notNow = view().find((element) => element.type === 'button' && element.props.children === 'Not now');
+    notNow.props.onClick(); assert.equal(done, refuse ? 1 : 2);
+  }
+  // The actual create/import callbacks hand their unlocked wallet to an offer
+  // that owns foreground locking before TabsLayout exists. No SDK secrets or
+  // native biometric prompt are created by these phone lifecycle fixtures.
+  for (const kind of ['create', 'import']) for (const minutes of [0, 5, 15, 60]) {
+    const f = fixture(); f.state.phone = { available: true, enabled: false };
+    f.state.autoLockMinutes = minutes;
+    const view = page(kind, f);
+    await finite(view.submit());
+    assert.equal(f.state.unlocks, 1);
+    assert.equal(f.state.navigation.length, 0);
+    const offer = elements(view.render()).find((element) => element.props?.walletName);
+    offer.type(offer.props);
+    assert.equal(f.state.lockEffects.length, 1, kind + ': the offer must own the native lock lifecycle');
+    const cleanup = f.state.lockEffects[0]();
+    assert.equal(f.state.lifecycle.size, 1);
+    const emit = async (event) => { for (const listener of f.state.lifecycle) await listener(event); };
+    await emit({ state: 'background', own: false, away: 0 });
+    // The phone's biometric prompt remains an owned UI trip past the deadline.
+    await emit({ state: 'foreground', own: true, away: minutes * 60000 + 1 });
+    if (minutes) await emit({ state: 'foreground', own: false, away: minutes * 60000 - 1 });
+    assert.equal(f.state.locks, 0);
+    await emit({ state: 'foreground', own: false, away: minutes * 60000 });
+    assert.equal(f.state.locks, 1, kind + ': lock on a normal return, including On close');
+    assert.deepEqual(f.state.navigation.at(-1), ['/password', { replace: true }]);
+    cleanup();
+    assert.equal(f.state.lifecycle.size, 0);
+    await emit({ state: 'foreground', own: false, away: 3600000 });
+    assert.equal(f.state.locks, 1, 'unmounted offer must not keep a listener');
+  }
+  // The tab screens still use the same hook; their unrelated incoming polling
+  // effect is not launched by this control.
+  {
+    const f = fixture(); f.state.phone = {};
+    const Watch = load('src/components/app-watch/app-watch.js', (name) => {
+      if (name === 'react') return { useEffect: () => {}, useRef: (value) => ({ current: value }) };
+      if (name.endsWith('/hooks/useAppLock')) return appLockModule(f);
+      return {};
+    }).default;
+    Watch();
+    assert.equal(f.state.lockEffects.length, 1);
+    const cleanup = f.state.lockEffects[0]();
+    assert.equal(f.state.lifecycle.size, 1);
+    cleanup(); assert.equal(f.state.lifecycle.size, 0);
+  }
+  console.log('Wallet save checks passed: finite derivation/encryption/write failures, password policy, pinned storage shape/name fallback, create/import cleanup, biometric offer and native lock lifecycle ownership.');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -1,4 +1,3 @@
-/* global BigInt */
 import React, { useContext, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 

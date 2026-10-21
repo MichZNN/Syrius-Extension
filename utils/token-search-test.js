@@ -40,7 +40,7 @@ const fixture = ({ constructFailure, postFailure, randomFailure, alreadyAborted 
     const module = { exports: {} };
     cache.set(filename, module);
     const { code } = babel.transformFileSync(filename, {
-      presets: [['@babel/preset-env', { targets: { node: 'current' } }]],
+      presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }]],
       babelrc: false, configFile: false,
     });
     const resolve = id => {

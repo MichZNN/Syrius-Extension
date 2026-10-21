@@ -23,6 +23,10 @@ import { limits, validateEnvelope, busy } from '../../services/utils/approvalLim
 // popup, against an origin the browser reports rather than one this file claims.
 
 (() => {
+  // One provider per document. The worker can inject this into a page that was
+  // already open (Background/openTabs.js); if `window.zenon` exists by then,
+  // a second copy would only answer the same replies twice.
+  if (Object.getOwnPropertyDescriptor(window, 'zenon')) return;
   const inboundTarget = 'znn-inpage';
   const outboundTarget = 'znn-contentscript';
 

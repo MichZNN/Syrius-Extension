@@ -18,7 +18,7 @@ const load = (file, cache = new Map()) => {
   const mod = { exports: {} };
   cache.set(filename, mod.exports);
   const { code } = babel.transformFileSync(filename, {
-    presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'], babelrc: false, configFile: false,
+    presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]], babelrc: false, configFile: false,
   });
   const resolve = (name) => (name.startsWith('.')
     ? load(path.resolve(path.dirname(filename), name) + (path.extname(name) ? '' : '.js'), cache) : require(name));
@@ -59,10 +59,24 @@ test('token limits are go-zenon\'s', () => {
   assert.deepEqual([token.nameMax, token.symbolMax, token.domainMax, token.decimalsMax], [40, 10, 128, 18]);
 });
 
+// go-zenon's pattern, `^([a-zA-Z0-9]+[-._]?)*[a-zA-Z0-9]$`, as the rules it
+// amounts to: only letters, digits and - . _, a letter or digit first and last,
+// and no two separators together. Written out because the pattern itself
+// backtracks exponentially in JavaScript (code scanning js/redos); Go's regexp
+// does not.
+const goName = (name) => /^[a-zA-Z0-9._-]+$/.test(name) && /^[a-zA-Z0-9]/.test(name) &&
+  /[a-zA-Z0-9]$/.test(name) && !/[-._]{2}/.test(name);
+// Every string of up to `length` characters drawn from `alphabet`.
+const every = (alphabet, length) => {
+  const out = [''];
+  for (let at = 0; at < out.length; at++) if (out[at].length < length) for (const c of alphabet) out.push(out[at] + c);
+  return out;
+};
+
 test('token names: the same answers as go-zenon\'s pattern', () => {
-  const go = /^([a-zA-Z0-9]+[-._]?)*[a-zA-Z0-9]$/;
-  for (const name of ['a', 'Tok1', 'my-token', 'my.tok_1', 'a--b', '-a', 'a-', 'a b', 'ä', '_a', 'A.B.C', 'x'.repeat(40)]) {
-    assert.equal(token.issueError(issue({ name })) === null, go.test(name), name);
+  const names = ['Tok1', 'my-token', 'my.tok_1', 'ä', 'A.B.C', 'x'.repeat(40), ...every(['a', 'Z', '1', '-', '.', '_', ' '], 5)];
+  for (const name of names.filter(Boolean)) {
+    assert.equal(token.issueError(issue({ name })) === null, goName(name), JSON.stringify(name));
   }
   assert.ok(token.issueError(issue({ name: 'x'.repeat(41) })));
   assert.ok(token.issueError(issue({ name: '' })));

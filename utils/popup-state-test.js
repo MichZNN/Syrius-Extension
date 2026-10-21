@@ -26,7 +26,7 @@ const browser = () => {
 // A popup: its own copy of the module, as each opening of the popup is.
 const popup = (shared) => {
   const { code } = babel.transformFileSync(path.join(root, 'src/services/utils/popupState.js'), {
-    presets: [['@babel/preset-env', { targets: { node: 'current' } }]], babelrc: false, configFile: false,
+    presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }]], babelrc: false, configFile: false,
   });
   const mod = { exports: {} };
   const resolve = (name) => {

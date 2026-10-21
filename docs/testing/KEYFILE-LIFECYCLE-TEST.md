@@ -63,6 +63,15 @@ The input package is copied without modifying its files or CSP. The harness comp
 
 A local denying proxy, CDP request blocking, and offline conditions guard browser targets before product execution in the modern transport. The optional legacy transport has the earlier CLI worker-startup boundary described above. Local HTTP/WebSocket guard checks must fail, and observed external responses or WebSocket handshake responses fail the run. These are browser-level network guards, not an OS firewall or a claim of zero network attempts. No live node, transaction, or user wallet is used.
 
+On macOS, both browser transports use Chromium's `--use-mock-keychain` for their disposable profiles. This avoids host login-keychain prompts that can stall browser startup. It changes browser credential storage only; the packaged wallet's Argon2/AES implementation remains in use.
+
+The separate fixture regression below runs six cases against inert classic and module service workers: cold startup, actual runtime reload, and browser restart. Each worker attempts HTTP and WebSocket requests at startup and again after debugger attachment. Both attempts must be refused, and an owned loopback listener must receive neither a request nor a handshake. This check uses no SDK or wallet and does not replace the production lifecycle matrix. CI runs it before building the production package.
+
+```sh
+CHROMIUM_PATH="/path/to/chromium-or-chrome-for-testing" \
+node utils/service-worker-guard-browser-test.js
+```
+
 Fresh passwords and UI-generated wallet material stay inside the test process/browser during execution. The harness does not log phrases, passwords, addresses, encrypted keyfiles, raw CDP payloads, DOM dumps, or screenshots. Persistent `localStorage`, `chrome.storage.local`, and `chrome.storage.sync` values are sampled in memory for the known phrase, chosen passwords, and current session entropy. Timed `chrome.storage.session` legitimately contains resumable entropy; the test instead requires its withdrawal on lock and its absence under On close. These checks do not prove absence in every encoding, heap zeroization, forensic erasure, or protection from browser/OS backups and crash recovery.
 
 The harness owns a fresh temporary profile, attempts browser shutdown, and removes the profile on normal completion, caught failure, SIGINT, and SIGTERM. Cleanup failures make the run unsuccessful. SIGKILL or abrupt machine/process termination cannot run those handlers; do not retain or publish a leftover profile as a test artifact.

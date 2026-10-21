@@ -45,7 +45,7 @@ const fixture = (section = 'Content') => {
     if (cache.has(filename)) return cache.get(filename).exports;
     const module = { exports: {} }; cache.set(filename, module);
     if (!compiled.has(filename)) compiled.set(filename, babel.transformFileSync(filename, {
-      presets: [['@babel/preset-env', { targets: { node: 'current' } }]], configFile: false, babelrc: false,
+      presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }]], configFile: false, babelrc: false,
     }).code);
     new Function('module', 'exports', 'require', ...Object.keys(environment), compiled.get(filename))(
       module, module.exports, id => {

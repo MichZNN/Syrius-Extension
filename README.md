@@ -6,7 +6,7 @@ Keys are generated and encrypted on your machine and never leave it. The
 extension talks to a Zenon node of your choosing, and to web pages through an
 injected provider that does nothing without being asked first.
 
-Version **0.3.6**, Manifest V3, Chrome or Brave 112 or later, Firefox 140 or
+Version **0.3.7**, Manifest V3, Chrome or Brave 112 or later, Firefox 140 or
 later, and Android and iOS apps built from the same source. [What changed](CHANGELOG.md).
 
 ## Features
@@ -92,7 +92,11 @@ npx cap sync android
 cd android && ./gradlew clean assembleDebug
 ```
 
-The APK is `android/app/build/outputs/apk/debug/app-debug.apk`.
+The APK is `android/app/build/outputs/apk/debug/app-debug.apk`. It installs
+as `network.zenon.syrius.debug`, "Syrius debug", beside the release. A debug
+build from before that change took the release's ID: Android then answers the
+release APK with "App not installed", until the debug build is uninstalled.
+Uninstalling erases its wallets, so have the recovery phrase first.
 `node tools/app-links/serve.mjs` serves a page of `syrius://` links and
 requests to open on the phone ([tools/app-links](tools/app-links/README.md)).
 

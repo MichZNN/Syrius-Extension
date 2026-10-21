@@ -10,7 +10,7 @@ const root = path.join(__dirname, '..');
 // for real, beside them.
 const load = (file, environment = {}) => {
   const module = { exports: {} };
-  const code = babel.transformFileSync(path.join(root, file), { presets: [['@babel/preset-env', { targets: { node: 'current' } }]], configFile: false, babelrc: false }).code;
+  const code = babel.transformFileSync(path.join(root, file), { presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }]], configFile: false, babelrc: false }).code;
   const resolve = name => {
     const target = path.join(path.dirname(file), name).replace(/\\/g, '/');
     assert.ok(['src/services/utils/errors', 'src/services/utils/errorCatalog'].includes(target), 'unexpected import ' + name);

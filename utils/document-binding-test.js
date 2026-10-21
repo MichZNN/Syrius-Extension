@@ -20,7 +20,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve; const promise = new Promise(yes => { resolve = yes; }); return { promise, resolve }; };
 const uuid = () => crypto.randomUUID();
 const pendingKey = 'znn.pendingRequests';
-const compile = file => babel.transformFileSync(path.join(root, file), { presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'], configFile: false, babelrc: false }).code;
+const compile = file => babel.transformFileSync(path.join(root, file), { presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]], configFile: false, babelrc: false }).code;
 const compiled = new Map();
 const loader = (environment, override = () => undefined) => {
   const cache = new Map();
@@ -64,7 +64,10 @@ const relaxedLimits = id => (id.endsWith('/utils/approvalLimits')
   ? { ...realLimits, limits: Object.freeze({ ...realLimits.limits, pending: 1000, perOrigin: 1000, perTab: 1000, globalAttention: 0, originAttention: 0, tabAttention: 0 }) }
   : undefined);
 
-const fixture = () => {
+// firefox: no native document IDs (nativeNavigation.relayDocuments). Senders and
+// frames carry none, tabs.sendMessage takes only a frame, and a committed
+// navigation is reported on its own.
+const fixture = ({ firefox = false } = {}) => {
   const now = Date.now();
   const session = {
     'znn.unlock': { version: 2, id: 'lease', revision: 'r', walletName: 'fixture', minutes: 15, mode: 'timed', entropy: 'fixture',
@@ -104,13 +107,17 @@ const fixture = () => {
   const openWindows = new Set();
   const chrome = { storage, webNavigation: {
     onBeforeNavigate: { addListener: fn => { chrome.beforeNavigate = fn; } },
+    onCommitted: { addListener: fn => { chrome.committed = fn; } },
     getFrame: async ({ tabId, frameId }) => { const doc = documents.findLast(d => d.tabId === tabId && d.frameId === frameId && d.routable);
+      if (firefox) return doc ? { frameId, parentFrameId: frameId ? 0 : -1, url: doc.sender.url } : null;
       return doc && { documentId: doc.documentId, documentLifecycle: 'active' }; },
   }, runtime: { ...runtime, onMessage: { addListener: fn => { chrome.listener = fn; } }, onInstalled: { addListener() {} }, onStartup: { addListener() {} } },
     tabs: { onRemoved: { addListener: fn => { chrome.closeTab = fn; } }, sendMessage: async (tabId, message, options) => {
       deliveries.push({ tabId, message: structuredClone(message), options: structuredClone(options) });
-      assert(Number.isInteger(options.frameId)); assert.equal(typeof options.documentId, 'string');
-      const doc = documents.find(item => item.tabId === tabId && item.frameId === options.frameId && item.documentId === options.documentId && item.routable);
+      assert(Number.isInteger(options.frameId));
+      if (firefox) assert.equal(Object.hasOwn(options, 'documentId'), false); else assert.equal(typeof options.documentId, 'string');
+      const doc = firefox ? documents.findLast(item => item.tabId === tabId && item.frameId === options.frameId && item.routable)
+        : documents.find(item => item.tabId === tabId && item.frameId === options.frameId && item.documentId === options.documentId && item.routable);
       if (!doc) throw Error('Target document has left');
       if (heldResponse && message.kind === 'response' && heldResponse.matches(message)) {
         const gate = heldResponse; heldResponse = null; gate.started.resolve(); await gate.release.promise;
@@ -132,7 +139,11 @@ const fixture = () => {
   const environment = { chrome, navigator, crypto, setTimeout: setTimer, clearTimeout: clearTimer };
   const restart = () => {
     const load = loader(environment, relaxedLimits);
-    load('src/sections/Background/index.js');
+    // The platform is read once, as the worker's modules load.
+    const platform = process.env.SYRIUS_PLATFORM;
+    if (firefox) process.env.SYRIUS_PLATFORM = 'firefox'; else delete process.env.SYRIUS_PLATFORM;
+    try { load('src/sections/Background/index.js'); }
+    finally { if (platform === undefined) delete process.env.SYRIUS_PLATFORM; else process.env.SYRIUS_PLATFORM = platform; }
     worker = { listener: chrome.listener, load };
   };
   restart();
@@ -173,7 +184,7 @@ const fixture = () => {
       posted.push(structuredClone(message)); queueMicrotask(() => emit('message', { source: window, data: structuredClone(message) }));
     }, addEventListener: (name, fn) => { if (!handlers.has(name)) handlers.set(name, []); if (!handlers.get(name).includes(fn)) handlers.get(name).push(fn); }, dispatchEvent: event => emit(event.type, event) };
     const emit = (name, event = {}) => (handlers.get(name) || []).forEach(fn => fn({ type: name, ...event }));
-    const sender = { id: runtime.id, tab: { id: tabId, title: 'Synthetic page' }, frameId, url: origin + '/fixture', origin, ...(missingIdentity ? {} : { documentId }) };
+    const sender = { id: runtime.id, tab: { id: tabId, title: 'Synthetic page' }, frameId, url: origin + '/fixture', origin, ...(missingIdentity || firefox ? {} : { documentId }) };
     const doc = { tabId, frameId, documentId, routable: true, posted, emit, window, sender };
     const docChrome = { runtime: { ...runtime, onMessage: { addListener: fn => { doc.listener = fn; } }, sendMessage: (message, callback) => {
       incoming.push({ message: structuredClone(message), sender: structuredClone(sender) });
@@ -588,5 +599,93 @@ const watchdog = setTimeout(() => { console.error('Document regression fixture t
     assert(cryptoModule.verify(null, Buffer.from(signature.message), publicKey, Buffer.from(signature.signature, 'hex')));
     assert.deepEqual(await sign(signature.message, { assertRequest: async () => {} }), signature);
   }
-  console.log('document binding: actual worker/relay/provider routing, lifecycle cancellation, BFCache activation, restart, conditional queue mutation, actual approval callbacks, delayed SDK stages and real-SDK manual signing checks passed');
+  // Firefox: no native document IDs. The relay's private per-document token
+  // stands in, admitted only while the frame's current relay holds the
+  // activation sent with it (nativeNavigation.relayDocuments).
+  const hellos = (f, doc) => f.incoming.filter(item => item.message.kind === 'hello' && item.sender.tab.id === doc.tabId && item.sender.frameId === doc.frameId);
+  const replay = (f, from, method = 'znn_accounts') => new Promise(resolve => f.chrome.listener({ channel: 'znn', kind: 'request', id: 'replayed',
+    method, params: {}, activation: from.message.activation, requestToken: uuid(), document: from.message.document }, from.sender, resolve));
+  {
+    const f = fixture({ firefox: true }); f.connected('https://site.invalid'); const a = f.page();
+    // A request is answered, not refused as from a departed document, and no
+    // delivery names a documentId.
+    assert.deepEqual(await a.window.zenon.getAccounts(), [account]);
+    assert(f.deliveries.length > 0 && f.deliveries.every(item => !Object.hasOwn(item.options, 'documentId')));
+    const token = hellos(f, a)[0].message.document;
+    // An approval waits on its document across a worker restart, and settles.
+    const signing = a.window.zenon.signMessage('firefox fixture'); await f.flush();
+    const request = await f.next(); assert.equal(request.documentId, 'relay:' + token);
+    f.restart(); assert.equal(await f.current(request), true);
+    assert.equal(await f.approve(request, signed('firefox-signed')), true);
+    assert.equal((await signing).signature, 'firefox-signed');
+    // A page cannot reach the token or the activation.
+    assert(a.posted.every(message => !JSON.stringify(message).includes(token)));
+  }
+  // A request sent before its hello is handled is admitted by the probe, so a
+  // page that asks at once is not refused.
+  {
+    const f = fixture({ firefox: true }); f.connected('https://site.invalid'); const a = f.page();
+    f.session['znn.navigation'] = {};
+    assert.deepEqual(await a.window.zenon.getAccounts(), [account]);
+  }
+  // A committed navigation ends the frame's document, with no bye and no
+  // onBeforeNavigate: its approvals and registration go, and its token is
+  // refused afterwards. A top-frame commit ends every frame in the tab.
+  for (const frameId of [0, 3]) {
+    const f = fixture({ firefox: true }); f.connected('https://site.invalid'); f.connected('https://other.invalid');
+    const a = f.page({ frameId }), sibling = f.page({ frameId: 4, origin: 'https://other.invalid' });
+    await a.window.zenon.getAccounts(); await sibling.window.zenon.getAccounts();
+    a.window.zenon.signMessage('before commit').catch(() => {}); sibling.window.zenon.signMessage('sibling').catch(() => {}); await f.flush();
+    const pending = await f.internal('approvals.list');
+    const old = pending.find(r => r.frameId === frameId), other = pending.find(r => r.frameId === 4);
+    assert(old); assert(other);
+    const oldHello = hellos(f, a)[0];
+    a.dropBye = true; a.routable = false; f.chrome.committed({ tabId: 1, frameId }); await f.flush();
+    if (frameId === 0) sibling.routable = false;
+    assert.equal((await f.internal('approvals.list')).some(r => r.id === old.id), false);
+    assert.equal(await f.current(old), false); assert.equal(await f.approve(old, signed('inert-old')), false);
+    assert.equal(await f.current(other), frameId !== 0);
+    assert.equal(Object.values(f.session['znn.frames'] || {}).some(frame => frame.documentId === old.documentId), false);
+    const b = f.page({ frameId }); await f.flush();
+    assert.deepEqual(await b.window.zenon.getAccounts(), [account]);
+    assert.notEqual(hellos(f, b).at(-1).message.document, oldHello.message.document);
+    // The departed document's token is refused, as a request or a late hello,
+    // and a late hello does not displace the frame's current document.
+    const refused = await replay(f, oldHello); assert.equal(refused.accepted, false); assert.equal(refused.error.code, 4900);
+    const admitted = structuredClone(f.session['znn.navigation']);
+    await new Promise(resolve => f.chrome.listener(oldHello.message, oldHello.sender, resolve)); await f.flush();
+    assert.deepEqual(f.session['znn.navigation'], admitted);
+    assert.deepEqual(await b.window.zenon.getAccounts(), [account]);
+  }
+  // Bye (pagehide) removes the admission; the old activation stays refused, and
+  // the document's next activation is admitted again.
+  {
+    const f = fixture({ firefox: true }); f.connected('https://site.invalid'); const a = f.page();
+    const signing = a.window.zenon.signMessage('before history'); const denied = assert.rejects(signing);
+    await f.flush(); const old = await f.next(); const before = hellos(f, a)[0];
+    a.hide(); await denied; await f.flush();
+    assert.equal(f.session['znn.navigation'][1]?.documents?.[0], undefined);
+    assert.equal(await f.current(old), false); assert.equal((await replay(f, before)).accepted, false);
+    a.show(); await f.flush();
+    assert.deepEqual(await a.window.zenon.getAccounts(), [account]);
+    assert.equal(hellos(f, a).at(-1).message.document, before.message.document);
+  }
+  // Another tab cannot use a document's token: the frame it names is the
+  // sender's own, whose relay does not hold that activation.
+  {
+    const f = fixture({ firefox: true }); f.connected('https://site.invalid');
+    const a = f.page(), b = f.page({ tabId: 2 }); await a.window.zenon.getAccounts(); await b.window.zenon.getAccounts();
+    const forged = { ...hellos(f, a)[0], sender: hellos(f, b)[0].sender };
+    assert.equal((await replay(f, forged)).accepted, false);
+    assert.equal(f.session['znn.navigation'][2].documents[0], 'relay:' + hellos(f, b)[0].message.document);
+  }
+  // A navigation that never commits (a 204, a download) leaves the document
+  // admitted; closing the tab forgets it.
+  {
+    const f = fixture({ firefox: true }); f.connected('https://site.invalid'); const a = f.page();
+    await a.window.zenon.getAccounts(); f.chrome.beforeNavigate({ tabId: 1, frameId: 0 }); await f.flush();
+    assert.deepEqual(await a.window.zenon.getAccounts(), [account]);
+    f.chrome.closeTab(1); await f.flush(); assert.equal(f.session['znn.navigation'][1], undefined);
+  }
+  console.log('document binding: actual worker/relay/provider routing, lifecycle cancellation, BFCache activation, restart, conditional queue mutation, actual approval callbacks, delayed SDK stages, real-SDK manual signing and Firefox relay document identity checks passed');
 })().catch(error => { console.error(error.stack || String(error)); process.exitCode = 1; }).finally(() => clearTimeout(watchdog));

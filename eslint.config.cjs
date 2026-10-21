@@ -1,6 +1,7 @@
 /*
- * JavaScript rules preserved from eslint-config-react-app 7.0.1.
- * The unused TypeScript override is deliberately excluded.
+ * JavaScript rules preserved from eslint-config-react-app 7.0.1, as an ESLint 9
+ * flat config. The unused TypeScript override and the Flow rules are excluded:
+ * src has no TypeScript or Flow, and eslint-plugin-flowtype stops at ESLint 8.
  *
  * MIT License
  *
@@ -25,34 +26,43 @@
  * SOFTWARE.
  */
 
-module.exports = {
-  "env": {
-    "browser": true,
-    "commonjs": true,
-    "es6": true,
-    "jest": true,
-    "node": true
-  },
-  "globals": {
-    "chrome": "readonly"
-  },
-  "parser": require.resolve("@babel/eslint-parser"),
-  "parserOptions": {
+const globals = require("globals");
+
+module.exports = [{
+  "files": ["**/*.{js,jsx}"],
+  "languageOptions": {
+    "parser": require("@babel/eslint-parser"),
     "sourceType": "module",
-    "requireConfigFile": false,
-    "babelOptions": {
-      "presets": [
-        require.resolve("babel-preset-react-app/prod")
-      ]
+    "globals": {
+      ...globals.browser,
+      ...globals.commonjs,
+      ...globals.jest,
+      ...globals.node,
+      "chrome": "readonly"
+    },
+    "parserOptions": {
+      "requireConfigFile": false,
+      "babelOptions": {
+        "babelrc": false,
+        "configFile": false,
+        // Babel 8's eslint-parser does not take the JSX syntax from
+        // @babel/preset-react; ask the parser for it directly.
+        "parserOpts": {
+          "plugins": ["jsx"]
+        }
+      }
     }
   },
-  "plugins": [
-    "react",
-    "react-hooks",
-    "jsx-a11y",
-    "flowtype",
-    "import"
-  ],
+  "linterOptions": {
+    // ESLint 8 did not report unused disable comments; keep it that way.
+    "reportUnusedDisableDirectives": "off"
+  },
+  "plugins": {
+    "react": require("eslint-plugin-react"),
+    "react-hooks": require("eslint-plugin-react-hooks"),
+    "jsx-a11y": require("eslint-plugin-jsx-a11y"),
+    "import": require("eslint-plugin-import")
+  },
   "rules": {
     "array-callback-return": [
       "warn"
@@ -342,6 +352,7 @@ module.exports = {
       "warn",
       {
         "args": "none",
+        "caughtErrors": "none",
         "ignoreRestSiblings": true
       }
     ],
@@ -537,15 +548,6 @@ module.exports = {
     "react-hooks/rules-of-hooks": [
       "error"
     ],
-    "flowtype/define-flow-type": [
-      "warn"
-    ],
-    "flowtype/require-valid-file-annotation": [
-      "warn"
-    ],
-    "flowtype/use-flow-type": [
-      "warn"
-    ],
     "react/jsx-uses-vars": [
       "warn"
     ],
@@ -558,4 +560,4 @@ module.exports = {
       "version": "detect"
     }
   }
-};
+}];

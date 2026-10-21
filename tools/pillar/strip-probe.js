@@ -10,6 +10,7 @@
 // utils/operator-mode-test.js.
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
+const { jsLiteral } = require('../../utils/js-literal');
 
 const harness = path.join(__dirname, '..', '..', 'utils', 'dev-harness.js');
 const at = process.argv.indexOf('--instance');
@@ -37,7 +38,7 @@ const store = `(() => {
   }
   return null;
 })()`;
-const dispatch = (action) => run('eval', `(() => { const store = ${store}; if (!store) return 'no store'; store.dispatch(${JSON.stringify(action)}); return 'ok'; })()`);
+const dispatch = (action) => run('eval', `(() => { const store = ${store}; if (!store) return 'no store'; store.dispatch(${jsLiteral(action)}); return 'ok'; })()`);
 const measure = () => run('eval', `JSON.stringify({ strip: (document.querySelector('.outgoing-strip') || {}).innerText || null, overflowX: document.documentElement.scrollWidth - window.innerWidth, height: (document.querySelector('.outgoing-strip') || { offsetHeight: 0 }).offsetHeight })`);
 
 const owner = run('eval', `(() => { const store = ${store}; return store ? store.getState().wallet.address : ''; })()`).split('\n').pop().replace(/"/g, '');

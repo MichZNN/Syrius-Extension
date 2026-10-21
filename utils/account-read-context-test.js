@@ -58,7 +58,7 @@ const loader = (override, environment) => {
     const filename = path.resolve(root, file);
     if (cache.has(filename)) return cache.get(filename).exports;
     if (!compiled.has(filename)) compiled.set(filename, babel.transformFileSync(filename, {
-      presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'],
+      presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]],
       configFile: false, babelrc: false,
     }).code);
     const module = { exports: {} }; cache.set(filename, module);

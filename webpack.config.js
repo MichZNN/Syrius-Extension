@@ -39,13 +39,18 @@ const manifestFor = (manifest) => {
   const {
     minimum_chrome_version: _chromeOnly,
     optional_host_permissions: _unpackedUpdater,
+    // Chrome's open-tab injection only (sections/Background/openTabs.js).
+    // Firefox makes MV3 host permissions opt-in; its content scripts need none.
+    host_permissions: _openTabs,
     ...rest
   } = manifest;
   return {
     ...rest,
     // Firefox has no offscreen documents; its receiver is an iframe in the
-    // background page (sections/Background/receiver.js).
-    permissions: manifest.permissions.filter((permission) => permission !== 'offscreen'),
+    // background page (sections/Background/receiver.js). It injects content
+    // scripts into open tabs itself, so it needs no scripting either
+    // (sections/Background/openTabs.js).
+    permissions: manifest.permissions.filter((permission) => permission !== 'offscreen' && permission !== 'scripting'),
     background: { scripts: [manifest.background.service_worker] },
     browser_specific_settings: {
       gecko: {
@@ -170,11 +175,6 @@ module.exports = {
         exclude: /node_modules/,
       },
       {
-        test: /\.(ts|tsx)$/,
-        loader: 'ts-loader',
-        exclude: /node_modules/
-      },
-      {
         test: /\.(js|jsx)$/,
         use: ['babel-loader'],
         exclude: /node_modules/,
@@ -206,7 +206,7 @@ module.exports = {
     alias: alias,
     extensions: fileExtensions
       .map(extension => '.' + extension)
-      .concat(['.js', '.jsx', '.ts', '.tsx', '.css']),
+      .concat(['.js', '.jsx', '.css']),
     fallback: {
       "fs": false,
       "stream": require.resolve("stream-browserify"),

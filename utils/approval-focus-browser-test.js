@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const assert = require('node:assert/strict');
+const { jsLiteral } = require('./js-literal');
 const { spawn } = require('node:child_process');
 const webpack = require('webpack');
 const sass = require('sass');
@@ -79,7 +80,7 @@ queue=[request()];createRoot(document.querySelector('#app-container')).render(<P
       output: { path: extension, filename: 'fixture.js' }, devtool: false, performance: false,
       resolve: { modules: [path.join(root, 'node_modules')], alias: { 'znn-ts-sdk': path.join(extension, 'sdk.js') } },
       module: { rules: [{ test: /\.jsx?$/, exclude: /node_modules/, use: { loader: require.resolve('babel-loader'),
-        options: { presets: [require.resolve('@babel/preset-react')], configFile: false, babelrc: false } } }] } });
+        options: { presets: [[require.resolve('@babel/preset-react'), { runtime: 'classic' }]], configFile: false, babelrc: false } } }] } });
     compiler.run((error, stats) => compiler.close(() => error || stats.hasErrors() ? reject(Error('Compilation failed')) : resolve()));
   });
   stage = 'browser startup';
@@ -133,14 +134,14 @@ queue=[request()];createRoot(document.querySelector('#app-container')).render(<P
   const onReview = () => evaluate("document.activeElement.matches('.approval-screen')");
   const focusConfirm = () => evaluate("document.querySelector('.action-row button:last-child').focus()");
   const replace = async (type, label, ttl) => {
-    await evaluate(`fixture.replace(${JSON.stringify(type)},${JSON.stringify(label)},${JSON.stringify(ttl)})`);
-    await until(`document.querySelector('.site-title')?.textContent===${JSON.stringify(label)}`);
+    await evaluate(`fixture.replace(${jsLiteral(type)},${jsLiteral(label)},${jsLiteral(ttl)})`);
+    await until(`document.querySelector('.site-title')?.textContent===${jsLiteral(label)}`);
   };
   const preview = async (selector, label) => {
     stage = label + ' Tab access';
-    const before = await evaluate(`document.querySelector(${JSON.stringify(selector)}).textContent`);
+    const before = await evaluate(`document.querySelector(${jsLiteral(selector)}).textContent`);
     await key('Tab');
-    assert.equal(await evaluate(`document.activeElement.matches(${JSON.stringify(selector)})`), true);
+    assert.equal(await evaluate(`document.activeElement.matches(${jsLiteral(selector)})`), true);
     assert.equal(await evaluate(`document.activeElement.getAttribute('tabindex')`), '0');
     assert.equal(await evaluate(`document.activeElement.getAttribute('aria-label')`), label);
     await cdp('DOM.enable', {}, sessionId);
@@ -150,12 +151,12 @@ queue=[request()];createRoot(document.querySelector('#app-container')).render(<P
     assert(nodes.some(node => node.role?.value === 'region' && node.name?.value === label));
     stage = label + ' ArrowDown scrolling';
     await key('ArrowDown');
-    await until(`document.querySelector(${JSON.stringify(selector)}).scrollTop>0`);
+    await until(`document.querySelector(${jsLiteral(selector)}).scrollTop>0`);
     stage = label + ' End scrolling'; await key('End');
-    await until(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});return Math.abs(e.scrollHeight-e.clientHeight-e.scrollTop)<2;})()`);
+    await until(`(()=>{const e=document.querySelector(${jsLiteral(selector)});return Math.abs(e.scrollHeight-e.clientHeight-e.scrollTop)<2;})()`);
     stage = label + ' final glyph visibility';
     assert.equal(await evaluate(`(() => {
-      const e=document.querySelector(${JSON.stringify(selector)});
+      const e=document.querySelector(${jsLiteral(selector)});
       const walker=document.createTreeWalker(e,NodeFilter.SHOW_TEXT),texts=[];
       let node;while(node=walker.nextNode())if(node.nodeValue.trim())texts.push(node);
       const text=texts.at(-1),index=text.nodeValue.trimEnd().length-1;
@@ -171,11 +172,11 @@ queue=[request()];createRoot(document.querySelector('#app-container')).render(<P
       await key('ArrowRight'); await until("document.querySelector('.block-preview').scrollLeft>0");
     }
     stage = label + ' text and bounds';
-    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(selector)}).textContent`), before);
-    assert.equal(await evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(selector)})).maxHeight`), selector === '.message-preview' ? '200px' : '210px');
+    assert.equal(await evaluate(`document.querySelector(${jsLiteral(selector)}).textContent`), before);
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector(${jsLiteral(selector)})).maxHeight`), selector === '.message-preview' ? '200px' : '210px');
     await pause(250);
   };
-  const previewPosition = selector => evaluate(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});return [e.scrollTop,e.scrollLeft];})()`);
+  const previewPosition = selector => evaluate(`(()=>{const e=document.querySelector(${jsLiteral(selector)});return [e.scrollTop,e.scrollLeft];})()`);
   const preservePreviewPosition = async selector => {
     const position = await previewPosition(selector); assert(position[0] > 0);
     if (selector === '.block-preview') assert(position[1] > 0);
@@ -223,7 +224,7 @@ queue=[request()];createRoot(document.querySelector('#app-container')).render(<P
   const { root: documentRoot } = await cdp('DOM.getDocument', {}, sessionId);
   const { nodeId } = await cdp('DOM.querySelector', { nodeId: documentRoot.nodeId, selector: '[role=region]' }, sessionId);
   const { nodes } = await cdp('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false }, sessionId);
-  assert(nodes.some(node => node.role?.value === 'region' && node.name?.value.includes('https://replacement.fixture.invalid:8443') && node.name.value.includes('Sign this message?')));
+  assert(nodes.some(node => node.role?.value === 'region' && node.name?.value === 'https://replacement.fixture.invalid:8443 Sign this message?'));
   await focusConfirm();
   const readingPosition = await evaluate("document.querySelector('.approval-screen').scrollTop");
   await evaluate('fixture.bump()'); await pause(50);
@@ -271,8 +272,8 @@ queue=[request()];createRoot(document.querySelector('#app-container')).render(<P
   for (const type of ['connect', 'sendTransaction', 'signMessage', 'signAndSendBlock']) {
     stage = 'layout ' + type;
     await viewport(360, 400);
-    const origin = await evaluate(`fixture.longRequest(${JSON.stringify(type)})`);
-    await until(`document.querySelector('.site-title')?.textContent===${JSON.stringify('Long' + type)}`);
+    const origin = await evaluate(`fixture.longRequest(${jsLiteral(type)})`);
+    await until(`document.querySelector('.site-title')?.textContent===${jsLiteral('Long' + type)}`);
     if (type === 'signAndSendBlock') await until("Boolean(document.querySelector('.contract-arguments'))");
     assert.equal(await onReview(), true);
     for (const [width, height] of [[360, 400], [280, 400], [180, 300]]) {

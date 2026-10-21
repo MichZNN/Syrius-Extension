@@ -1,14 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import ExplorerLink from '../../components/explorer-link/explorer-link';
 import Icon from '../../components/icon/icon';
 import { Amount, Status } from '../../components/data/data';
 import useBackgroundSender from '../../services/hooks/useBackgroundSender';
-import usePagedList from '../../services/hooks/usePagedList';
 import useChainChange from '../../services/hooks/useChainChange';
 import usePillar from '../../services/hooks/usePillar';
-import { reads, templates } from '../../services/pillar/calls';
+import { reads, rpc, templates } from '../../services/pillar/calls';
+import { load as loadProjects } from '../../services/pillar/projectCache';
 import {
   canAddPhase,
   canUpdatePhase,
@@ -34,6 +34,11 @@ import { notify } from '../../services/utils/notify';
 //
 // A project's owner adds its next phase from here, and anybody can submit a
 // project (1 ZNN, kept by the contract).
+//
+// The whole list comes through services/pillar/projectCache: the stored list
+// at once, then only what changed on the contract since. Filters run over all
+// of it; cards are drawn 20 at a time as the list scrolls. Tapping a card
+// opens who voted on the project and its phases.
 
 const statusKind = ['pending', 'success', 'success', 'neutral'];
 
@@ -65,8 +70,8 @@ const Tally = ({ breakdown, pillarCount }) => {
       </div>
       <span className="mono">{yes} yes</span>
       <span className="mono">{no} no</span>
-      <span className="mono">{total} of {pillarCount || '?'} voted</span>
       {votePasses(breakdown, pillarCount) && <Status kind="success">Passing</Status>}
+      <span className="mono tally-total">{total} of {pillarCount || '?'} voted</span>
     </div>
   );
 };
@@ -108,17 +113,76 @@ const Votable = ({ item, pillarCount, myVote, sending, canVote, onVote }) => (
   </div>
 );
 
+const voteOrder = [voteValues.yes, voteValues.no, voteValues.abstain];
+
+// Who voted on one project or phase, by vote. Read when the card opens.
+const VoterList = ({ label, voters }) => (
+  <div className="voters">
+    <span className="ledger-label">{label}</span>
+    {!voters.length && <span className="text-gray">None yet</span>}
+    {voteOrder.map((vote) => {
+      const names = voters.filter((voter) => voter.vote === vote);
+      return names.length ? (
+        <div key={vote} className="voters-group">
+          <span className={`voters-vote is-${voteLabel(vote).toLowerCase()}`}>{voteLabel(vote)} · {names.length}</span>
+          <span className="voters-names">{names.map((voter) => voter.name).join(', ')}</span>
+        </div>
+      ) : null;
+    })}
+  </div>
+);
+
+const Voters = ({ project }) => {
+  const [state, setState] = useState({});
+  // The cache replaces a project when it is read again. Ballots can change
+  // without changing any total, so follow that refreshed object too.
+  const ids = [project.id, ...(project.phaseIds || [])].join(',');
+  useEffect(() => {
+    let cancelled = false;
+    reads.voters(ids.split(','))
+      .then((byId) => { if (!cancelled) setState({ byId }); })
+      .catch(() => { if (!cancelled) setState({ error: true }); });
+    return () => { cancelled = true; };
+  }, [ids, project]);
+
+  if (state.error) return <p className="empty-note">Could not load</p>;
+  if (!state.byId) return <p className="text-gray">Loading…</p>;
+  return (
+    <div className="voters-list">
+      <VoterList label="Votes" voters={state.byId[project.id] || []} />
+      {(project.phases || []).map((entry, index) => entry?.phase && (
+        <VoterList key={entry.phase.id} label={`Phase ${index + 1} · ${entry.phase.name}`} voters={state.byId[entry.phase.id] || []} />
+      ))}
+    </div>
+  );
+};
+
 const Project = ({ project, address, pillarCount, pillarName, myVotes, sending, onVote, onPhase }) => {
+  const [expanded, setExpanded] = useState(false);
   const open = votables([project]);
   const link = projectLink(project.url);
   const phase = currentPhase(project);
+  // The whole card opens it, except where a tap means something else.
+  const toggle = (event) => {
+    if (event.target.closest('button, a, input, select, textarea')) return;
+    setExpanded((value) => !value);
+  };
 
   return (
-    <article className="card project">
+    <article className={`card project ${expanded ? 'is-expanded' : ''}`} onClick={toggle}>
       <div className="card-head">
         <h2 className="project-name">{project.name}</h2>
         <Status kind={statusKind[project.status] || 'neutral'}>{statusLabel(project.status)}</Status>
         <ExplorerLink href={link} label="Open the proposal" small />
+        <button
+          type="button"
+          className="icon-button project-toggle"
+          aria-expanded={expanded}
+          aria-label={expanded ? 'Hide votes' : 'Show votes'}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <Icon name="chevron-right" size={16} />
+        </button>
       </div>
       <p className="project-description">{project.description}</p>
 
@@ -156,6 +220,8 @@ const Project = ({ project, address, pillarCount, pillarName, myVotes, sending, 
           Update phase
         </button>
       )}
+
+      {expanded && <Voters project={project} />}
     </article>
   );
 };
@@ -170,8 +236,26 @@ const Az = () => {
   // id -> the vote in flight, until the node reports it.
   const [sending, setSending] = useState({});
 
-  const fetchPage = useCallback((page, pageSize) => reads.projects(page, pageSize), []);
-  const projects = usePagedList(fetchPage, { pageSize: 20 });
+  // { items, loading, error }: the stored list shows at once, then the one
+  // brought up to the node's frontier replaces it.
+  const [projects, setProjects] = useState({ items: [], loading: true, error: null });
+  const loadRun = useRef(0);
+  const refresh = useCallback(() => {
+    const run = ++loadRun.current;
+    setProjects((previous) => ({ ...previous, loading: true }));
+    loadProjects(rpc, (items) => {
+      if (run === loadRun.current) setProjects((previous) => ({ ...previous, items: items || [], error: null }));
+    }).then(
+      () => { if (run === loadRun.current) setProjects((previous) => ({ ...previous, loading: false })); },
+      (error) => { if (run === loadRun.current) setProjects((previous) => ({ ...previous, loading: false, error })); }
+    );
+  }, []);
+  useEffect(() => {
+    refresh();
+    // Leaving the tab ends the run: a late answer is dropped.
+    const runs = loadRun;
+    return () => { runs.current++; };
+  }, [refresh]);
 
   useEffect(() => {
     let cancelled = false;
@@ -210,7 +294,7 @@ const Az = () => {
   // A vote, a project or a phase of this wallet's confirmed: the tallies too.
   useChainChange(() => {
     loadVotes();
-    projects.refresh();
+    refresh();
   });
 
   const vote = (item, value) => {
@@ -245,6 +329,22 @@ const Az = () => {
     return true;
   });
 
+  // Cards drawn so far; the sentinel draws the next 20 as it scrolls in.
+  const [limit, setLimit] = useState(20);
+  const sentinelRef = useRef(null);
+  const more = shown.length > limit;
+  useEffect(() => { setLimit(20); }, [active]);
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !more) return undefined;
+    // Drawn a screen ahead, so a fast scroll does not meet the end.
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) setLimit((value) => value + 20);
+    }, { rootMargin: '600px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [more, limit]);
+
   return (
     <div className="page">
       <div className="segmented is-wide" role="group" aria-label="Show">
@@ -261,7 +361,7 @@ const Az = () => {
         ))}
       </div>
 
-      {shown.map((project) => (
+      {shown.slice(0, limit).map((project) => (
         <Project
           key={project.id}
           project={project}
@@ -275,11 +375,11 @@ const Az = () => {
         />
       ))}
 
-      {!shown.length && !projects.hasMore && <p className="empty-note">None yet</p>}
+      {!shown.length && !projects.loading && !projects.error && <p className="empty-note">None yet</p>}
       {projects.error && !shown.length && <p className="empty-note">Could not load</p>}
 
-      <div ref={projects.sentinelRef} className="load-more-sentinel">
-        {projects.showLoading && <span className="text-gray">Loading…</span>}
+      <div ref={sentinelRef} className="load-more-sentinel">
+        {projects.loading && !projects.items.length && <span className="text-gray">Loading…</span>}
       </div>
 
       <div className="page-footer">

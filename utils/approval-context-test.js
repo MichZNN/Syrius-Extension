@@ -14,7 +14,7 @@ const load = file => {
   if (cache.has(filename)) return cache.get(filename).exports;
   const module = { exports: {} }; cache.set(filename, module);
   const { code } = babel.transformFileSync(filename, {
-    presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'],
+    presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]],
     configFile: false, babelrc: false,
   });
   const resolve = id => {

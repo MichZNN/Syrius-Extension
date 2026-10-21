@@ -8,9 +8,14 @@ const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4})
 // Preserve the native value exactly; relay tokens use our own UUID format.
 const validTarget = target => Boolean(target && Number.isInteger(target.tabId) && target.tabId >= 0 &&
   Number.isInteger(target.frameId) && target.frameId >= 0 && typeof target.documentId === 'string' && target.documentId.length > 0 && uuid(target.activation));
+// Firefox has no native document ID. Its relay's private per-document token
+// stands in, and is current only while admitted (nativeNavigation.admit).
+const relayDocuments = (typeof process !== 'undefined' ? process.env.SYRIUS_PLATFORM : undefined) === 'firefox';
+const documentOf = (sender, relay) => relayDocuments ? (uuid(relay?.document) ? 'relay:' + relay.document : undefined)
+  : sender?.documentId;
 const targetFrom = (sender, relay) => {
   const target = { tabId: sender?.tab?.id, frameId: sender?.frameId ?? 0,
-    documentId: sender?.documentId, activation: relay?.activation, requestToken: relay?.requestToken };
+    documentId: documentOf(sender, relay), activation: relay?.activation, requestToken: relay?.requestToken };
   return validTarget(target) ? target : null;
 };
 const validRequest = request => validTarget(request) && uuid(request.requestToken) &&
@@ -35,7 +40,8 @@ const deliver = async (target, message) => {
     const reply = await Promise.race([
       chrome.tabs.sendMessage(target.tabId, {
         ...message, activation: target.activation, requestToken: target.requestToken,
-      }, { frameId: target.frameId, documentId: target.documentId }),
+      // Firefox takes no documentId here; its relay answers only its own tokens.
+      }, relayDocuments ? { frameId: target.frameId } : { frameId: target.frameId, documentId: target.documentId }),
       new Promise(resolve => { timer = setTimeout(() => resolve(null), 5000); }),
     ]);
     return reply && typeof reply === 'object' ? reply : null;

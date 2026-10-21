@@ -34,7 +34,7 @@ const sdk = {
 
 const load = (file, resolve) => {
   const { code } = babel.transformFileSync(path.join(__dirname, '..', file), {
-    presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'],
+    presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]],
     babelrc: false,
     configFile: false,
   });
@@ -95,6 +95,9 @@ const page = (file, initial) => {
     if (name.endsWith('/utils/notify')) return { notify: { success: () => {}, error: (err) => errors.push(err) } };
     if (name.endsWith('/wallet/phraseQuiz')) return load('src/services/wallet/phraseQuiz.js', () => null);
     if (name.endsWith('/utils/utils')) return { loadStorageWalletNames: () => [], sanitizeWalletName: (s) => s };
+    // A browser: no phone, so no biometric offer (wallet-save-test covers it).
+    if (name.endsWith('/biometric-offer/biometric-offer')) return { __esModule: true, default: () => null, shouldOffer: async () => false };
+    if (name.endsWith('/services/utils/app')) return { __esModule: true, default: () => null, biometricName: () => 'Fingerprint' };
     return () => null;
   }).default;
   const render = () => { cursor = 0; return Component(); };

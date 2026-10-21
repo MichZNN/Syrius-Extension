@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.3.7
+
+New
+- AZ opens at once on the project list stored last time, then reads only
+  what changed on the Accelerator contract since: on mainnet a few blocks
+  and a dozen projects instead of all 201, which took 7 to 10 seconds. A
+  list from another chain, or a gap too long to follow, is read in full.
+- Tap an AZ project to see which pillars voted on it and on each phase, and
+  how.
+- Creating or importing a wallet in the app ends by offering Fingerprint
+  (or Face ID) unlock, where the phone has it set up.
+
+Changed
+- AZ's filters cover every project, not only those already scrolled into
+  the list, and the voted count sits at the right, under the funds.
+- An Android debug build installs beside the release, as
+  `network.zenon.syrius.debug` ("Syrius debug"), instead of blocking it with
+  "App not installed" (#61).
+- Dependencies: React 19 with react-redux 9 (#65), Babel 8 (#52) with
+  ESLint 9 and a flat config, TypeScript 7 (#53; ts-loader removed, as `src`
+  has no TypeScript), html-loader 5 (#64), and minor updates (#63).
+
+Build
+- Release packages carry GitHub build provenance attestations (#59).
+- CI checks site connections on the built Firefox add-on when the runner
+  has Firefox.
+- Every CI run keeps all four packages: a run that is not a release now
+  keeps the debug APK and the unsigned Firefox add-on too, beside the
+  Chrome/Brave ZIP and the iOS IPA.
+- The ten open code scanning alerts are fixed, all in test fixtures and one
+  dev tool; none was in the shipped wallet. The name tests no longer copy
+  go-zenon's backtracking pattern and instead check every short name
+  against the rules it amounts to. Fixtures escape the values they write
+  into browser code, and the approval test checks the exact accessible name
+  instead of a URL substring.
+- The production keyfile check failed at random, in CI and locally: Chrome
+  keeps listing the dead service worker of the install a reload replaced,
+  and the network guard timed out on it. A service worker that has never
+  sent a message and stops answering is now set aside, never resumed, and
+  fails the run the moment it says anything. Commands to a session Chrome
+  has detached now fail at once instead of waiting out 15 seconds, and a
+  timeout names the command that timed out.
+- CI checks that an extension service worker cannot reach the network at
+  cold start, after a runtime reload or after a browser restart, and macOS
+  test browsers use a mock keychain instead of the login keychain (#68).
+- The open-tab check bounds every browser wait, denies all other origins
+  through a proxy of its own, and reloads the extension the way Chrome's
+  developer reload does, confirming the old worker is gone. A new
+  `test:security` script drives each fixture's browser command transport
+  with a fake socket, so a hung or detached session is caught without a
+  browser (#69).
+- The license names edgepillar among the copyright holders.
+- `elliptic` (CVE-2025-14505, low) has no fixed release. It concerns
+  secp256k1 ECDSA signing, which the wallet never does: Zenon keys sign
+  with ed25519, and `ethers` is used only to encode and format. One copy is
+  compiled into `znn-ts-sdk`, so it cannot be removed here; the alert is
+  closed as code not used.
+- The native browser fixtures keep their guards on dedicated workers and
+  retain the unpacked install across browser restarts (#62).
+
+Fixed
+- A page already open when Syrius was installed had no `window.zenon` until
+  it was reloaded, so a site there (az.zenon.foo in Brave, reported against
+  0.3.6) said "Install the Syrius extension". On install and update, Chrome
+  and Brave now give every open page and frame without a provider the relay
+  and `window.zenon`, which fires `zenon#initialized`. A page that already
+  has a provider (its own, or the previous version's after an update) is
+  left alone, and a relay or provider never starts twice in one page. This
+  needs the `scripting` permission and explicit access to http and https
+  pages, which the content scripts already had; the install warning is
+  unchanged. Firefox already injected into open tabs and is unchanged.
+- Sites could not connect on Firefox: every request was refused with "The
+  requesting document has left". Firefox reports no document IDs; the
+  wallet now uses a private per-document token from its own content script,
+  checked against the frame's current page, and ended by a navigation, the
+  page leaving or the tab closing.
+
 ## 0.3.6
 
 New

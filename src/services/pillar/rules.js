@@ -10,7 +10,6 @@
 //
 // Nothing in this file touches the SDK, storage or the network.
 
-/* global BigInt */
 const decimals = 8;
 // Written out: the build compiles `**` to Math.pow, which throws on a BigInt
 // as the module loads, and the popup then renders nothing at all.

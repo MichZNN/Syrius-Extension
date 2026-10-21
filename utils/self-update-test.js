@@ -17,7 +17,7 @@ const load = (file) => {
   if (cache.has(filename)) return cache.get(filename).exports;
   const mod = { exports: {} };
   cache.set(filename, mod);
-  const { code } = babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' } }]], babelrc: false, configFile: false });
+  const { code } = babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }]], babelrc: false, configFile: false });
   const resolve = (id) => (id.startsWith('.') ? load(path.resolve(path.dirname(filename), id) + (path.extname(id) ? '' : '.js')) : require(id));
   new Function('module', 'exports', 'require', code)(mod, mod.exports, resolve);
   return mod.exports;

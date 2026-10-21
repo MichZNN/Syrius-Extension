@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const assert = require('node:assert/strict');
+const { jsLiteral } = require('./js-literal');
 const { spawn } = require('node:child_process');
 const webpack = require('webpack');
 const sass = require('sass');
@@ -52,7 +53,7 @@ const Fixture=()=>{
   const show=(kind='alert',title='Confirm this synthetic action')=>{
     if(kind==='generic')model.openModal(<div>Read this synthetic message.</div>);
     else if(kind==='single')model.openModal(<div title={title}><button id="single-action" onClick={()=>counts.confirmed++}>Confirm</button></div>);
-    else if(kind==='disabled')model.openModal(<div title={title}><button disabled>Disabled</button><button hidden>Hidden</button><fieldset disabled><button>Disabled by fieldset</button></fieldset><span inert=""><button>Inert</button></span><button style={{visibility:'hidden'}}>Invisible</button></div>);
+    else if(kind==='disabled')model.openModal(<div title={title}><button disabled>Disabled</button><button hidden>Hidden</button><fieldset disabled><button>Disabled by fieldset</button></fieldset><span inert><button>Inert</button></span><button style={{visibility:'hidden'}}>Invisible</button></div>);
     else if(kind==='transaction')model.openModal(alert(title,true));
     else if(kind==='long')model.openModal(alert(title,false,true));
     else model.openModal(alert(title));
@@ -74,7 +75,7 @@ const compile = () => new Promise((resolve, reject) => {
     output: { path: extension, filename: 'fixture.js' }, devtool: false,
     resolve: { modules: [path.join(root, 'node_modules')] },
     module: { rules: [
-      { test: /\.jsx?$/, exclude: /node_modules/, use: { loader: require.resolve('babel-loader'), options: { presets: [require.resolve('@babel/preset-react')], configFile: false, babelrc: false } } },
+      { test: /\.jsx?$/, exclude: /node_modules/, use: { loader: require.resolve('babel-loader'), options: { presets: [[require.resolve('@babel/preset-react'), { runtime: 'classic' }]], configFile: false, babelrc: false } } },
       { test: /\.svg$/, type: 'asset/resource' },
     ] }, performance: false,
   });
@@ -137,7 +138,7 @@ const watchdog = setTimeout(() => {
   };
   const active = () => evaluate("document.activeElement.id || document.activeElement.className");
   const show = async (kind = 'alert', title) => {
-    await evaluate(`document.querySelector('#trigger').focus();fixture.show(${JSON.stringify(kind)},${JSON.stringify(title)})`);
+    await evaluate(`document.querySelector('#trigger').focus();fixture.show(${jsLiteral(kind)},${jsLiteral(title)})`);
     await until("Boolean(document.querySelector('[role=dialog]'))");
   };
   const closed = async () => { await until("!document.querySelector('[role=dialog]')"); assert.equal(await active(), 'trigger'); };
@@ -218,7 +219,7 @@ const watchdog = setTimeout(() => {
   assert.equal(await active(), 'icon-button');
   await key('Tab'); await key('Tab'); await key('Tab'); assert.equal(await active(), 'icon-button');
   await key('Escape'); await closed();
-  const visibleControl = selector => evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)}),r=el.getBoundingClientRect();return r.width>0&&r.height>0&&r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight;})()`);
+  const visibleControl = selector => evaluate(`(()=>{const el=document.querySelector(${jsLiteral(selector)}),r=el.getBoundingClientRect();return r.width>0&&r.height>0&&r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight;})()`);
   for (const [width, height] of [[360, 400], [320, 184]]) {
     await cdp('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false }, sessionId);
     const before = await counts();

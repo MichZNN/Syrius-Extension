@@ -41,6 +41,10 @@ jobs:
     name: Build Chrome/Brave package
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     outputs:
       manifest_version: ${{ steps.metadata.outputs.manifest_version }}
 
@@ -152,8 +156,25 @@ jobs:
           firefox_path="$(command -v firefox || true)"
           CHROMIUM_PATH="$browser_path" FIREFOX_PATH="$firefox_path" npm run test:browser
 
+      - name: Check service worker startup guards
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          browser_path="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          test -n "$browser_path"
+          CHROMIUM_PATH="$browser_path" node utils/service-worker-guard-browser-test.js
+
       - name: Build production extension
         run: npm run build
+
+      # A page open before the install gets the wallet without a reload, once.
+      - name: Check open-tab injection
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          browser_path="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          test -n "$browser_path"
+          CHROMIUM_PATH="$browser_path" node utils/open-tab-injection-browser-test.js
 
       # Every other browser fixture substitutes the SDK boundary, which is how
       # wallet removal stayed broken in production builds while they all passed.
@@ -167,6 +188,17 @@ jobs:
           test -n "$browser_path"
           CHROMIUM_PATH="$browser_path" SYRIUS_EXTENSION_DIR="$PWD/build" \
             node utils/keyfile-lifecycle-browser-test.js
+
+      # Sites on the built Firefox add-on, which has no native document IDs.
+      # Skipped, and said so, on a runner without Firefox.
+      - name: Check Firefox site connections
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          firefox_path="$(command -v firefox || true)"
+          if [ -z "$firefox_path" ]; then echo "No Firefox on this runner: site checks skipped"; exit 0; fi
+          SYRIUS_PLATFORM=firefox npm run build
+          FIREFOX_PATH="$firefox_path" node utils/firefox-site-browser-test.js
 
       - name: Validate and package production build
         id: package
@@ -205,6 +237,12 @@ jobs:
           sha256sum "$archive" > "${archive}.sha256"
           printf 'archive_name=%s\n' "$archive" >> "$GITHUB_OUTPUT"
 
+      - name: Attest Chrome/Brave release package
+        if: env.RELEASING == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.package.outputs.archive_name }}
+
       - name: Upload direct Chrome/Brave package artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -220,6 +258,10 @@ jobs:
     name: Build iOS app (unsigned IPA)
     runs-on: macos-15
     timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     outputs:
       ipa: ${{ steps.package.outputs.ipa }}
 
@@ -282,6 +324,12 @@ jobs:
           (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/$ipa" Payload)
           printf 'ipa=%s\n' "$ipa" >> "$GITHUB_OUTPUT"
 
+      - name: Attest iOS release package
+        if: env.RELEASING == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.package.outputs.ipa }}
+
       - name: Upload iOS app artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -291,12 +339,17 @@ jobs:
           archive: false
 
   # The Android app. A release is signed with the project's key, which only a
-  # tag or an attach run is given; every other run builds the debug APK, to
-  # show the project still compiles, and keeps nothing.
+  # tag or an attach run is given; every other run builds and keeps the debug
+  # APK. It is its own app (network.zenon.syrius.debug), so it installs beside
+  # a release instead of over it.
   android:
     name: Build Android app
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     # No file-name output: GitHub drops an output that contains a secret's
     # value, and the key alias is part of the name. The publish job derives it.
 
@@ -324,12 +377,25 @@ jobs:
         run: npx cap sync android
 
       - name: Build the debug APK
+        id: debug
         if: env.RELEASING != 'true'
-        working-directory: android
         shell: bash
         run: |
           export JAVA_HOME="$JAVA_HOME_21_X64"
-          ./gradlew --no-daemon assembleDebug
+          (cd android && ./gradlew --no-daemon assembleDebug)
+          version="$(node -p "require('./package.json').version")"
+          apk="syrius-${version}-android-debug.apk"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$apk"
+          printf 'apk=%s\n' "$apk" >> "$GITHUB_OUTPUT"
+
+      - name: Upload debug APK artifact
+        if: env.RELEASING != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ steps.debug.outputs.apk }}
+          if-no-files-found: error
+          retention-days: 30
+          archive: false
 
       - name: Build and sign the release APK
         id: package
@@ -367,6 +433,12 @@ jobs:
           fi
           printf 'apk=%s\n' "$apk" >> "$GITHUB_OUTPUT"
 
+      - name: Attest Android release package
+        if: env.RELEASING == 'true' && inputs.platforms != 'ios' && inputs.platforms != 'firefox'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.package.outputs.apk }}
+
       - name: Upload Android app artifact
         if: env.RELEASING == 'true' && inputs.platforms != 'ios' && inputs.platforms != 'firefox'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -379,11 +451,16 @@ jobs:
   # The Firefox add-on. Firefox installs only an add-on Mozilla has signed, so a
   # release sends the package to addons.mozilla.org for an unlisted signature;
   # that happens once per version, on a tag or an attach run only. Every other
-  # run builds and lints the package and keeps nothing.
+  # run keeps the unsigned package, which Firefox loads only as a temporary
+  # add-on (about:debugging) or in Developer Edition and Nightly.
   firefox:
     name: Build Firefox add-on
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
 
     steps:
       - name: Check out repository
@@ -408,6 +485,27 @@ jobs:
       # Self-hosted: the add-on names its own update_url, which a listed one may not.
       - name: Lint it as addons.mozilla.org does
         run: npx --yes web-ext@10.7.0 lint --self-hosted --source-dir build-firefox
+
+      - name: Package it unsigned
+        id: unsigned
+        if: env.RELEASING != 'true'
+        shell: bash
+        run: |
+          version="$(node -p "require('./build-firefox/manifest.json').version")"
+          xpi="syrius-extension-${version}-firefox-unsigned.xpi"
+          npx --yes web-ext@10.7.0 build --source-dir build-firefox \
+            --artifacts-dir "$RUNNER_TEMP/unsigned" --filename "$xpi"
+          cp "$RUNNER_TEMP/unsigned/$xpi" "$xpi"
+          printf 'xpi=%s\n' "$xpi" >> "$GITHUB_OUTPUT"
+
+      - name: Upload unsigned Firefox add-on artifact
+        if: env.RELEASING != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ steps.unsigned.outputs.xpi }}
+          if-no-files-found: error
+          retention-days: 30
+          archive: false
 
       - name: Sign it and write the update manifest
         id: package
@@ -438,6 +536,12 @@ jobs:
           # manifest's update_url is this file on the latest release).
           XPI="$xpi" VERSION="$version" REPOSITORY="$GITHUB_REPOSITORY" node utils/firefox-updates.js
           printf 'xpi=%s\n' "$xpi" >> "$GITHUB_OUTPUT"
+
+      - name: Attest Firefox release package
+        if: env.RELEASING == 'true' && inputs.platforms != 'ios' && inputs.platforms != 'android'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.package.outputs.xpi }}
 
       - name: Upload Firefox add-on artifact
         if: env.RELEASING == 'true' && inputs.platforms != 'ios' && inputs.platforms != 'android'

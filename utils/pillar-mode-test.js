@@ -21,7 +21,7 @@ const load = (file, cache = new Map()) => {
   const mod = { exports: {} };
   cache.set(filename, mod.exports);
   const { code } = babel.transformFileSync(filename, {
-    presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'], babelrc: false, configFile: false,
+    presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]], babelrc: false, configFile: false,
   });
   const resolve = (name) => (name.startsWith('.')
     ? load(path.resolve(path.dirname(filename), name) + (path.extname(name) ? '' : '.js'), cache) : require(name));
@@ -108,12 +108,24 @@ test('every menu icon is in the vendored set', () => {
 //
 // Contract rules, against go-zenon's
 //
-const goNamePattern = /^([a-zA-Z0-9]+[-._]?)*[a-zA-Z0-9]$/; // vm/embedded/implementation/pillars.go
+// go-zenon's pattern (vm/embedded/implementation/pillars.go),
+// `^([a-zA-Z0-9]+[-._]?)*[a-zA-Z0-9]$`, as the rules it amounts to: only
+// letters, digits and - . _, a letter or digit first and last, and no two
+// separators together. Written out because the pattern itself backtracks
+// exponentially in JavaScript (code scanning js/redos); Go's regexp does not.
+const goName = (name) => /^[a-zA-Z0-9._-]+$/.test(name) && /^[a-zA-Z0-9]/.test(name) &&
+  /[a-zA-Z0-9]$/.test(name) && !/[-._]{2}/.test(name);
+// Every string of up to `length` characters drawn from `alphabet`.
+const every = (alphabet, length) => {
+  const out = [''];
+  for (let at = 0; at < out.length; at++) if (out[at].length < length) for (const c of alphabet) out.push(out[at] + c);
+  return out;
+};
 test('pillar names: the same answers as go-zenon, without its backtracking', () => {
-  const names = ['a', 'Pillar1', 'my-pillar', 'my.pillar_1', 'a-b-c', 'x'.repeat(40), 'x'.repeat(41), '',
-    '-a', 'a-', 'a--b', 'a-.b', 'a b', 'ä', 'a_', '_a', 'A.B.C', '1', 'a.b-c_d'];
+  const names = ['Pillar1', 'my-pillar', 'my.pillar_1', 'a-b-c', 'x'.repeat(40), 'x'.repeat(41),
+    'ä', 'A.B.C', 'a.b-c_d', ...every(['a', 'Z', '1', '-', '.', '_', ' '], 5)];
   for (const name of names) {
-    const go = name.length > 0 && name.length <= 40 && goNamePattern.test(name);
+    const go = name.length > 0 && name.length <= 40 && goName(name);
     assert.equal(rules.pillarNameError(name) === null, go, JSON.stringify(name));
   }
   const started = Date.now();
