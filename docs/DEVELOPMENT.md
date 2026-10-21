@@ -142,7 +142,9 @@ merging a release. To use the tag-triggered path manually instead of the
 automatic `main` release:
 
 ```bash
-git tag v0.3.5 && git push origin v0.3.5
+release_version="$(node -p "require('./src/manifest.json').version")" &&
+  git tag "v${release_version}" &&
+  git push origin "v${release_version}"
 ```
 
 The normal `main` workflow creates the tag itself. The workflow does not
