@@ -70,19 +70,23 @@ and run npm run test:browser. These checks use disposable profiles and synthetic
 they do not contact a Zenon network or qualify real wallet encryption.
 
 Download the ZIP and its .sha256 file into the same directory. On systems with
-GNU coreutils, run `sha256sum --check syrius-extension-0.3.5-chrome-brave.zip.sha256`
-there. The checksum records the ZIP's basename, so it does not depend on a CI
-workspace directory.
+GNU coreutils, run `sha256sum --check CHECKSUM_FILE` there, replacing
+`CHECKSUM_FILE` with that downloaded .sha256 filename. The checksum records the
+ZIP's basename, so it does not depend on a CI workspace directory.
 
-The current source version is 0.3.5. A push to `main` automatically creates
-the matching `v0.3.5` tag and publishes the ZIP assets to a GitHub Release.
+The release version comes from the matching `version` fields in package.json
+and src/manifest.json. A push to `main` automatically creates the matching
+version tag and publishes the ZIP assets to a GitHub Release.
 Pushes to `master`, `development` and `manifest-v3` only create validation artifacts.
 
 For a manual tag-triggered release instead of the automatic `main` release:
 
 ~~~powershell
-git tag v0.3.5
-git push origin v0.3.5
+$releaseVersion = (Get-Content -Raw -ErrorAction Stop src/manifest.json | ConvertFrom-Json -ErrorAction Stop).version
+git tag "v$releaseVersion"
+if ($LASTEXITCODE -eq 0) {
+  git push origin "v$releaseVersion"
+}
 ~~~
 
 No custom repository variables or secrets are required. The release job uses
