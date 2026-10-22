@@ -3,6 +3,7 @@ import { getCurrentNodeUrl } from '../utils/storage';
 import { runApprovalOperation } from './approvalOperation';
 import { authorizationMetadata, normalizeBaseUnits } from './tokenMetadata';
 import vault from './vault';
+import { fail } from '../utils/errors';
 
 // An arbitrary block is prepared once, for review, and that preparation is
 // what gets signed.
@@ -35,7 +36,7 @@ const freeze = (value) => {
 // Browser-native: the app's Buffer polyfill is not in every bundle.
 const bytesToBase64 = (bytes) => btoa(String.fromCharCode(...bytes));
 const base64ToBytes = (text) => Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
-const changed = () => new Error('This approval is no longer current. Review a new request.');
+const changed = () => fail(820);
 
 // `address` and `index` are the approval's bound account; `expiresAt` and
 // `signal` bound the preparation's node calls (approvalOperation).

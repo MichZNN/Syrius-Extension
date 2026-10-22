@@ -1,0 +1,3 @@
+[
+  ["the SDK's divided figure is shown", "src/pages/delegate/delegate.js", "Delegated · {formatAmount(delegatedWeight(delegated), 8, { maxDecimals: 0 })} ZNN", "Delegated · {formatAmount(delegated.weightWithDecimals, 0, { maxDecimals: 0 })} weight"]
+]

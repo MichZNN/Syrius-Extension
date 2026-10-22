@@ -1,5 +1,260 @@
 # Changelog
 
+## 0.3.7
+
+New
+- AZ opens at once on the project list stored last time, then reads only
+  what changed on the Accelerator contract since: on mainnet a few blocks
+  and a dozen projects instead of all 201, which took 7 to 10 seconds. A
+  list from another chain, or a gap too long to follow, is read in full.
+- Tap an AZ project to see which pillars voted on it and on each phase, and
+  how.
+- Creating or importing a wallet in the app ends by offering Fingerprint
+  (or Face ID) unlock, where the phone has it set up.
+
+Changed
+- AZ's filters cover every project, not only those already scrolled into
+  the list, and the voted count sits at the right, under the funds.
+- An Android debug build installs beside the release, as
+  `network.zenon.syrius.debug` ("Syrius debug"), instead of blocking it with
+  "App not installed" (#61).
+- Dependencies: React 19 with react-redux 9 (#65), Babel 8 (#52) with
+  ESLint 9 and a flat config, TypeScript 7 (#53; ts-loader removed, as `src`
+  has no TypeScript), html-loader 5 (#64), and minor updates (#63).
+
+Build
+- Release packages carry GitHub build provenance attestations (#59).
+- CI checks site connections on the built Firefox add-on when the runner
+  has Firefox.
+- A CI run that is not a release keeps the unsigned Firefox add-on too,
+  beside the Chrome/Brave ZIP and the iOS IPA. Pull requests and branches
+  other than master also keep the debug APK; master and releases never
+  build it.
+- The ten open code scanning alerts are fixed, all in test fixtures and one
+  dev tool; none was in the shipped wallet. The name tests no longer copy
+  go-zenon's backtracking pattern and instead check every short name
+  against the rules it amounts to. Fixtures escape the values they write
+  into browser code, and the approval test checks the exact accessible name
+  instead of a URL substring.
+- The production keyfile check failed at random, in CI and locally: Chrome
+  keeps listing the dead service worker of the install a reload replaced,
+  and the network guard timed out on it. A service worker that has never
+  sent a message and stops answering is now set aside, never resumed, and
+  fails the run the moment it says anything. Commands to a session Chrome
+  has detached now fail at once instead of waiting out 15 seconds, and a
+  timeout names the command that timed out.
+- CI checks that an extension service worker cannot reach the network at
+  cold start, after a runtime reload or after a browser restart, and macOS
+  test browsers use a mock keychain instead of the login keychain (#68).
+- The open-tab check bounds every browser wait, denies all other origins
+  through a proxy of its own, and reloads the extension the way Chrome's
+  developer reload does, confirming the old worker is gone. A new
+  `test:security` script drives each fixture's browser command transport
+  with a fake socket, so a hung or detached session is caught without a
+  browser (#69).
+- The license names edgepillar among the copyright holders.
+- `elliptic` (CVE-2025-14505, low) has no fixed release. It concerns
+  secp256k1 ECDSA signing, which the wallet never does: Zenon keys sign
+  with ed25519, and `ethers` is used only to encode and format. One copy is
+  compiled into `znn-ts-sdk`, so it cannot be removed here; the alert is
+  closed as code not used.
+- The native browser fixtures keep their guards on dedicated workers and
+  retain the unpacked install across browser restarts (#62).
+
+Fixed
+- A page already open when Syrius was installed had no `window.zenon` until
+  it was reloaded, so a site there (az.zenon.foo in Brave, reported against
+  0.3.6) said "Install the Syrius extension". On install and update, Chrome
+  and Brave now give every open page and frame without a provider the relay
+  and `window.zenon`, which fires `zenon#initialized`. A page that already
+  has a provider (its own, or the previous version's after an update) is
+  left alone, and a relay or provider never starts twice in one page. This
+  needs the `scripting` permission and explicit access to http and https
+  pages, which the content scripts already had; the install warning is
+  unchanged. Firefox already injected into open tabs and is unchanged.
+- Sites could not connect on Firefox: every request was refused with "The
+  requesting document has left". Firefox reports no document IDs; the
+  wallet now uses a private per-document token from its own content script,
+  checked against the frame's current page, and ended by a navigation, the
+  page leaving or the tab closing.
+
+## 0.3.6
+
+New
+- The lock screen says when a newer release is out, in one quiet line, and
+  only then.
+- About's Update row updates the wallet as far as the platform allows. A
+  browser-managed install is updated and reloaded. An unpacked Chrome or Brave
+  install opens an Update tab: choose the folder the extension was loaded from
+  once, and Update now downloads the release, checks its published checksum
+  and that it is this extension at the newer version, writes it over the
+  folder and reloads. The folder is remembered; About's "Forget update folder"
+  resets it.
+- The popup reopens on the screen it closed on, with what had been typed,
+  when it closes by losing focus. Not after the wallet locks.
+- Accelerator-Z phases: Max beside ZNN and QSR fills in what the project has
+  left, and more is refused before the block is sent.
+- An address book (Settings), offered on Send with the last five recipients.
+- Zap a random alien is in the menu as well as in Settings.
+- Proof of work runs on up to four cores at once, and "Generating plasma"
+  says about how long it should take, counting down (~12s, ~3m), on a line
+  of its own under the block.
+- Sends and receives run in the background while the wallet is unlocked
+  with "Lock after" set to a time: closing the popup no longer stops them,
+  proof of work included, and Home shows them again, still going, when it
+  reopens. With On close the popup does the work, and closing it stops it.
+- Incoming transfers are received without opening the popup: every account
+  of the unlocked wallet is checked every 30 s. Auto-receive in Settings
+  turns it off. It never extends "Lock after".
+
+Android and iOS apps (sideload)
+- The wallet as an Android app and an unsigned iOS app (each release's IPA,
+  installed with SideStore or AltStore), with desktop Syrius's `syrius://`
+  links and `syrius://request` for other apps to ask for a connection or a
+  signature ([docs/APP-REQUESTS.md](docs/APP-REQUESTS.md)).
+- Fingerprint or Face ID unlock, kept in the Android Keystore or the iOS
+  Keychain and turned on per wallet in Settings after the password.
+- QR scanning on Send (Android), through Google Play services' scanner: no
+  camera permission. Share on Receive.
+- Locks after "Lock after" spent away from the app; "On close" locks on
+  leaving it.
+- A notification for an incoming transfer while the app is in the
+  background and still running.
+- No screenshots or app-switcher preview on recovery phrase screens. iOS
+  allows hiding the preview only.
+- A `syrius://request` answer goes back to an https address, or to http only
+  on a private network address (localhost, 10/8, 172.16/12, 192.168/16,
+  `.local`).
+- The block status line above the tab bar is taller, with larger text, sized
+  for a finger.
+
+Build
+- `SYRIUS_PLATFORM=firefox` builds a Firefox package into `build-firefox/`,
+  and `android` or `ios` the app's web files into `build-app/`; Chrome's
+  stays in `build/`. A release publishes the Chrome, Android, iOS and Firefox
+  packages, each with its checksum. The Firefox package is unsigned for now,
+  for temporary installation only; connecting sites does not work there yet.
+- A Firefox build whose scripts reach AMO's 5 MiB parse limit fails, naming
+  the file. The SDK, one 5.3 MB module, is now built for Firefox with its two
+  large constants (the proof-of-work script and its wasm) in files of their
+  own, byte for byte; the largest script is 3.9 MB.
+
+Changed
+- Blocks in flight are followed in a line just above the tab bar, which peeks
+  up when one leaves and slides down when the last one settles. A failed one
+  stays there with its reason until dismissed.
+- Sends, receives and every other block report there and on Home, not in
+  toasts. Other actions keep their toasts.
+- Confirming a new wallet's recovery phrase asks for three of its words, by
+  position, from four choices each, instead of all 24 in order. The three are
+  different words and no word is offered twice.
+
+Fixed
+- Firefox never generated plasma, so a block that needed proof of work was
+  never sent there. The SDK's worker is a blob: URL, which Firefox's extension
+  pages refuse; the wallet's own worker is a file of the extension.
+- A full address ran past the end of the Send and contact address fields.
+- Two sends started one after the other, each paying with proof of work: the
+  second failed. They now take turns and both land, with no retry.
+- After the popup reopened on its last screen, Back went nowhere: the screens
+  before it are kept too.
+- A custom token's pending send read "N base units" in the activity list: it
+  now shows the token's symbol and decimals, as its history row does.
+- About's privacy policy link pointed at a branch that does not exist.
+- A token id search that failed while starting its workers left them running.
+- Loading indicators are announced to screen readers.
+- The production package carries the notices of the vendored fonts and icons.
+
+Transaction journal
+
+- A send that is interrupted is no longer a send that may be signed twice.
+  Every block is recorded before it is sent; if the popup closes, the
+  connection drops or the node never answers, the wallet looks that block up
+  and, if the node never saw it, sends the same bytes again. It does not sign
+  a replacement on its own.
+- Sends, receives and site-approved sends from one account now take turns,
+  across windows. Two of them can no longer build on the same block and have
+  one refused or displaced. A send you start goes ahead of blocks still
+  waiting to be received.
+- While a sent block's outcome is unknown the dashboard says so, holds that
+  account's next send, and offers to stop waiting.
+- The record is encrypted under a key derived from the wallet's seed, readable
+  only while that wallet is unlocked, kept for 24 hours after a block settles,
+  limited to 100 per account, and deleted with the wallet.
+- A page that framed several origins could fill the approval queue and raise
+  a new approval window every five seconds by using the next origin each
+  time. A tab now holds at most four pending requests and raises one window
+  per 30 seconds, as an origin does; an approval still earns its follow-up.
+- A sandboxed frame's origin, `null`, is no longer taken for a site: its
+  request is refused before any approval is asked for.
+- On Chrome 112, the oldest the manifest allows, the background page was
+  asked for with a reason only Chrome 113 has. It is no longer asked for
+  there, and the popup does the sending and receiving, as with On close.
+
+## 0.3.5
+
+Redesign
+- New look in dark and light: vendored Space Grotesk and JetBrains Mono, Lucide
+  icons, accent colours and small animations. Pages load without a scrollbar
+  unless they need one.
+- Home shows an approximate value in dollars. The receive QR code is Zenon green.
+- The lock and welcome screens have an animated mark: a green and a blue
+  light chase each other round the logo, and they run one extra turn and go
+  green when the wallet unlocks. The welcome screen keeps the node button.
+- Settings is three sections that fold: Extension (Node with node stats,
+  Explorer, Connected sites, Zap, Sign message, Theme, About), open by
+  default, then Modes and Wallet.
+
+Operator modes (Settings, Modes)
+- Pillar mode puts Pillar, Rewards and AZ on the tab bar: register, update and
+  revoke a pillar, deposit and withdraw QSR, collect rewards, see the last
+  epochs' production, create Accelerator-Z projects and phases, and vote.
+  Revoke asks for the wallet password and then once more.
+- Sentinel mode: register, revoke, collect, deposit and withdraw QSR.
+- The bridge mode switch is gone until the orbital bridge pages exist.
+- Sporks mode: every spork and its state. A spork administrator can create and
+  activate; activating one znnd does not implement needs its name typed out,
+  because it stops every node that lacks it.
+
+New
+- Tokens: list the ZTS tokens an address owns, issue one (optionally searching
+  for a custom id prefix or suffix), mint, burn, and update owner and flags.
+- Delegate: estimated APR for each pillar, and sorting by weight, APR or
+  production.
+- Plasma: select several fuses and cancel them together.
+- Zap: send 1 ZNN and 10 QSR, or your own amounts, with a message to a random
+  address that received something in the last seven days. An incoming zap is
+  marked in the history and its message can be reopened.
+- About (Settings): the version, whether a newer release is out, and links
+  to the releases, the source and the privacy policy.
+- Node stats: sync state, peers, and a chain that has stopped is called
+  stalled whatever the node reports.
+
+Changed
+- A block sent from any page is followed to its momentum from that page, and
+  what a contract sends back is received without opening Home. Sending no
+  longer jumps to Home.
+- Every error shown has a number and a short description. Raw node output goes
+  to the console.
+- The wallet's own confirmation dialogs no longer show the signing chain and
+  node host. A site's request still does.
+
+Fixed
+- Plasma's recipient field cut the address off: the whole address now fits.
+- Delegate's sort buttons ran off the right edge: they now fit the row.
+- Delegate showed "0 weight" for a delegation: it now shows the ZNN delegated.
+- The message of a zap you sent said "From" the recipient: it now says "To".
+- The light round the balance card and the logo gathers and eases as it
+  turns instead of running at one pace.
+- The light round the Home balance card restarted from the top whenever Home
+  was opened again. It now keeps its place.
+- Sending to your own address showed two rows reading "Received": the send is
+  now "Sent" and only its receive is "Received".
+
+Repository
+- The long README sections and the loose root documents moved to `docs/`.
+- `tools/devnet/lab`: a local go-zenon devnet for test runs that send blocks.
+
 ## 0.3.4
 
 - Locking, expiry and wallet removal now revoke every open wallet window's
@@ -151,7 +406,7 @@ into a Create-React-App-shaped extension boilerplate it had outgrown, and
 injected into exactly one website.
 
 The reasoning behind each change, and what was measured rather than assumed, is
-in [REFACTOR.md](REFACTOR.md).
+in [REFACTOR.md](docs/REFACTOR.md).
 
 ### Wallet correctness
 

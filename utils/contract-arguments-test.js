@@ -27,7 +27,7 @@ const loader = (overrides = () => undefined, environment = {}) => {
     if (modules.has(filename)) return modules.get(filename).exports;
     const module = { exports: {} }; modules.set(filename, module);
     if (!cache.has(filename)) cache.set(filename, babel.transformFileSync(filename, {
-      presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'], configFile: false, babelrc: false,
+      presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]], configFile: false, babelrc: false,
     }).code);
     const requireModule = id => {
       const replaced = overrides(id); if (replaced !== undefined) return replaced;

@@ -2,6 +2,7 @@ import { Primitives } from 'znn-ts-sdk';
 import { ethers } from 'ethers';
 import fallbackValues from '../utils/fallbackValues';
 import { parseAmount, toBigNumber } from '../utils/format';
+import { fail } from '../utils/errors';
 
 const znnZts = 'zts1znnxxxxxxxxxxxxx9z4ulx';
 const qsrZts = 'zts1qsrxxxxxxxxxxxxxmrhjll';
@@ -23,7 +24,7 @@ const normalizeTokenStandard = (value) =>
 const normalizeBaseUnits = (value) => {
   const amount = ethers.BigNumber.from(value);
   if (amount.lt(0)) {
-    throw new Error('The amount must be a nonnegative integer of base units');
+    throw fail(316);
   }
   return amount.toString();
 };
@@ -41,6 +42,20 @@ const authorizationMetadata = (tokenStandard) => {
   });
 };
 
+// How a token is labelled on screen, like the Tokens tab and the activity
+// list: a custom token takes the symbol and decimals from the node's token
+// data. What is signed never reads these; the amount and the confirmation use
+// authorizationMetadata, which knows only ZNN and QSR.
+const displayMetadata = (token) => {
+  const metadata = authorizationMetadata(token.tokenStandard);
+  if (metadata.isNative) return { symbol: metadata.symbol, decimals: metadata.decimals };
+  const { symbol, decimals } = token;
+  return {
+    symbol: typeof symbol === 'string' && symbol.trim() ? symbol : 'Custom token',
+    decimals: Number.isInteger(decimals) && decimals >= 0 ? decimals : 0,
+  };
+};
+
 const parseTransferAmount = (input, tokenStandard) => {
   const metadata = authorizationMetadata(tokenStandard);
   const text = typeof input === 'string' ? input.trim() : '';
@@ -56,10 +71,10 @@ const prepareTransfer = ({ tokenStandard, amount, recipient, owner, balance }) =
   const metadata = authorizationMetadata(tokenStandard);
   const parsed = parseTransferAmount(amount, tokenStandard);
   if (!parsed || parsed.lte(0)) {
-    throw new Error(metadata.isNative ? 'Enter a positive token amount' : 'Enter a positive integer number of base units');
+    throw fail(metadata.isNative ? 317 : 318);
   }
   if (parsed.gt(toBigNumber(balance))) {
-    throw new Error('Not enough balance for this transfer');
+    throw fail(309);
   }
   return Object.freeze({
     ...metadata,
@@ -69,4 +84,4 @@ const prepareTransfer = ({ tokenStandard, amount, recipient, owner, balance }) =
   });
 };
 
-export { normalizeBaseUnits, znnZts, qsrZts, nativeTokens, normalizeTokenStandard, authorizationMetadata, parseTransferAmount, prepareTransfer };
+export { normalizeBaseUnits, znnZts, qsrZts, nativeTokens, normalizeTokenStandard, authorizationMetadata, displayMetadata, parseTransferAmount, prepareTransfer };

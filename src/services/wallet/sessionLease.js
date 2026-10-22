@@ -16,6 +16,7 @@
 // in the record too, so a renewal computes its deadline from the policy current
 // under the lock rather than from a preference some caller read earlier.
 import { sameScope, validScope } from './walletScope';
+import { fail } from '../utils/errors';
 
 const sessionKey = 'znn.unlock';
 const publicStateKey = 'znn.publicState';
@@ -24,12 +25,12 @@ const lockName = 'znn.walletSession';
 // they require one password unlock after this update.
 const version = 2;
 const lockChoices = [0, 5, 15, 60];
-const ended = () => Object.assign(new Error('The wallet session ended. Unlock it again.'), { code: 'WALLET_LOCKED' });
-const unavailable = () => Object.assign(new Error('Could not confirm the wallet session. Other wallet windows may still be unlocked. Try again or close the browser.'), {
+const ended = () => Object.assign(fail(201), { code: 'WALLET_LOCKED' });
+const unavailable = () => Object.assign(fail(202), {
   code: 'WALLET_SESSION_UNAVAILABLE',
 });
 // The selection moved on: not a lock, and not a reason to purge keys.
-const changed = () => Object.assign(new Error('The wallet or account changed. Unlock and review a new request.'), {
+const changed = () => Object.assign(fail(203), {
   code: 'WALLET_SELECTION_CHANGED',
 });
 const storage = async (method, value) => {
@@ -161,7 +162,7 @@ const select = (id, ownerId, { index, address, entropy }, persist) => transactio
 // then is the relaxed record written. A failure at any step leaves the session
 // no less strict than both the old and the new policy.
 const setPolicy = (id, ownerId, minutes, entropy, persist) => transaction(async (stored) => {
-  if (!validMinutes(minutes)) throw new Error('Choose a supported lock duration.');
+  if (!validMinutes(minutes)) throw fail(207);
   const current = stored[sessionKey];
   await assertLease(current, id, ownerId);
   const now = Date.now();
@@ -207,7 +208,9 @@ const clear = (expected, afterRevoke) => transaction(async (stored) => {
 // address and scope are the record's own, never a caller's, and the snapshot
 // is bound to both identities. Returns the selection generation the event that
 // follows is about.
-const publish = (id, ownerId, value) => use(id, ownerId, async (record) => {
+// `use` is this module's lease transaction, not React 19's hook.
+// eslint-disable-next-line react-hooks/rules-of-hooks
+const publish =(id, ownerId, value) => use(id, ownerId, async (record) => {
   if (record.mode !== 'timed') return { published: false, selectionId: record.selectionId };
   await storage('set', { [publicStateKey]: { ...value, address: record.scope.address, scope: record.scope,
     selectionId: record.selectionId, leaseId: id } });

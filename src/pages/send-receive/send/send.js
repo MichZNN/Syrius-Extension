@@ -4,7 +4,7 @@ import { Primitives } from 'znn-ts-sdk';
 import { useForm } from 'react-hook-form';
 
 import TokenAmount from '../../../components/token-amount/token-amount';
-import { authorizationMetadata, parseTransferAmount, prepareTransfer } from '../../../services/wallet/tokenMetadata';
+import { authorizationMetadata, displayMetadata, parseTransferAmount, prepareTransfer } from '../../../services/wallet/tokenMetadata';
 import AlertModal from '../../../components/modals/alert-modal';
 import ControlledDropdown from '../../../components/custom-dropdown/controlled-dropdown';
 import { ModalContext } from '../../../services/hooks/modal/modalContext';
@@ -16,7 +16,13 @@ import {
   toBigNumber,
 } from '../../../services/utils/format';
 import { notify } from '../../../services/utils/notify';
-import { znnZts } from '../../../services/wallet/account';
+import { qsrZts, znnZts } from '../../../services/wallet/account';
+import useLinkPrefill from '../../../services/utils/linkPrefill';
+import { fail } from '../../../services/utils/errors';
+import usePopupState from '../../../services/utils/popupState';
+import { addRecentRecipient, getContacts, getRecentRecipients } from '../../../services/utils/storage';
+import app from '../../../services/utils/app';
+import Icon from '../../../components/icon/icon';
 
 // Sending.
 //
@@ -42,11 +48,9 @@ const Send = () => {
   const { openModal } = useContext(ModalContext);
   const { sendInBackground } = useBackgroundSender();
 
-  const [selectedToken, setSelectedToken] = useState(
-    location.state?.currentSelectedToken || znnZts
-  );
-  const [amount, setAmount] = useState('');
-  const [recipient, setRecipient] = useState('');
+  const [selectedToken, setSelectedToken] = usePopupState('send.token', znnZts);
+  const [amount, setAmount] = usePopupState('send.amount', '');
+  const [recipient, setRecipient] = usePopupState('send.recipient', '');
 
   const {
     register,
@@ -76,6 +80,25 @@ const Send = () => {
   useEffect(() => {
     setValue('selectedTokenField', selectedToken, { shouldValidate: true });
   }, [selectedToken, setValue]);
+
+  // A token picked on the screen that opened this one wins over a kept one.
+  // Kept values (utils/popupState.js) are the form library's too, or it would
+  // call them missing.
+  // A syrius:// link (platform/linkRoutes.js) wins over both: it says what
+  // the person tapped just now.
+  const link = useLinkPrefill();
+  useEffect(() => {
+    if (location.state?.currentSelectedToken) setSelectedToken(location.state.currentSelectedToken);
+    const linkToken = { znn: znnZts, qsr: qsrZts }[link.zts?.toLowerCase()] || (/^zts1[0-9a-z]{20,}$/.test(link.zts || '') ? link.zts : null);
+    if (linkToken) setSelectedToken(linkToken);
+    if (link.amount) setAmount(link.amount);
+    if (link.address) setRecipient(link.address);
+    const startAmount = link.amount || amount;
+    const startRecipient = link.address || recipient;
+    if (startAmount) setValue('sendAmountField', startAmount, { shouldValidate: true });
+    if (startRecipient) setValue('recipientAddressField', startRecipient, { shouldValidate: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Comparing base units rather than parsed floats, so a balance that a double
   // cannot represent still validates correctly.
@@ -118,6 +141,40 @@ const Send = () => {
     }
   };
 
+  const fillRecipient = (value) => {
+    setRecipient(value);
+    setValue('recipientAddressField', value, { shouldValidate: true });
+    setPicking(false);
+  };
+
+  // The address book and the last few recipients, under the field.
+  const [picking, setPicking] = useState(false);
+  const contacts = useMemo(() => (picking ? getContacts() : []), [picking]);
+  const recent = useMemo(() => (picking ? getRecentRecipients() : []), [picking]);
+  const nameOf = (value) => contacts.find((entry) => entry.address === value)?.name;
+  // The buttons sit inside the field while what is typed leaves them room. A
+  // Zenon address is 40 characters and needs the whole width, so then the
+  // field has it and the address book is a link under it, as Plasma's "Me" is.
+  const buttonsFit = recipient.trim().length <= (app()?.scan ? 30 : 34);
+
+  // A QR code holding an address fills the field; one holding a syrius://
+  // link is followed, as if it had been tapped.
+  const scan = async () => {
+    try {
+      const text = (await app().scan())?.trim();
+      if (!text) return;
+      if (/^syrius:/i.test(text)) {
+        window.syriusAppLinks?.receive(text);
+        return;
+      }
+      const found = text.match(/z1[0-9a-z]{38}/);
+      if (found && validateRecipient(found[0]) === true) fillRecipient(found[0]);
+      else notify.error(fail(134));
+    } catch (error) {
+      notify.error(error);
+    }
+  };
+
   // Nothing here is awaited. Building and signing the block can take seconds of
   // proof of work on an account with no fused plasma, and the wallet used to
   // spend them behind a modal spinner on this screen. The block goes off to the
@@ -126,14 +183,14 @@ const Send = () => {
     // A metadata refresh cannot reinterpret an already reviewed quantity.
     // An account or token selection change requires another confirmation.
     if (current.current.address !== review.owner || current.current.selectedToken !== review.tokenStandard) {
-      notify.error('The account or token changed. Review this transfer again.');
+      notify.error(fail(310));
       return;
     }
     try {
       const parsed = toBigNumber(review.amount);
       const latestBalance = current.current.balanceMap[review.tokenStandard]?.balance;
       if (parsed.gt(toBigNumber(latestBalance))) {
-        throw new Error('Not enough balance for this transfer');
+        throw fail(309);
       }
       const template = Primitives.AccountBlockTemplate.send(
         Primitives.Address.parse(review.recipient),
@@ -141,8 +198,13 @@ const Send = () => {
         parsed
       );
 
+      // The row and the notice label the token as its history row will once
+      // it lands, by the node's symbol and decimals, rather than in the
+      // confirmation's unverified base units.
+      const shown = displayMetadata(current.current.balanceMap[review.tokenStandard]?.token ||
+        { tokenStandard: review.tokenStandard });
       sendInBackground(template, {
-        successMessage: `Sent ${formatExact(review.amount, review.decimals)} ${review.symbol}`,
+        successMessage: `Sent ${formatExact(review.amount, shown.decimals)} ${shown.symbol}`,
         // What the dashboard needs to draw the row, since the block will not be
         // in the account's history until this finishes.
         row: {
@@ -152,11 +214,12 @@ const Send = () => {
           owner: review.owner,
           label: 'Sending',
           amount: parsed.toString(),
-          decimals: review.decimals,
-          tokenSymbol: review.symbol,
+          decimals: shown.decimals,
+          tokenSymbol: shown.symbol,
         },
       });
 
+      addRecentRecipient(review.recipient);
       setAmount('');
       setRecipient('');
       reset();
@@ -251,21 +314,65 @@ const Send = () => {
         </div>
 
         <div className="custom-control">
-          <input
-            {...register('recipientAddressField', { required: true, validate: validateRecipient })}
-            className={`w-100 custom-label ${
-              errors.recipientAddressField ? 'custom-label-error' : ''
-            }`}
-            placeholder="Recipient address"
-            value={recipient}
-            onChange={(event) => {
-              setRecipient(event.target.value);
-              setValue('recipientAddressField', event.target.value, { shouldValidate: true });
-            }}
-            type="text"
-            spellCheck="false"
-            autoComplete="off"
-          />
+          <div className={`input-with-button w-100 ${!buttonsFit ? 'is-full' : app()?.scan ? 'has-two' : ''}`}>
+            <input
+              {...register('recipientAddressField', { required: true, validate: validateRecipient })}
+              className={`w-100 custom-label address-input ${
+                errors.recipientAddressField ? 'custom-label-error' : ''
+              }`}
+              placeholder="Recipient address"
+              value={recipient}
+              onChange={(event) => {
+                setRecipient(event.target.value);
+                setValue('recipientAddressField', event.target.value, { shouldValidate: true });
+              }}
+              type="text"
+              spellCheck="false"
+              autoComplete="off"
+            />
+            {buttonsFit && (
+            <div className="input-icon-buttons">
+              {app()?.scan && (
+                <button type="button" className="input-icon-button" aria-label="Scan QR code" onClick={scan}>
+                  <Icon name="scan" size={18} />
+                </button>
+              )}
+              <button
+                type="button"
+                className={`input-icon-button ${picking ? 'is-active' : ''}`}
+                aria-label="Address book"
+                aria-expanded={picking}
+                onClick={() => setPicking(!picking)}
+              >
+                <Icon name="contacts" size={18} />
+              </button>
+            </div>
+            )}
+          </div>
+          {!buttonsFit && (
+            <button type="button" className="text-link field-link" aria-expanded={picking} onClick={() => setPicking(!picking)}>
+              Address book
+            </button>
+          )}
+          {picking && (
+            <div className="recipient-picker">
+              {!contacts.length && !recent.length && <div className="text-gray text-xs">None yet</div>}
+              {recent.length > 0 && <div className="recipient-picker-title">Recent</div>}
+              {recent.map((value) => (
+                <button type="button" key={`r-${value}`} className="recipient-option" onClick={() => fillRecipient(value)}>
+                  {nameOf(value) && <span className="recipient-name">{nameOf(value)}</span>}
+                  <span className="mono">{value.slice(0, 10)}…{value.slice(-6)}</span>
+                </button>
+              ))}
+              {contacts.length > 0 && <div className="recipient-picker-title">Contacts</div>}
+              {contacts.map((entry) => (
+                <button type="button" key={`c-${entry.address}`} className="recipient-option" onClick={() => fillRecipient(entry.address)}>
+                  <span className="recipient-name">{entry.name}</span>
+                  <span className="mono">{entry.address.slice(0, 10)}…{entry.address.slice(-6)}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <div className={`input-error ${errors.recipientAddressField ? '' : 'invisible'}`}>
             {errors.recipientAddressField?.message || 'Address is required'}
           </div>

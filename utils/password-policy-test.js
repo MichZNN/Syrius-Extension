@@ -10,28 +10,47 @@ const writes = [];
 const errors = [];
 const store = { entropy: 'fixture entropy', mnemonic: 'one two' };
 let correctCurrentPassword = true;
+let encryptedArguments;
+const encrypted = { opaqueEncryptedValue: true };
+const storage = { setItem: (key, value) => {
+  assert.equal(key, 'synthetic-wallets');
+  const entries = Object.entries(JSON.parse(value));
+  assert.equal(entries.length, 1);
+  assert.deepEqual(entries[0][1], encrypted);
+  writes.push([...encryptedArguments, entries[0][0]]);
+} };
 const sdk = {
   KeyStore: class {
     fromEntropy(entropy) { return { ...store, entropy }; }
     fromMnemonic() { return store; }
   },
+  KeyFile: { encrypt: async (...args) => { encryptedArguments = args; return encrypted; } },
   KeyStoreManager: class {
-    async saveKeyStore(...args) { writes.push(args); return 'saved'; }
+    constructor() { this.walletPath = 'synthetic-wallets'; }
+    listAllKeyStores() { return {}; }
     async getNewKeystore() { return store; }
   },
 };
 
 const load = (file, resolve) => {
   const { code } = babel.transformFileSync(path.join(__dirname, '..', file), {
-    presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'],
+    presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]],
     babelrc: false,
     configFile: false,
   });
   const mod = { exports: {} };
-  new Function('module', 'exports', 'require', code)(mod, mod.exports, resolve);
+  new Function('module', 'exports', 'require', 'localStorage', code)(mod, mod.exports, resolve, storage);
   return mod.exports;
 };
+// Besides the SDK, the policy imports only the error catalogue, loaded for real.
+const errorModules = (name) => {
+  if (name === '../utils/errors') return load('src/services/utils/errors.js', errorModules);
+  if (name === './errorCatalog') return load('src/services/utils/errorCatalog.js', errorModules);
+  return null;
+};
 const policy = load('src/services/wallet/password.js', (name) => {
+  const errors = errorModules(name);
+  if (errors) return errors;
   assert.equal(name, 'znn-ts-sdk');
   return sdk;
 });
@@ -74,7 +93,11 @@ const page = (file, initial) => {
     if (name.endsWith('/wallet/session')) return { touch: async () => {} };
     if (name.endsWith('/wallet/bootstrap')) return { completeUnlock: async () => {} };
     if (name.endsWith('/utils/notify')) return { notify: { success: () => {}, error: (err) => errors.push(err) } };
-    if (name.endsWith('/utils/utils')) return { loadStorageWalletNames: () => [], sanitizeWalletName: (s) => s, arrayShuffle: (s) => s };
+    if (name.endsWith('/wallet/phraseQuiz')) return load('src/services/wallet/phraseQuiz.js', () => null);
+    if (name.endsWith('/utils/utils')) return { loadStorageWalletNames: () => [], sanitizeWalletName: (s) => s };
+    // A browser: no phone, so no biometric offer (wallet-save-test covers it).
+    if (name.endsWith('/biometric-offer/biometric-offer')) return { __esModule: true, default: () => null, shouldOffer: async () => false };
+    if (name.endsWith('/services/utils/app')) return { __esModule: true, default: () => null, biometricName: () => 'Fingerprint' };
     return () => null;
   }).default;
   const render = () => { cursor = 0; return Component(); };
@@ -110,7 +133,7 @@ const pages = [
   }
   assert.equal(writes.length, 0, 'invalid input reached the SDK writer');
   for (const password of strong) {
-    assert.equal(await policy.saveWalletWithPassword(store, password, 'test-wallet'), 'saved');
+    assert.equal(await policy.saveWalletWithPassword(store, password, 'test-wallet'), 'synthetic-walletstest-wallet');
     assert.deepEqual(writes.at(-1), [store, password, 'test-wallet']);
   }
   writes.length = 0;
@@ -118,8 +141,9 @@ const pages = [
   // Bypass form validation and invoke every production persistence callback.
   // This also covers creation's separate final confirmation button.
   for (const password of ['abc123', 'Abcd123!']) {
-    const create = page(pages[0][0], [2, 'test-wallet', password, password, store, 'one two', [], ['one', 'two']]);
-    await elements(create.render()).find((el) => el.type === 'button' && el.props.onClick).props.onClick();
+    const quiz = [{ position: 0, options: ['two', 'one'] }, { position: 1, options: ['one', 'two'] }];
+    const create = page(pages[0][0], [2, 'test-wallet', password, password, store, 'one two', quiz, ['one', 'two']]);
+    await elements(create.render()).filter((el) => el.type === 'button' && el.props.onClick).at(-1).props.onClick();
     const recover = page(pages[1][0], [1, 'one two', 'test-wallet', password, password]);
     await elements(recover.render()).find((el) => el.type === 'form').props.onSubmit();
     const change = page(pages[2][0], ['legacy-weak', password, password, false]);

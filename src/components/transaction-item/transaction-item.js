@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux';
 
 import ExternalLinkIcon from '../../animated-icons/external-link/external-link';
 import Icon from '../icon/icon';
+import PowCountdown from '../pow-countdown/pow-countdown';
 import { copyToClipboard } from '../../services/utils/notify';
 import { formatAmount, truncateAddress } from '../../services/utils/format';
 import { transactionUrl, currentExplorerLabel } from '../../services/utils/explorer';
@@ -31,6 +32,9 @@ const TransactionItem = ({
   isFailed = false,
   error = '',
   onDismiss,
+  // A zap's message can be opened again from its row.
+  onMessage,
+  isZap = false,
 }) => {
   const chainId = useSelector((state) => state.connectionParameters.chainIdentifier);
   const explorerLink = transactionUrl(hash, chainId);
@@ -61,7 +65,7 @@ const TransactionItem = ({
       {/* The halo is on the icon rather than beside it: while proof of work is
           running this row is the only thing happening, and a 6px dot said that
           too quietly to be read as "still working". */}
-      <div className={`transaction-icon is-${type}`}>
+      <div className={`transaction-icon is-${isZap ? 'zap' : type}`}>
         <Icon name={icon} size={15} />
       </div>
 
@@ -69,15 +73,6 @@ const TransactionItem = ({
         <div className="transaction-line">
           <span className="transaction-label">
             {label}
-            {/* Proof of work takes real seconds and says so in words, because a
-                silent pulse leaves "is it stuck?" unanswered. It replaces the
-                unconfirmed dot rather than sitting next to it: a block still
-                being signed is not yet waiting on the network. */}
-            {isGeneratingPlasma && (
-              <span className="plasma-note" role="status">
-                Generating plasma…
-              </span>
-            )}
             {/* Only while the network has not settled it. A permanent badge on
                 every row would be noise; this one goes away on its own. */}
             {isUnconfirmed && !isGeneratingPlasma && !isFailed && (
@@ -95,6 +90,18 @@ const TransactionItem = ({
             </span>
           )}
         </div>
+
+        {/* Proof of work takes real seconds and says so in words, because a
+            silent pulse leaves "is it stuck?" unanswered. It replaces the
+            unconfirmed dot rather than sitting next to it: a block still
+            being signed is not yet waiting on the network. Its own line, so
+            the countdown never pushes the amount off the row. */}
+        {isGeneratingPlasma && (
+          <div className="plasma-note" role="status">
+            Generating plasma…
+            <PowCountdown />
+          </div>
+        )}
 
         <button
           type="button"
@@ -119,6 +126,12 @@ const TransactionItem = ({
       {onDismiss && (
         <button type="button" className="transaction-dismiss" onClick={onDismiss} title="Dismiss">
           <Icon name="close" size={13} />
+        </button>
+      )}
+
+      {onMessage && (
+        <button type="button" className="transaction-message" onClick={onMessage} aria-label="Message" data-tooltip="Message">
+          <Icon name="message" size={14} />
         </button>
       )}
 

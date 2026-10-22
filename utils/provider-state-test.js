@@ -27,7 +27,7 @@ const loader = (environment = {}, overrides = () => undefined) => {
     const filename = path.resolve(root, file); if (cache.has(filename)) return cache.get(filename).exports;
     if (filename.endsWith('.json')) return require(filename); // e.g. contract-call schemas
     const module = { exports: {} }; cache.set(filename, module);
-    if (!compiled.has(filename)) compiled.set(filename, babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'], configFile: false, babelrc: false }).code);
+    if (!compiled.has(filename)) compiled.set(filename, babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]], configFile: false, babelrc: false }).code);
     const resolve = id => {
       const replacement = overrides(id); if (replacement !== undefined) return replacement;
       if (!id.startsWith('.')) return require(id);
@@ -85,7 +85,7 @@ const fixture = () => {
   const extension = { id: 'fixture', url: 'chrome-extension://fixture/popup.html' };
   const chrome = {
     runtime: { id: 'fixture', getURL: p => 'chrome-extension://fixture/' + p, onMessage: event('message'), onInstalled: event('installed'), onStartup: event('startup') },
-    storage: { session: storage('session', session), local: storage('local', local) },
+    storage: { session: storage('session', session), local: storage('local', local), onChanged: event('storageChanged') },
     windows: { onRemoved: event('windowRemoved'), create: async () => { prompts++; return { id: 10 }; }, getLastFocused: async () => ({}), update: async () => ({}), get: async id => ({ id }), remove: async () => {} },
     tabs: { onRemoved: event('tabRemoved'), sendMessage: async (tabId, message, options) => {
       const route = routes.get(tabId);

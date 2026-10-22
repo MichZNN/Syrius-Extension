@@ -1,6 +1,8 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
+import MenuHeader from '../menu/menu-header/menu-header';
+import { ringInPhase } from '../../services/utils/edgeLight';
 import { loadStorageWalletNames } from '../../services/utils/utils';
 
 const Onboarding = () => {
@@ -8,8 +10,17 @@ const Onboarding = () => {
   const hasWallet = loadStorageWalletNames().length > 0;
 
   return (
-    <div className="black-bg onboarding-layout onboarding-intro">
-      <img alt="" className="onboarding-mark" src={require('./../../assets/logo.svg')} width="56" />
+    <div className="black-bg screen">
+      {/* The node is chosen before there is a wallet too: a wallet made here
+          is read from whichever node this names. */}
+      <MenuHeader changeNodeButton />
+
+      <div className="screen-body onboarding-layout onboarding-intro">
+      <div className="brand-mark">
+        <span className="brand-mark-ring" aria-hidden="true" ref={ringInPhase} />
+        <span className="brand-mark-pulse" aria-hidden="true" />
+        <img alt="" src={require('./../../assets/logo.svg')} width="40" />
+      </div>
 
       <h1>Syrius</h1>
       <p className="text-gray">A wallet for Zenon, Network of Momentum.</p>
@@ -31,6 +42,7 @@ const Onboarding = () => {
           Unlock an existing wallet
         </button>
       )}
+      </div>
     </div>
   );
 };

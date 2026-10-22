@@ -13,9 +13,14 @@ import { contractDisplayName } from './contractCalls';
 // exactly what happened, the icon only has to say what kind of thing it was.
 const iconForContract = {
   plasma: 'plasma',
-  pillar: 'delegate',
+  pillar: 'pillar',
   stake: 'stake',
+  accelerator: 'vote',
+  spork: 'spork',
 };
+
+// A send to an ordinary address.
+const describePlainSend = () => ({ type: 'sent', label: 'Sent', icon: 'send', counterpartyName: null });
 
 // The type, glyph and counterparty for an outgoing template, from the template
 // itself — so a call site only has to supply what it alone knows, which is the
@@ -25,7 +30,8 @@ const describeOutgoingTemplate = (template) => {
   const contract = embeddedContractName(to);
 
   if (!contract) {
-    return { type: 'sent', icon: 'send', counterpartyName: null, address: to };
+    const { type, icon, counterpartyName } = describePlainSend(to);
+    return { type, icon, counterpartyName, address: to };
   }
 
   // Deliberately no method name. `decodeCall` reads the base64 string a block
@@ -41,4 +47,24 @@ const describeOutgoingTemplate = (template) => {
   };
 };
 
-export { iconForContract, describeOutgoingTemplate };
+// The row shown for the block being received right now.
+//
+// It is built from the unreceived block itself rather than from history,
+// because until the receive is signed and published there is nothing in this
+// account's chain to list — which is exactly the stretch where proof of work
+// runs and the wallet looked like it had stopped.
+const describePendingBlock = (block) => {
+  const sender = block.address?.toString() || '';
+  const contract = embeddedContractName(sender);
+
+  return {
+    // A string, so the row can cross from the background page (wallet/blockService.js).
+    amount: block.amount?.toString(),
+    decimals: block.token?.decimals,
+    tokenSymbol: block.token?.symbol || '',
+    address: sender,
+    counterpartyName: contract ? contractDisplayName(contract) : null,
+  };
+};
+
+export { iconForContract, describeOutgoingTemplate, describePlainSend, describePendingBlock };

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import { authorizationMetadata } from '../../services/wallet/tokenMetadata';
+import { displayMetadata } from '../../services/wallet/tokenMetadata';
 import { formatAmount, truncateAddress } from '../../services/utils/format';
 
 // The token select.
@@ -15,19 +15,8 @@ import { formatAmount, truncateAddress } from '../../services/utils/format';
 // It also showed each option as a symbol and a truncated standard and nothing
 // else, so there was no way to tell which of two tokens you had more of.
 //
-// This is a display, like the Tokens tab: a custom token is labelled with the
-// symbol and decimals from the account's balance data. What is signed never
-// reads these; the amount and the confirmation use authorizationMetadata,
-// which knows only ZNN and QSR.
-const displayOf = (option) => {
-  const metadata = authorizationMetadata(option.token.tokenStandard);
-  if (metadata.isNative) return { symbol: metadata.symbol, decimals: metadata.decimals };
-  const { symbol, decimals } = option.token;
-  return {
-    symbol: typeof symbol === 'string' && symbol.trim() ? symbol : 'Custom token',
-    decimals: Number.isInteger(decimals) && decimals >= 0 ? decimals : 0,
-  };
-};
+// This is a display, like the Tokens tab (displayMetadata).
+const displayOf = (option) => displayMetadata(option.token);
 
 const TokenDropdown = React.forwardRef(
   ({ name, className, options = [], onChange, onBlur, value, placeholder, label }, ref) => {

@@ -1,5 +1,6 @@
 import vault from './vault';
 import requestSigningKey from './requestSigningKey';
+import { fail } from '../utils/errors';
 
 // Signing a message with the account's key, rather than signing a block with it.
 //
@@ -76,7 +77,7 @@ const signMessage = async (message, { addressIndex, assertRequest, binding } = {
   const problem = messageProblem(message);
 
   if (problem) {
-    throw new Error(problem);
+    throw fail(110, { text: problem });
   }
   await assertRequest?.();
   // A binding (from an approval) makes every key use re-check, under the

@@ -1,3 +1,5 @@
+import { fail } from './errors';
+
 // Live USD prices for ZNN and QSR, from CoinGecko's public price endpoint.
 //
 // Neither token's CoinGecko id is its ticker. ZNN is listed as `zenon-2` —
@@ -19,7 +21,7 @@ const fetchTokenPrices = async () => {
   const response = await fetch(priceUrl);
 
   if (!response.ok) {
-    throw new Error(`CoinGecko responded ${response.status}`);
+    throw fail(106, { status: response.status });
   }
   const json = await response.json();
 

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Zenon } from 'znn-ts-sdk';
+import useReadContext from './useReadContext';
 
 import { embeddedContractName } from '../utils/contracts';
 import { decodeCall, describeCall, contractDisplayName } from '../utils/contractCalls';
 // Shared with the in-flight rows on the dashboard, so a block looks the same
 // on its way out as it does once it has landed.
-import { iconForContract } from '../utils/outgoingBlock';
+import { iconForContract, describePlainSend } from '../utils/outgoingBlock';
+import { decodeZap } from '../zap/zap';
 
 // Account history, paged.
 //
@@ -22,11 +23,31 @@ const pageSize = 20;
 // The old version compared the destination against three address constants and
 // called everything else "sent", so a fuse and an unfuse were both "Fused", a
 // stake and an unstake were both "Staked", and a swap was "Sent 0".
-const identify = (block, myAddress) => {
+//
+// Whether a row is incoming is a fact about the account's own block, a receive
+// (type 3), not about where the coins went: a send to oneself is addressed to
+// this account too, and read as "Received from" itself, twice, once for the
+// send and once for its receive.
+const userReceive = 3;
+
+const isIncoming = (block, myAddress, ownType) =>
+  (Number.isFinite(ownType) ? ownType === userReceive : block.toAddress?.toString() === myAddress);
+
+const rowId = (block) => (block?.hash ? block.hash.toString() : '');
+
+// New rows first, then the rows already shown, each replaced by its fresh
+// reading. Rows are matched by `id`.
+const mergeRows = (shown, fresh) => {
+  const known = new Set(shown.map((row) => row.id));
+  const updated = shown.map((row) => fresh.find((candidate) => candidate.id === row.id) || row);
+  return [...fresh.filter((row) => !known.has(row.id)), ...updated];
+};
+
+const identify = (block, myAddress, ownType) => {
   const to = block.toAddress?.toString();
   const from = block.address?.toString();
 
-  if (to === myAddress) {
+  if (isIncoming(block, myAddress, ownType)) {
     // Incoming. A payout from a contract — a collected reward, a returned
     // stake, an unlocked swap — is named after the contract that sent it,
     // because the sending block carries no call data of its own.
@@ -43,7 +64,7 @@ const identify = (block, myAddress) => {
   const contract = embeddedContractName(to);
 
   if (!contract) {
-    return { type: 'sent', label: 'Sent', icon: 'send', counterpartyName: null };
+    return describePlainSend(to);
   }
 
   const method = decodeCall(contract, block.data);
@@ -57,48 +78,57 @@ const identify = (block, myAddress) => {
   };
 };
 
-const useTransactions = (addressObject, address) => {
-  const [items, setItems] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [error, setError] = useState(null);
+const emptyView = (selection = null) => ({ selection, items: [], isLoading: false, hasMore: true, error: null });
 
-  const page = useRef(0);
-  const loading = useRef(false);
+const useTransactions = (addressObject, address) => {
+  const context = useReadContext();
+  const [view, setView] = useState(emptyView);
+  const selection = useRef(null);
   const mounted = useRef(true);
+  if (!selection.current || selection.current.context !== context.key ||
+      selection.current.address !== address || selection.current.addressObject !== addressObject) {
+    selection.current = { context: context.key, address, addressObject, page: 0, loading: null, newest: null };
+  }
+  const activeSelection = selection.current;
+  const isSelectionCurrent = () => {
+    try {
+      // The dashboard derives this object asynchronously after selecting an
+      // address. Never query the previous object under the new account label.
+      return mounted.current && selection.current === activeSelection && context.isCurrent() &&
+        Boolean(address && addressObject && addressObject.toString() === address);
+    } catch (error) { return false; }
+  };
 
   useEffect(() => {
     mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
+    return () => { mounted.current = false; selection.current = null; };
   }, []);
 
-  // A receive block carries no amount of its own — the value is on the send
-  // block it points at, so that one has to be fetched to render the row.
+  // Receive rows reference a send block for display. This never supplies the
+  // own-account hash used by the pending-placeholder observation below.
   const expand = useCallback(async (zenon, block) => {
     const json = block.toJson();
-    const isReceive = Number(json.blockType) === 3;
-
-    if (!isReceive) {
-      return json;
-    }
+    if (Number(json.blockType) !== 3) return json;
     try {
       return (await zenon.ledger.getBlockByHash(json.fromBlockHash)).toJson();
-    } catch (err) {
-      // A block the node cannot resolve is still worth showing as a row.
-      return json;
-    }
+    } catch (err) { return json; }
   }, []);
 
   const transform = useCallback(
     (block, own) => {
-      const { type, label, icon, counterpartyName, method } = identify(block, address);
+      const ownType = Number(own?.blockType ?? own?.toJson?.().blockType);
+      const identified = identify(block, address, ownType);
+      const { type, counterpartyName, method } = identified;
+      // A plain transfer whose data is a zap's (services/zap/zap.js), in or out.
+      const zap = type === 'received' || type === 'sent' ? decodeZap(block.data) : null;
+      const label = zap ? 'Zap' : identified.label;
+      const icon = zap ? 'zap' : identified.icon;
 
       return {
         type,
         label,
         icon,
+        zap,
         method,
         counterpartyName,
         // A contract call moves no coins of its own; showing "0 ZNN" against a
@@ -119,6 +149,11 @@ const useTransactions = (addressObject, address) => {
         // block in my chain, and for a receive the referenced send block was
         // confirmed long before mine was.
         hash: block.hash,
+        // Which row this is: the account's own block. Not `hash`, which a
+        // receive shares with the send it took in, so that a send to oneself
+        // and its receive were one row to the merge below and the receive
+        // was drawn over the send.
+        id: rowId(own) || rowId(block),
         isUnconfirmed: !own.confirmationDetail,
         confirmations: own.confirmationDetail?.numConfirmations ?? 0,
       };
@@ -127,101 +162,80 @@ const useTransactions = (addressObject, address) => {
   );
 
   const loadMore = useCallback(async () => {
-    if (loading.current || !hasMore || !addressObject || !address) {
-      return;
-    }
-    loading.current = true;
-    setIsLoading(true);
-
+    if (!isSelectionCurrent() || activeSelection.loading || !addressObject || !address ||
+        (view.selection === activeSelection && !view.hasMore)) return;
+    const request = {};
+    activeSelection.loading = request;
+    const isCurrent = isSelectionCurrent;
+    const update = (operation) => setView((previous) => isCurrent()
+      ? operation(previous.selection === activeSelection ? previous : emptyView(activeSelection)) : previous);
+    update((previous) => ({ ...previous, isLoading: true }));
     try {
-      const zenon = Zenon.getSingleton();
-      const response = await zenon.ledger.getBlocksByPage(addressObject, page.current, pageSize);
+      const response = await context.zenon.ledger.getBlocksByPage(addressObject, activeSelection.page, pageSize);
+      if (!isCurrent()) return;
       const list = response?.list || [];
-
       if (!list.length) {
-        setHasMore(false);
+        update((previous) => ({ ...previous, hasMore: false }));
         return;
       }
-
-      const expanded = await Promise.all(list.map((block) => expand(zenon, block)));
+      const expanded = await Promise.all(list.map((block) => expand(context.zenon, block)));
+      if (!isCurrent()) return;
       const rows = expanded.map((block, index) => transform(block, list[index]));
-
-      if (!mounted.current) {
-        return;
-      }
-      setItems((previous) => [...previous, ...rows]);
-      setError(null);
-      page.current += 1;
-      setHasMore(list.length === pageSize);
+      activeSelection.page += 1;
+      update((previous) => ({ ...previous, items: [...previous.items, ...rows], error: null,
+        hasMore: list.length === pageSize }));
     } catch (err) {
-      if (mounted.current) {
-        setError(err);
-        setHasMore(false);
-      }
+      update((previous) => ({ ...previous, error: err, hasMore: false }));
     } finally {
-      loading.current = false;
-      if (mounted.current) {
-        setIsLoading(false);
+      // A retired request must never release a newer page's loading ownership.
+      if (isCurrent() && activeSelection.loading === request) {
+        update((previous) => ({ ...previous, isLoading: false }));
+        activeSelection.loading = null;
       }
     }
-  }, [addressObject, address, expand, hasMore, transform]);
+  // isSelectionCurrent closes over only this selection and context.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSelection, context, addressObject, address, expand, transform, view.selection, view.hasMore]);
 
-  // Re-reads the newest page and folds it into what is already on screen.
-  //
-  // A block is unconfirmed for as long as it takes the network to produce a
-  // momentum over it, which is around ten seconds — long enough that the wallet
-  // has to notice on its own. Resetting the list instead would throw away every
-  // page the person had scrolled through, so rows are matched by hash: an
-  // existing one is replaced (which is what turns off its pulse) and anything
-  // genuinely new goes on top.
   const refreshNewest = useCallback(async () => {
-    if (!addressObject || !address) {
-      return;
-    }
+    if (!addressObject || !address || !isSelectionCurrent()) return;
+    const request = {};
+    activeSelection.newest = request;
+    const isCurrent = () => isSelectionCurrent() && activeSelection.newest === request;
     try {
-      const zenon = Zenon.getSingleton();
-      const response = await zenon.ledger.getBlocksByPage(addressObject, 0, pageSize);
+      const response = await context.zenon.ledger.getBlocksByPage(addressObject, 0, pageSize);
       const list = response?.list || [];
-
-      if (!list.length || !mounted.current) {
-        return;
-      }
-      const expanded = await Promise.all(list.map((block) => expand(zenon, block)));
+      if (!list.length || !isCurrent()) return;
+      const expanded = await Promise.all(list.map((block) => expand(context.zenon, block)));
       const rows = expanded.map((block, index) => transform(block, list[index]));
-
-      if (!mounted.current) {
-        return;
-      }
-      setItems((previous) => {
-        const known = new Set(previous.map((row) => row.hash));
-        const updated = previous.map((row) => rows.find((fresh) => fresh.hash === row.hash) || row);
-        const added = rows.filter((row) => !known.has(row.hash));
-        return [...added, ...updated];
+      if (!isCurrent()) return;
+      setView((previous) => {
+        if (!isCurrent()) return previous;
+        const before = previous.selection === activeSelection ? previous : emptyView(activeSelection);
+        return { ...before, items: mergeRows(before.items, rows) };
       });
-    } catch (err) {
-      // A failed refresh leaves the list exactly as it was.
-    }
-  }, [addressObject, address, expand, transform]);
+      // Exact original own-account hashes, account and network tuple remain
+      // mandatory. An expanded receive's send-reference hash is not observed.
+      const hashes = list.filter((block) => block.address?.toString() === address)
+        .map((block) => block.hash?.toString()).filter((hash) => typeof hash === 'string' && hash);
+      return { owner: address, network: context.network, hashes, isCurrent };
+    } catch (err) { /* Failed reads preserve current rows and unseen placeholders. */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSelection, context, addressObject, address, expand, transform]);
 
   const reset = useCallback(() => {
-    page.current = 0;
-    loading.current = false;
-    setItems([]);
-    setHasMore(true);
-    setError(null);
-  }, []);
+    if (selection.current !== activeSelection) return;
+    const next = { ...activeSelection, page: 0, loading: null, newest: null };
+    selection.current = next;
+    setView(emptyView(next));
+  }, [activeSelection]);
 
-  return {
-    items,
-    isLoading,
-    hasMore,
-    error,
-    loadMore,
-    reset,
-    refreshNewest,
-    hasPending: items.some((row) => row.isUnconfirmed),
-    isEmpty: !items.length && !hasMore,
+  const visible = context.available && view.selection === activeSelection ? view : emptyView(activeSelection);
+  return { items: visible.items, isLoading: visible.isLoading, hasMore: visible.hasMore, error: visible.error,
+    loadMore, reset, refreshNewest, hasPending: visible.items.some((row) => row.isUnconfirmed),
+    isEmpty: !visible.items.length && !visible.hasMore,
   };
 };
 
+export { identify, mergeRows };
 export default useTransactions;

@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const babel = require('@babel/core');
+const { journalStubs } = require('./fixtures/journal-stub');
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 global.window = { crypto: crypto.webcrypto }; global.self = global.window;
@@ -36,9 +37,11 @@ const loader = (environment, overrides = () => undefined) => {
     if (filename.endsWith('.json')) return require(filename); // e.g. contract-call schemas
     if (cache.has(filename)) return cache.get(filename).exports;
     const module = { exports: {} }; cache.set(filename, module);
-    if (!compiled.has(filename)) compiled.set(filename, babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'], configFile: false, babelrc: false }).code);
+    if (!compiled.has(filename)) compiled.set(filename, babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]], configFile: false, babelrc: false }).code);
     const requireModule = id => {
       const replacement = overrides(id); if (replacement !== undefined) return replacement;
+      // The journal has its own suite; see fixtures/journal-stub.js.
+      const journaled = journalStubs(id); if (journaled !== undefined) return journaled;
       if (!id.startsWith('.')) return require(id);
       const target = path.resolve(path.dirname(filename), id); return load(path.extname(target) ? target : target + '.js');
     };
@@ -241,12 +244,49 @@ const watchdog = setTimeout(() => { console.error('Approval queue checks timed o
   }
   {
     const f = fixture(), other = f.freshQueue(), gate = f.holdStorage('session');
-    const first = f.queue.add({ ...entry('slot-0'), origin: 'https://slot-0.invalid' }); await gate.started.promise;
-    const rest = Array.from({ length: limits.pending }, (_, i) => other.add({ ...entry('slot-' + (i + 1)), origin: 'https://slot-' + (i + 1) + '.invalid' }));
+    // One tab each: the whole queue is the bound here, not a tab's share of it.
+    const first = f.queue.add({ ...entry('slot-0'), origin: 'https://slot-0.invalid', tabId: 100 }); await gate.started.promise;
+    const rest = Array.from({ length: limits.pending }, (_, i) => other.add({ ...entry('slot-' + (i + 1)), origin: 'https://slot-' + (i + 1) + '.invalid', tabId: 101 + i }));
     gate.release.resolve(); const results = await Promise.allSettled([first, ...rest]);
     assert.equal(results.filter(x => x.status === 'fulfilled').length, limits.pending);
     assert.equal(results.filter(x => x.status === 'rejected').length, 1);
     assert.equal((await f.queue.list()).length, limits.pending);
+  }
+  // One tab framing many origins holds its share of the queue and no more
+  // (issue #40); another tab is still admitted.
+  {
+    const f = fixture();
+    for (let i = 0; i < limits.perTab; i++) await f.queue.add({ ...entry('frame-' + i), origin: 'https://frame-' + i + '.invalid', frameId: i });
+    await assert.rejects(f.queue.add({ ...entry('frame-more'), origin: 'https://frame-more.invalid', frameId: 99 }), error => error.code === -32005);
+    await f.queue.add({ ...entry('other-tab'), origin: 'https://frame-more.invalid', tabId: 2 });
+    assert.equal((await f.queue.list()).length, limits.perTab + 1);
+  }
+  // Rotating origins inside one tab does not raise a window every
+  // `globalAttention`: the tab cools down like an origin does. Another tab is
+  // not held back, and neither is the tab a human approval just came from.
+  {
+    const f = fixture(), shown = async (row) => { const at = (await f.queue.get(row.id)).windowId; await f.queue.closeWindow(at); f.windows.delete(at); };
+    const one = await f.queue.add({ ...entry('rotate-1'), origin: 'https://rotate-1.invalid' });
+    assert.equal(await f.queue.present(f.identity.identityOf(one)), true); await shown(one);
+    f.advance(limits.globalAttention);
+    const two = await f.queue.add({ ...entry('rotate-2'), origin: 'https://rotate-2.invalid', frameId: 1 });
+    await assert.rejects(f.queue.present(f.identity.identityOf(two)), error => error.code === -32005);
+    assert.equal(f.counts.created, 1);
+    const elsewhere = await f.queue.add({ ...entry('elsewhere'), origin: 'https://elsewhere.invalid', tabId: 2 });
+    assert.equal(await f.queue.present(f.identity.identityOf(elsewhere)), true); await shown(elsewhere);
+    assert.equal(f.counts.created, 2);
+    f.advance(limits.tabAttention);
+    assert.equal(await f.queue.present(f.identity.identityOf(two)), true); await shown(two);
+    assert.equal(f.counts.created, 3);
+    // An approval's follow-up reaches the tab, once.
+    await f.queue.allowFollowup('https://rotate-2.invalid', f.now() + limits.ttl, 1);
+    f.advance(limits.globalAttention);
+    const moved = await f.queue.add({ ...entry('moved'), origin: 'https://rotate-3.invalid', frameId: 2 });
+    assert.equal(await f.queue.present(f.identity.identityOf(moved)), true); await shown(moved);
+    f.advance(limits.globalAttention);
+    const again = await f.queue.add({ ...entry('again'), origin: 'https://rotate-4.invalid', frameId: 3 });
+    await assert.rejects(f.queue.present(f.identity.identityOf(again)), error => error.code === -32005);
+    assert.equal(f.counts.created, 4);
   }
   // No admission or attention side effect is reported after storage failure.
   for (const fault of ['sessionRead', 'sessionWrite']) {
@@ -296,7 +336,8 @@ const watchdog = setTimeout(() => { console.error('Approval queue checks timed o
     const fresh = f.freshQueue(), row = await fresh.add(entry('same-origin'));
     await assert.rejects(fresh.present(f.identity.identityOf(row)), error => error.code === -32005);
     await fresh.reject(f.identity.identityOf(row));
-    const other = await fresh.add({ ...entry('different-origin'), origin: 'https://other.invalid' });
+    // In another tab: only the global cooldown stands between it and a window.
+    const other = await fresh.add({ ...entry('different-origin'), origin: 'https://other.invalid', tabId: 2 });
     await assert.rejects(fresh.present(f.identity.identityOf(other)), error => error.code === -32005);
     f.advance(limits.globalAttention); assert.equal(await fresh.present(f.identity.identityOf(other)), true);
     const unstamped = await fresh.add({ ...entry('unstamped'), origin: 'https://new.invalid' });

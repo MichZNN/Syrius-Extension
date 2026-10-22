@@ -1,0 +1,210 @@
+<!doctype html>
+<!--
+  syrius:// links for the Android app, tapped from the phone's browser.
+  Served by serve.mjs; see README.md. A request's callback is this page, so
+  the wallet's answer lands back here and is decoded under Answers.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Syrius links</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f7f7; --card: #ffffff; --fg: #141414; --muted: #5f5f5f; --border: #dddddd;
+    --brand: #00b84b; --info: #0061eb; --error: #c8102e; --radius: 6px;
+    --plasma: linear-gradient(90deg, #00d557, #0061eb);
+    --mono: ui-monospace, "JetBrains Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #141414; --card: #1c1c1c; --fg: #f2f2f2; --muted: #a0a0a0; --border: #2e2e2e;
+      --brand: #00d557; --info: #4c8dff; --error: #ff4d6a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+    font: 15px/1.4 system-ui, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; display: grid; gap: 16px; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 13px; margin: 0 0 8px; font-family: var(--mono); text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted); font-weight: 500; }
+  section { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+  label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  input, select, textarea { width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--bg); color: var(--fg); font: 14px var(--mono); }
+  textarea { min-height: 120px; resize: vertical; }
+  .fields { display: grid; gap: 8px; margin-bottom: 12px; }
+  .links { display: grid; gap: 8px; }
+  a.link { display: flex; align-items: center; min-height: 44px; padding: 8px 12px; border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--fg); text-decoration: none; font-family: var(--mono); font-size: 13px;
+    overflow-wrap: anywhere; transition: border-color 150ms cubic-bezier(.4,0,.2,1); }
+  a.link:active, a.link:hover { border-color: var(--brand); }
+  a.go { display: flex; align-items: center; justify-content: center; min-height: 48px; margin-top: 12px;
+    border-radius: var(--radius); background: var(--plasma); color: #fff;
+    font-weight: 600; text-decoration: none; }
+  pre { margin: 8px 0 0; padding: 10px; border-radius: var(--radius); background: var(--bg); font: 12px var(--mono);
+    white-space: pre-wrap; overflow-wrap: anywhere; }
+  .ok { color: var(--brand); } .err { color: var(--error); } .muted { color: var(--muted); font-size: 13px; }
+  button { min-height: 44px; padding: 0 14px; border: 1px solid var(--border); border-radius: var(--radius);
+    background: transparent; color: var(--fg); font: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Syrius links</h1>
+
+  <section>
+    <h2>Answers</h2>
+    <div id="log" class="muted">None yet</div>
+    <button id="clear" type="button" hidden>Clear</button>
+  </section>
+
+  <section>
+    <h2>Screens</h2>
+    <div class="fields">
+      <label>Address <input id="f-address" value="z1qzal6c5s9rjnnxd2z7dvdhjxpmmj4fmw56a0mz"></label>
+      <label>Amount <input id="f-amount" value="1.5" inputmode="decimal"></label>
+      <label>Token <input id="f-zts" value="znn"></label>
+      <label>Duration, months <input id="f-duration" value="1" inputmode="numeric"></label>
+      <label>Pillar <input id="f-pillar" value="Pillar1"></label>
+      <label>Message <input id="f-message" value="Hello from the link page"></label>
+    </div>
+    <div class="links" id="screens"></div>
+  </section>
+
+  <section>
+    <h2>Request</h2>
+    <div class="fields">
+      <label>Method
+        <select id="r-method">
+          <option>znn_connect</option>
+          <option>znn_sign</option>
+          <option>znn_sendTransaction</option>
+          <option>znn_signAndSendBlock</option>
+          <option>znn_accounts</option>
+          <option>znn_chainId</option>
+          <option>znn_nodeUrl</option>
+        </select>
+      </label>
+      <label>Params, JSON <textarea id="r-params" spellcheck="false"></textarea></label>
+      <label>Callback <input id="r-callback"></label>
+    </div>
+    <pre id="r-link"></pre>
+    <a class="go" id="r-go" href="#">Open in Syrius</a>
+  </section>
+</main>
+<script>
+'use strict';
+// Kept in step with src/platform/linkRoutes.js by hand: this page has no build.
+const screens = [
+  ['transfer', ['address', 'amount', 'zts']],
+  ['receive', []],
+  ['stake', ['amount', 'duration']],
+  ['delegate', ['pillar']],
+  ['fuse', ['address', 'amount']],
+  ['sentinel', []], ['pillar', []], ['tokens', []], ['az', []], ['rewards', []], ['settings', []],
+  ['sign-message', ['message']],
+  ['home', []],
+];
+const $ = (id) => document.getElementById(id);
+const b64 = {
+  encode: (text) => btoa(String.fromCharCode(...new TextEncoder().encode(text)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+  decode: (text) => {
+    const padded = text.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(text.length / 4) * 4, '=');
+    return new TextDecoder().decode(Uint8Array.from(atob(padded), (c) => c.charCodeAt(0)));
+  },
+};
+const store = {
+  get: (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; } },
+  set: (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* private window */ } },
+};
+
+const renderScreens = () => {
+  $('screens').replaceChildren(...screens.map(([action, args]) => {
+    const query = new URLSearchParams();
+    for (const name of args) if ($(`f-${name}`).value) query.set(name, $(`f-${name}`).value);
+    const href = `syrius://${action}${args.length ? `?${query}` : ''}`;
+    const a = document.createElement('a');
+    a.className = 'link';
+    a.href = href;
+    a.textContent = href;
+    return a;
+  }));
+};
+
+const defaultParams = (method) => {
+  const address = $('f-address').value;
+  switch (method) {
+    case 'znn_sign': return { message: $('f-message').value };
+    case 'znn_sendTransaction':
+      return { to: address, tokenStandard: 'zts1znnxxxxxxxxxxxxx9z4ulx', amount: '100000000' };
+    case 'znn_signAndSendBlock':
+      return { blockType: 2, toAddress: address, tokenStandard: 'zts1znnxxxxxxxxxxxxx9z4ulx', amount: '100000000', data: '' };
+    default: return {};
+  }
+};
+
+const renderRequest = () => {
+  let params;
+  try { params = JSON.parse($('r-params').value || '{}'); } catch {
+    $('r-link').textContent = 'Params are not JSON.';
+    $('r-go').removeAttribute('href');
+    return;
+  }
+  const id = `${$('r-method').value}-${Date.now().toString(36)}`;
+  const query = new URLSearchParams({ method: $('r-method').value, params: b64.encode(JSON.stringify(params)), id, callback: $('r-callback').value });
+  const href = `syrius://request?${query}`;
+  $('r-link').textContent = href;
+  $('r-go').href = href;
+};
+
+const showAnswer = () => {
+  const query = new URLSearchParams(location.search);
+  if (!query.has('id')) return;
+  const entry = { id: query.get('id'), at: new Date().toISOString() };
+  try {
+    if (query.has('error')) entry.error = JSON.parse(b64.decode(query.get('error')));
+    else entry.result = JSON.parse(b64.decode(query.get('result') || 'bnVsbA'));
+  } catch (error) { entry.error = { message: `Undecodable answer: ${error.message}` }; }
+  const log = store.get('syrius-links-log', []);
+  log.unshift(entry);
+  store.set('syrius-links-log', log.slice(0, 20));
+  history.replaceState(null, '', location.pathname);
+};
+
+const entryNode = (entry) => {
+  const div = document.createElement('div');
+  const head = document.createElement('div');
+  head.className = entry.error ? 'err' : 'ok';
+  head.textContent = `${entry.error ? 'Error' : 'Result'}: ${entry.id}`;
+  const pre = document.createElement('pre');
+  pre.textContent = JSON.stringify(entry.error || entry.result, null, 2);
+  div.append(head, pre);
+  return div;
+};
+
+const renderLog = () => {
+  const log = store.get('syrius-links-log', []);
+  $('clear').hidden = !log.length;
+  if (!log.length) { $('log').textContent = 'None yet'; return; }
+  $('log').replaceChildren(...log.map(entryNode));
+};
+
+$('r-callback').value = location.origin + location.pathname;
+$('r-params').value = JSON.stringify(defaultParams($('r-method').value), null, 2);
+$('r-method').addEventListener('change', () => {
+  $('r-params').value = JSON.stringify(defaultParams($('r-method').value), null, 2);
+  renderRequest();
+});
+for (const el of document.querySelectorAll('.fields input, .fields textarea')) {
+  el.addEventListener('input', () => { renderScreens(); renderRequest(); });
+}
+$('clear').addEventListener('click', () => { store.set('syrius-links-log', []); renderLog(); });
+showAnswer();
+renderScreens();
+renderRequest();
+renderLog();
+</script>
+</body>
+</html>

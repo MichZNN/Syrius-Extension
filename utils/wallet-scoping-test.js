@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const babel = require('@babel/core');
+const { journalStubs } = require('./fixtures/journal-stub');
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const root = path.join(__dirname, '..'), compiled = new Map();
@@ -26,9 +27,11 @@ const loader = (environment, overrides = () => undefined) => {
     if (filename.endsWith('.json')) return require(filename); // e.g. contract-call schemas
     if (cache.has(filename)) return cache.get(filename).exports;
     const module = { exports: {} }; cache.set(filename, module);
-    if (!compiled.has(filename)) compiled.set(filename, babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'], configFile: false, babelrc: false }).code);
+    if (!compiled.has(filename)) compiled.set(filename, babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]], configFile: false, babelrc: false }).code);
     const req = id => {
       const replacement = overrides(id); if (replacement !== undefined) return replacement;
+      // The journal has its own suite; see fixtures/journal-stub.js.
+      const journaled = journalStubs(id); if (journaled !== undefined) return journaled;
       if (!id.startsWith('.')) return require(id);
       const target = path.resolve(path.dirname(filename), id); return load(path.extname(target) ? target : target + '.js');
     };

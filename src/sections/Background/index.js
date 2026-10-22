@@ -8,6 +8,9 @@ import { limits, validateEnvelope, busy } from '../../services/utils/approvalLim
 import publicNodeUrl from '../../services/utils/publicNodeUrl';
 import nativeNavigation from '../../services/utils/nativeNavigation';
 import { targetFrom, validRequest, isLive, deliver, requestEnded } from '../../services/utils/documentBinding';
+import { fail } from '../../services/utils/errors';
+import syncReceiver from './receiver';
+import injectOpenTabs from './openTabs';
 
 // The service worker.
 //
@@ -277,7 +280,7 @@ const internalMethods = {
     const request = await requests.resolve(identity);
     if (!request) return false;
     const checkDeadline = () => {
-      if (Date.now() >= request.expiresAt) throw new Error('Approval expired during finalization.');
+      if (Date.now() >= request.expiresAt) throw fail(801);
     };
     // A connection answers with the bound account, and a signature must be the
     // bound account's: never a value the popup chose.
@@ -293,12 +296,12 @@ const internalMethods = {
       checkDeadline();
       // Save this optional convenience before permission activation. A held
       // window lock or storage write must not leave a new grant behind.
-      try { await requests.allowFollowup(request.origin, request.expiresAt); }
+      try { await requests.allowFollowup(request.origin, request.expiresAt, request.tabId); }
       catch (error) { console.error('Unable to save approval follow-up allowance', error); }
       checkDeadline();
       if (request.type === 'connect') {
         if (!(await permissions.grant(request.origin, request.binding.scope, { title: request.title, favicon: request.favicon },
-          { expiresAt: request.expiresAt, confirm: complete }))) throw new Error('The connection permission could not be saved.');
+          { expiresAt: request.expiresAt, confirm: complete }))) throw fail(802);
       } else complete();
       await delivery;
       return true;
@@ -372,7 +375,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const target = targetFrom(sender, message);
     if (!target) { sendResponse({ accepted: false, error: errors.disconnected }); return false; }
     if (message.kind === 'bye') {
-      Promise.all([frames.forgetTarget(target), requests.cancelDocument(target)]).catch(() => {});
+      Promise.all([frames.forgetTarget(target), requests.cancelDocument(target), nativeNavigation.release(target)]).catch(() => {});
       sendResponse({ accepted: true }); return false;
     }
     nativeNavigation.capture(target).then(bound => frames.register(bound, permissions.originOf(sender)))
@@ -427,7 +430,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     Promise.resolve(handler(message.params || {}))
       .then((result) => sendResponse({ result }))
-      .catch((err) => sendResponse({ error: err?.message || 'Internal error' }));
+      .catch((err) => sendResponse({ error: err?.message || 'Internal error', ...(Number.isInteger(err?.errorId) ? { errorId: err.errorId } : {}) }));
     return true;
   }
 
@@ -481,6 +484,19 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   });
 });
 
+// On Firefox, which has no document IDs, a committed navigation is what ends
+// the frame's document (at the top, the tab's): its approvals and its event
+// registration go with it. Chrome's native documentId already does this.
+if (nativeNavigation.relayDocuments) chrome.webNavigation.onCommitted.addListener((details) => {
+  if (details.tabId < 0 || details.frameId < 0) return;
+  nativeNavigation.commit(details)
+    .then(ended => Promise.all([requests.cancelWhere(ended), frames.forget(ended)]))
+    .catch(() => {
+      const affected = request => request.tabId === details.tabId && (details.frameId === 0 || request.frameId === details.frameId);
+      Promise.all([requests.cancelWhere(affected), frames.forget(affected)]).catch(() => {});
+    });
+});
+
 // A closed tab has no frames left to deliver to.
 chrome.tabs.onRemoved.addListener((tabId) => {
   Promise.all([frames.forgetTab(tabId), requests.forgetTab(tabId), nativeNavigation.forgetTab(tabId)])
@@ -491,9 +507,14 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // closed. This is what actually ends a session while nobody is looking.
 const autoLockAlarm = 'znn.autoLock';
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
   chrome.alarms.create(autoLockAlarm, { periodInMinutes: 1 });
+  injectOpenTabs(details).catch(error => console.error('Unable to reach open tabs', error));
 });
+
+// A worker (or Firefox background page) that starts while a timed unlock
+// lasts picks the receiver up again.
+syncReceiver();
 
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create(autoLockAlarm, { periodInMinutes: 1 });
@@ -506,6 +527,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   try { await requests.prune(); }
   catch (error) { console.error('Unable to expire wallet approvals', error); }
   const generation = await sessionLease.expire();
+  // The receiver page opens with a timed unlock and closes with it.
+  syncReceiver();
   if (generation) {
     await selection.transaction(async stored => {
       const record = selection.current(stored);

@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import useAccount from '../../services/hooks/useAccount';
 import { formatAmount, formatExact, truncateAddress } from '../../services/utils/format';
+import usePopupState from '../../services/utils/popupState';
 
 // Every ZTS this account holds.
 //
@@ -16,7 +17,7 @@ import { formatAmount, formatExact, truncateAddress } from '../../services/utils
 const Tokens = () => {
   const navigate = useNavigate();
   const { balances, isLoading } = useAccount();
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = usePopupState('tokens.query', '');
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -82,6 +83,13 @@ const Tokens = () => {
         {!filtered.length && (
           <p className="empty-note">{isLoading ? 'Loading…' : 'No tokens match that'}</p>
         )}
+      </div>
+
+      {/* Issuing, minting, burning and updating (services/token/token.js). */}
+      <div className="sticky-actions">
+        <button type="button" className="button secondary w-100" onClick={() => navigate('/tabs/tokens/manage')}>
+          Your tokens
+        </button>
       </div>
     </div>
   );

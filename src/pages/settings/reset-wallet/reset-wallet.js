@@ -16,6 +16,8 @@ import { resetPendingTransactions } from '../../../services/redux/pendingTransac
 import { invalidateAccountCache } from '../../../services/hooks/useAccount';
 import lockWallet from '../../../services/wallet/lock';
 import vault from '../../../services/wallet/vault';
+import { fail } from '../../../services/utils/errors';
+import app from '../../../services/utils/app';
 
 // Removing a wallet from this browser.
 //
@@ -55,9 +57,9 @@ const ResetWallet = () => {
 
     try {
       const live = store.getState().wallet;
-      if (live.walletName !== walletName) throw new Error('The selected wallet changed. Try again.');
+      if (live.walletName !== walletName) throw fail(215);
       const binding = vault.getBinding();
-      if (!binding || binding.scope.walletName !== walletName) throw new Error('The selected wallet changed. Try again.');
+      if (!binding || binding.scope.walletName !== walletName) throw fail(215);
       const current = { walletName: live.walletName, maxAddressIndex: live.maxAddressIndex,
         selectedAddressIndex: live.selectedAddressIndex };
       const isCurrent = () => {
@@ -67,9 +69,9 @@ const ResetWallet = () => {
       };
       const captured = captureWalletRemoval(current, isCurrent);
       const verified = await vault.verifyPassword(password);
-      if (!isCurrent()) throw new Error('The wallet removal was canceled or the selected wallet changed.');
+      if (!isCurrent()) throw fail(216);
       if (!verified) {
-        if (operation.current === active) notify.error('Wrong password.');
+        if (operation.current === active) notify.error(fail(200));
         return;
       }
       const prepared = await prepareWalletRemoval(captured);
@@ -77,9 +79,9 @@ const ResetWallet = () => {
       // what those sites have queued. If this fails nothing else happens; if a
       // later step fails the consent stays withdrawn, which is the safe side.
       if (!(await sendInternal('permissions.revokeWallet', { scope: binding.scope }))) {
-        throw new Error('Could not disconnect the sites using this wallet. Try again.');
+        throw fail(217);
       }
-      if (!isCurrent()) throw new Error('The wallet removal was canceled or the selected wallet changed.');
+      if (!isCurrent()) throw fail(216);
       // Nothing is deleted until every window has lost this wallet: the last
       // check against the unlocked vault runs here, synchronously, and the
       // deletion itself runs inside the revocation of the lease just checked
@@ -94,6 +96,8 @@ const ResetWallet = () => {
       dispatch(resetWalletState());
       dispatch(resetPendingTransactions());
       await locking;
+      // Its password must not outlive it in the phone's keystore.
+      await app()?.biometric.disable(walletName);
       if (operation.current !== active) return;
 
       notify.success(`Removed ${walletName}`);

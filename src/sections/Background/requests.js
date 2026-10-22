@@ -2,6 +2,7 @@ import selection from '../../services/wallet/selection';
 import { isLive, sameDocument } from '../../services/utils/documentBinding';
 import { validApproval, identityOf, matchesApproval, copy } from '../../services/utils/approvalIdentity';
 import { limits, boundedJson, validResponseId, invalid, busy } from '../../services/utils/approvalLimits';
+import { fail } from '../../services/utils/errors';
 
 const pendingKey = 'znn.pendingRequests', windowKey = 'znn.approvalWindowId', attentionKey = 'znn.approvalAttention';
 const own = (pending, id) => Object.hasOwn(pending, id) ? pending[id] : null;
@@ -47,10 +48,11 @@ const add = request => {
   const saved = copy(entry);
   return serialized(async pending => {
     const rows = Object.values(pending), sameOrigin = rows.filter(other => other.origin === saved.origin);
-    if (rows.length >= limits.pending || sameOrigin.length >= limits.perOrigin ||
+    const sameTab = rows.filter(other => other.tabId === saved.tabId);
+    if (rows.length >= limits.pending || sameOrigin.length >= limits.perOrigin || sameTab.length >= limits.perTab ||
         (saved.type === 'connect' && sameOrigin.some(other => other.type === 'connect'))) throw busy();
     if (own(pending, saved.id) || rows.some(other => correlationOf(other) === correlationOf(saved))) {
-      throw Object.assign(new Error('This response ID is already pending in this document.'), { code: -32602 });
+      throw Object.assign(fail(805), { code: -32602 });
     }
     if (saved.expiresAt <= Date.now()) throw busy();
     pending[saved.id] = saved;
@@ -142,33 +144,56 @@ const readAttention = async () => {
   const now = Date.now();
   const origins = Object.fromEntries(Object.entries(saved.origins || {}).filter(([, at]) => Number.isFinite(at) && now - at < limits.originAttention).slice(-limits.history));
   const allowances = Object.fromEntries(Object.entries(saved.allowances || {}).filter(([, until]) => Number.isFinite(until) && until > now).slice(-limits.history));
-  return { globalAt: Number.isFinite(saved.globalAt) ? saved.globalAt : 0, origins, allowances };
+  const tabs = Object.fromEntries(Object.entries(saved.tabs || {}).filter(([, at]) => Number.isFinite(at) && now - at < limits.tabAttention).slice(-limits.history));
+  const tabAllowances = Object.fromEntries(Object.entries(saved.tabAllowances || {}).filter(([, until]) => Number.isFinite(until) && until > now).slice(-limits.history));
+  return { globalAt: Number.isFinite(saved.globalAt) ? saved.globalAt : 0, origins, allowances, tabs, tabAllowances };
 };
+// Attention is counted per tab as well as per origin: one page can frame any
+// number of origins, and would otherwise raise a window with each in turn.
+const tabKeyOf = tabId => Number.isInteger(tabId) ? String(tabId) : null;
 const writeAttention = state => chrome.storage.session.set({ [attentionKey]: state });
 // A successful human approval gives this origin one short follow-up opening,
 // including connect -> sign after the empty-window grace. Rejection gives none.
-const allowFollowup = (origin, expiresAt) => withWindow(async () => {
+// Its tab gets the same, so a site that moves to another of its origins after
+// an approval is not held back by the tab's cooldown.
+const allowFollowup = (origin, expiresAt, tabId) => withWindow(async () => {
   if (!Number.isFinite(expiresAt) || Date.now() >= expiresAt) return false;
   const state = await readAttention();
   if (Date.now() >= expiresAt) return false;
   delete state.allowances[origin];
   state.allowances[origin] = Math.min(expiresAt, Date.now() + limits.originAttention);
   state.allowances = Object.fromEntries(Object.entries(state.allowances).slice(-limits.history));
+  const tab = tabKeyOf(tabId);
+  if (tab) {
+    delete state.tabAllowances[tab];
+    state.tabAllowances[tab] = Math.min(expiresAt, Date.now() + limits.tabAttention);
+    state.tabAllowances = Object.fromEntries(Object.entries(state.tabAllowances).slice(-limits.history));
+  }
   await writeAttention(state);
 });
-const openWindow = async origin => {
+const openWindow = async (origin, tabId) => {
   const existingId = await getWindowId();
   if (existingId !== null) {
     try { await chrome.windows.get(existingId); return existingId; }
     catch (error) { await setWindowId(null); }
   }
   const state = await readAttention(), now = Date.now();
+  const tab = tabKeyOf(tabId);
   const followup = own(state.allowances, origin) > now;
+  // The tab's allowance lifts the tab's cooldown only: a different origin in
+  // the tab still answers to the global and per-origin ones.
+  const tabFollowup = followup || (tab !== null && own(state.tabAllowances, tab) > now);
   if (!followup && ((state.globalAt && now - state.globalAt < limits.globalAttention) ||
       (own(state.origins, origin) && now - state.origins[origin] < limits.originAttention))) throw busy();
+  if (!tabFollowup && tab !== null && own(state.tabs, tab) && now - state.tabs[tab] < limits.tabAttention) throw busy();
   delete state.allowances[origin]; delete state.origins[origin];
   state.origins[origin] = now; state.globalAt = now;
   state.origins = Object.fromEntries(Object.entries(state.origins).slice(-limits.history));
+  if (tab !== null) {
+    delete state.tabAllowances[tab]; delete state.tabs[tab];
+    state.tabs[tab] = now;
+    state.tabs = Object.fromEntries(Object.entries(state.tabs).slice(-limits.history));
+  }
   // Persist the attention decision before opening. A failed browser operation
   // may require a cooldown retry, but cannot allow repeated opening attempts.
   await writeAttention(state);
@@ -187,7 +212,7 @@ const openWindow = async origin => {
 const present = identity => withWindow(async () => {
   const request = await get(identity?.id);
   if (!matchesApproval(request, identity) || request.claimId) return false;
-  const windowId = await openWindow(request.origin);
+  const windowId = await openWindow(request.origin, request.tabId);
   return attachWindow(identity, windowId);
 });
 const closeWindow = windowId => withWindow(async () => {

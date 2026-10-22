@@ -1,5 +1,4 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { Zenon } from 'znn-ts-sdk';
 
@@ -10,11 +9,15 @@ import { ModalContext } from '../../../services/hooks/modal/modalContext';
 import useAccount from '../../../services/hooks/useAccount';
 import useBackgroundSender from '../../../services/hooks/useBackgroundSender';
 import usePagedList from '../../../services/hooks/usePagedList';
+import useChainChange from '../../../services/hooks/useChainChange';
 import vault from '../../../services/wallet/vault';
 import { znnZts } from '../../../services/wallet/account';
 import fallbackValues from '../../../services/utils/fallbackValues';
 import { formatAmount, formatExact, parseAmount, toBigNumber, toDecimals } from '../../../services/utils/format';
 import { notify } from '../../../services/utils/notify';
+import { fail } from '../../../services/utils/errors';
+import usePopupState from '../../../services/utils/popupState';
+import useLinkPrefill from '../../../services/utils/linkPrefill';
 
 // Staking.
 //
@@ -26,14 +29,13 @@ import { notify } from '../../../services/utils/notify';
 // total was therefore always zero however much was staked.
 
 const Stake = () => {
-  const navigate = useNavigate();
   const { address, balanceMap } = useAccount();
   const { openModal } = useContext(ModalContext);
   const { sendInBackground } = useBackgroundSender();
 
   const [addressObject, setAddressObject] = useState(null);
-  const [amount, setAmount] = useState('');
-  const [duration, setDuration] = useState('');
+  const [amount, setAmount] = usePopupState('stake.amount', '');
+  const [duration, setDuration] = usePopupState('stake.duration', '');
   const [uncollectedQsr, setUncollectedQsr] = useState(0);
 
   const znn = balanceMap[znnZts];
@@ -85,6 +87,14 @@ const Stake = () => {
 
   const entries = usePagedList(fetchPage, { pageSize: 10, enabled: Boolean(addressObject) });
 
+  // A stake, a cancel or a collect confirms while this screen is open.
+  useChainChange(() => {
+    entries.refresh();
+    if (addressObject) {
+      loadRewards(addressObject);
+    }
+  });
+
   // The total that was always zero. `StakeList` carries it on the same paged
   // response the entries come back on.
   const stakedTotal = entries.meta?.totalAmount;
@@ -118,6 +128,22 @@ const Stake = () => {
     return true;
   };
 
+  // A syrius://stake link: the amount, and the lock in months as desktop
+  // Syrius takes it, when it is one of the periods offered here.
+  const link = useLinkPrefill();
+  useEffect(() => {
+    if (link.amount) {
+      setAmount(link.amount);
+      setValue('stakeAmountField', link.amount, { shouldValidate: true });
+    }
+    const seconds = Number(link.duration) * 2592000;
+    if (fallbackValues.stakingDurations.some((entry) => entry.value === seconds)) {
+      setDuration(seconds);
+      setValue('stakeDurationField', seconds, { shouldValidate: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Balances arrive after the first render, so an amount typed against the
   // placeholder zero has to be re-checked when the real one lands.
   useEffect(() => {
@@ -133,7 +159,7 @@ const Stake = () => {
     const problem = validateAmount(amount);
 
     if (problem !== true) {
-      notify.error(problem);
+      notify.error(fail(110, { text: problem }));
       return;
     }
 
@@ -155,7 +181,6 @@ const Stake = () => {
       setAmount('');
       setDuration('');
       resetForm();
-      navigate('/tabs/dashboard');
     } catch (err) {
       notify.error(err);
     }
@@ -167,8 +192,6 @@ const Stake = () => {
         successMessage: 'Stake withdrawn',
         row: { owner: address, label: 'Withdrawing stake' },
       });
-
-      navigate('/tabs/dashboard');
     } catch (err) {
       notify.error(err);
     }
@@ -180,8 +203,6 @@ const Stake = () => {
         successMessage: 'Rewards collected',
         row: { owner: address, label: 'Collecting rewards' },
       });
-
-      navigate('/tabs/dashboard');
     } catch (err) {
       notify.error(err);
     }

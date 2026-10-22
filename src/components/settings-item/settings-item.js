@@ -1,26 +1,24 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const SettingsItem = ({icon, title, description, url}) => {
+import Icon from '../icon/icon';
+
+// One row of the settings index: where it goes, and nothing else. It was a
+// clickable <div> with a line of description under every title that said the
+// title again in more words; it is a button now, so the keyboard reaches it,
+// and the description is gone.
+// `tone` tints the icon tile with one of the semantic colours.
+const SettingsItem = ({ icon, title, url, tone = 'primary' }) => {
   const navigate = useNavigate();
 
-  const goToUrl = (url) => {
-    navigate(url);
-  }
-  
   return (
-    <div onClick={() => goToUrl(url)} className='settings-item mt-2'>
-      <div className="settings-item-icon mr-2">
-        <img alt="" className='' src={require(`./../../assets/${icon || "default-icon-green"}.svg`)}></img>
-
-      </div>
-      <div className='settings-item-data mr-2'>
-        <div className="text-white text-left text-bold">{title}</div>
-        <div className='text-gray text-left text-xs'>
-          {description}
-        </div>
-      </div>
-    </div>
+    <button type="button" className="settings-item" onClick={() => navigate(url)}>
+      <span className={`settings-item-icon is-${tone}`}>
+        <Icon name={icon} size={18} />
+      </span>
+      <span className="settings-item-title">{title}</span>
+      <Icon name="chevron-right" size={16} className="settings-item-chevron" />
+    </button>
   );
 };
 

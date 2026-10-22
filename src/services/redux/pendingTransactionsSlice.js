@@ -1,4 +1,5 @@
 import { createSlice } from '@reduxjs/toolkit';
+import { sameHistoryNetwork } from '../wallet/historyObservation';
 
 // Outgoing blocks that have been submitted but are not in the account's chain
 // yet.
@@ -44,11 +45,24 @@ export const pendingTransactionsSlice = createSlice({
         Object.assign(entry, changes);
       }
     },
+    // A row the background page reports (components/block-sync): added if this
+    // popup has not seen it, merged if it has.
+    upsertPendingTransaction: (state, action) => {
+      const entry = state.items.find((item) => item.id === action.payload.id);
+      if (entry) Object.assign(entry, action.payload);
+      else state.items.unshift({ status: pendingStatus.sending, ...action.payload });
+    },
     clearPendingTransaction: (state, action) => {
       state.items = state.items.filter((item) => item.id !== action.payload);
     },
-    clearSettledTransactions: (state) => {
-      state.items = state.items.filter((item) => item.status !== pendingStatus.settled);
+    clearSettledTransactions: (state, action) => {
+      const { owner, network, hashes } = action.payload || {};
+      if (typeof owner !== 'string' || !owner || !Array.isArray(hashes)) return;
+      const observed = new Set(hashes.filter((hash) => typeof hash === 'string' && hash));
+      // A node-accepted row remains until its exact block is observed in the
+      // same account/network. Missing context is not evidence of observation.
+      state.items = state.items.filter((item) => !(item.status === pendingStatus.settled &&
+        item.owner === owner && sameHistoryNetwork(item.network, network) && observed.has(item.hash)));
     },
     // On lock, and on switching address: what is on screen belongs to the
     // account that was open.
@@ -59,6 +73,7 @@ export const pendingTransactionsSlice = createSlice({
 export const {
   startPendingTransaction,
   updatePendingTransaction,
+  upsertPendingTransaction,
   clearPendingTransaction,
   clearSettledTransactions,
   resetPendingTransactions,

@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const babel = require('@babel/core');
+const { journalStubs } = require('./fixtures/journal-stub');
 const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 global.window = { crypto: crypto.webcrypto }; global.self = global.window;
@@ -33,9 +34,11 @@ const loader = (environment, overrides = () => undefined) => {
     if (filename.endsWith('.json')) return require(filename); // e.g. contract-call schemas
     if (cache.has(filename)) return cache.get(filename).exports;
     const module = { exports: {} }; cache.set(filename, module);
-    if (!compiled.has(filename)) compiled.set(filename, babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'], configFile: false, babelrc: false }).code);
+    if (!compiled.has(filename)) compiled.set(filename, babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]], configFile: false, babelrc: false }).code);
     const requireModule = id => {
       const replacement = overrides(id); if (replacement !== undefined) return replacement;
+      // The journal has its own suite; see fixtures/journal-stub.js.
+      const journaled = journalStubs(id); if (journaled !== undefined) return journaled;
       if (!id.startsWith('.')) return require(id);
       const target = path.resolve(path.dirname(filename), id); return load(path.extname(target) ? target : target + '.js');
     };
@@ -65,7 +68,7 @@ const entry = (responseId = 'same', documentId = 'doc-a', type = 'signMessage') 
 const relaxedLimits = load => id => {
   if (!id.endsWith('/utils/approvalLimits')) return undefined;
   const real = load(path.join('src', 'services', 'utils', 'approvalLimits.js'));
-  return { ...real, limits: Object.freeze({ ...real.limits, pending: 1000, perOrigin: 1000, globalAttention: 0, originAttention: 0 }) };
+  return { ...real, limits: Object.freeze({ ...real.limits, pending: 1000, perOrigin: 1000, perTab: 1000, globalAttention: 0, originAttention: 0, tabAttention: 0 }) };
 };
 const fixture = () => {
   const session = {
@@ -191,6 +194,38 @@ const fixture = () => {
 };
 const watchdog = setTimeout(() => { console.error('Request identity checks timed out'); process.exit(1); }, 45000);
 (async () => {
+  // Unsupported origins never reach the consent queue or open its window.
+  for (const from of [
+    { origin: 'null', url: 'https://fixture.invalid/app' },
+    { origin: undefined, url: 'data:text/html,owned-fixture' },
+    { origin: undefined, url: 'about:blank' },
+  ]) {
+    const f = fixture();
+    await f.provider('znn_connect', {}, 'opaque-origin', { ...f.sender(), ...from });
+    assert.equal(f.delivered.length, 1);
+    assert.equal(f.delivered[0].value.error?.code, -32603);
+    assert.equal(f.delivered[0].value.result, undefined);
+    assert.equal((await f.queue.list()).length, 0);
+    assert.equal(f.counts.created, 0);
+    assert.equal(f.windows.size, 2);
+    assert.equal(f.local['syrius.permissions'], undefined);
+    assert.equal(f.counts.signs, 0);
+    assert.equal(f.counts.publishes, 0);
+  }
+  // Browser-reported inherited origins and the app's explicit callback origin
+  // remain distinct, usable identities; their URL need not serialize likewise.
+  for (const from of [
+    { origin: 'https://fixture.invalid', url: 'about:blank' },
+    { origin: undefined, url: 'https://fixture.invalid/app' },
+    { origin: 'http://fixture.invalid', url: 'http://fixture.invalid/app' },
+    { origin: 'myapp://return', url: 'myapp://return/callback' },
+  ]) {
+    const f = fixture();
+    await f.provider('znn_connect', {}, 'usable-origin', { ...f.sender(), ...from });
+    assert.equal((await f.queue.list()).length, 1);
+    assert.equal(f.counts.signs, 0);
+  }
+
   // Opaque identities, immutable snapshots, correlation domains and durable claims.
   {
     const f = fixture(), original = entry('__proto__');
@@ -300,6 +335,43 @@ const watchdog = setTimeout(() => { console.error('Request identity checks timed
     assert.equal(f.local['syrius.permissions']['https://unapproved.invalid'], undefined, 'only a claimed connect grants consent');
   }
   const label = { connect: 'Connect', sendTransaction: 'Confirm', signAndSendBlock: 'Sign and send', signMessage: 'Sign' };
+  // The browser-authenticated origin is complete, including scheme and port,
+  // even when a long hostname would be truncated by the old compact header.
+  for (const scheme of ['http', 'https']) {
+    const origin = `${scheme}://${'long-label-'.repeat(5)}site.fixture.invalid:8080`;
+    const f = fixture(); await f.add({ ...entry('origin-' + scheme, 'doc-a', 'connect'), origin, title: 'Inert page title' });
+    const view = f.ui(); await view.settle(); const html = view.markup();
+    assert(html.includes(origin), 'approval displays the complete origin');
+    assert.equal(html.includes('This site uses an insecure HTTP connection.'), scheme === 'http');
+    assert(html.includes('Inert page title')); view.dispose();
+  }
+  // Network rows are visible before a transfer is approved and do not expose
+  // credentials, private endpoint paths, query strings or fragments.
+  {
+    const f = fixture(); await f.add(entry('network-transfer', 'doc-a', 'sendTransaction'));
+    const view = f.ui();
+    view.state.connectionParameters.nodeUrl = 'wss://fixture-user:fixture-value@node.fixture.invalid:35998/private-route?fixture=hidden#detail';
+    await view.settle(); const html = view.markup();
+    assert.match(html, /Selected signing chain<\/dt><dd class="word-break-all">1<\/dd>/);
+    assert(html.includes('wss://node.fixture.invalid:35998'));
+    for (const privatePart of ['fixture-user', 'fixture-value', '/private-route', 'fixture=hidden', '#detail']) assert(!html.includes(privatePart));
+    view.dispose();
+  }
+  // Preserve the explicit raw-block chain while making its difference from
+  // the selected chain prominent. This change does not introduce a new policy.
+  {
+    const f = fixture(), params = block(); params.chainIdentifier = 69;
+    await f.add({ ...entry('network-raw', 'doc-a', 'signAndSendBlock'), params });
+    const view = f.ui(); await view.settle(); const html = view.markup();
+    assert.match(html, /Selected signing chain<\/dt><dd class="word-break-all">1<\/dd>/);
+    assert.match(html, /Effective block chain<\/dt><dd class="word-break-all">69<\/dd>/);
+    assert(html.includes('wss://fixture.invalid'));
+    assert.match(html, /different chain identifier from the selected signing chain/);
+    assert.equal(view.button('Sign and send').props.disabled, false);
+    await view.button('Sign and send').props.onClick();
+    assert.equal(f.delivered[0].value.result.block.chainIdentifier, 69);
+    assert.equal(f.counts.signs, 1); assert.equal(f.counts.publishes, 1); view.dispose();
+  }
   for (const type of Object.keys(label)) {
     const f = fixture(); const row = await f.add(entry('ui-' + type, 'doc-a', type));
     const first = f.ui(10), second = f.ui(11); await first.settle(); await second.settle();

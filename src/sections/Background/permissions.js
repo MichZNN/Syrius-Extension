@@ -1,4 +1,5 @@
 import selection from '../../services/wallet/selection';
+import { fail } from '../../services/utils/errors';
 
 // Which sites may see which wallet account.
 //
@@ -31,7 +32,7 @@ const serialized = (operation) => navigator.locks.request(storageKey, async () =
 const activeOf = (entry) => (entry.active === true ? entry : entry.previous?.active === true ? entry.previous : null);
 const activeEntries = (raw) => raw.map(activeOf).filter(Boolean);
 const checkDeadline = (expiresAt) => {
-  if (!Number.isFinite(expiresAt) || Date.now() >= expiresAt) throw new Error('Approval expired during finalization.');
+  if (!Number.isFinite(expiresAt) || Date.now() >= expiresAt) throw fail(801);
 };
 // A denial record that cannot be read as one withholds everything (callers
 // fail closed) rather than being read as "nothing revoked".
@@ -39,7 +40,7 @@ const readDenials = async () => {
   const stored = (await chrome.storage.session.get(deniedKey))[deniedKey];
   if (stored === undefined) return [];
   if (!Array.isArray(stored) || !stored.every((item) => typeof item === 'string')) {
-    throw new Error('Connected-site revocations are unavailable. Retry disconnecting.');
+    throw fail(803);
   }
   return stored;
 };
@@ -55,7 +56,12 @@ const connected = async (raw, origin, scope) => Boolean(find(activeEntries(raw),
 // used for a permission decision is always the one Chrome reports for the
 // sender, never one the page supplied.
 const originOf = (sender) => {
-  try { return sender?.origin || (sender?.url ? new URL(sender.url).origin : null); }
+  try {
+    const origin = sender?.origin || (sender?.url ? new URL(sender.url).origin : null);
+    // Opaque browser origins share the serialized value "null"; it does not
+    // identify a site that can receive an account permission.
+    return typeof origin === 'string' && origin !== 'null' ? origin : null;
+  }
   catch (error) { return null; }
 };
 // Fails closed: an unreadable store is not consent.
@@ -93,7 +99,7 @@ const grant = (origin, scope, { title = '', favicon = '' } = {}, { expiresAt, co
     checkDeadline(expiresAt);
     const receipt = await confirm();
     if (receipt?.accepted !== true || !Number.isFinite(receipt.acceptedAt) || receipt.acceptedAt >= expiresAt) {
-      throw new Error('The connection was not accepted before its approval expired.');
+      throw fail(804);
     }
     await writeAll([...others, { active: true, origin, scope: { ...scope }, title, favicon,
       connectedAt: previous?.connectedAt || Date.now(), lastUsedAt: Date.now(), approvalAcceptedAt: receipt.acceptedAt }]);

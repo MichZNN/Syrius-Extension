@@ -84,7 +84,7 @@ const fixture = () => {
       if (filename.endsWith('.json')) return require(filename); // e.g. contract-call schemas
       if (cache.has(filename)) return cache.get(filename).exports;
       const module = { exports: {} }; cache.set(filename, module);
-      const { code } = babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' } }], '@babel/preset-react'], babelrc: false, configFile: false });
+      const { code } = babel.transformFileSync(filename, { presets: [['@babel/preset-env', { targets: { node: 'current' }, modules: 'commonjs' }], ['@babel/preset-react', { runtime: 'classic' }]], babelrc: false, configFile: false });
       const resolve = id => {
         const override = extra(id); if (override !== undefined) return override;
         if (id === 'znn-ts-sdk') return sdk;

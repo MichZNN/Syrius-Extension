@@ -8,6 +8,9 @@ import { storeChainIdentifier } from '../../../services/redux/connectionParamete
 import { detectNodeChainId, mainnetChainId, parseChainId } from '../../../services/utils/chainId';
 import { notify } from '../../../services/utils/notify';
 import { announceChain, captureLifetime } from '../../../services/wallet/announce';
+import { retireReadContext } from '../../../services/wallet/readContext';
+import { fail } from '../../../services/utils/errors';
+import SettingsItem from '../../../components/settings-item/settings-item';
 
 // Node and chain settings.
 //
@@ -41,9 +44,10 @@ const ChangeNode = () => {
     const parsed = parseChainId(value);
 
     if (parsed === null) {
-      notify.error('The chain identifier must be a whole number, 1 or higher.');
+      notify.error(fail(312));
       return;
     }
+    retireReadContext();
     Zenon.setChainIdentifier(parsed);
     setChainId(parsed);
     setDraftChainId(String(parsed));
@@ -68,6 +72,12 @@ const ChangeNode = () => {
 
   return (
     <div className="page">
+      {/* What the node in use says about itself: reached from here, where the
+          node is chosen. */}
+      <div className="settings-group">
+        <SettingsItem icon="chart" title="Node stats" url="/tabs/settings/node-stats" tone="info" />
+      </div>
+
       <NodeList
         nodes={nodeList.nodes}
         currentNode={nodeList.currentNode}
@@ -78,42 +88,48 @@ const ChangeNode = () => {
         disabled={nodeList.isConnecting}
       />
 
-      <h3 className="section-title">Chain identifier</h3>
-
-      <div className="chain-id-card">
-        <div className="chain-id-card-data">
-          <div className="chain-id-current">Signing for chain {chainId}</div>
-          <div className="text-gray text-xs">{detectedLabel()}</div>
+      {/* Pinned above the tab bar, like Add a token: the node list above it
+          can grow, and the chain is what every block is signed for. */}
+      <div className="page-footer chain-id-footer">
+        <div className="chain-id-line">
+          <span>
+            <span className="chain-id-current">Signing for chain {chainId}</span>
+            <span className="text-gray text-xs"> · {detectedLabel()}</span>
+          </span>
+          {chainId !== mainnetChainId && (
+            <button type="button" className="text-link" onClick={() => applyChainId(mainnetChainId)}>
+              Use mainnet
+            </button>
+          )}
         </div>
-      </div>
 
-      {isMismatched && (
-        <div className="chain-id-suggestion">
-          <div className="text-xs">
-            The node is on chain <b>{detected.chainId}</b> and this wallet signs for{' '}
-            <b>{chainId}</b>. Blocks will be rejected until they match.
+        {isMismatched && (
+          <div className="chain-id-suggestion">
+            <div className="text-xs">
+              The node is on chain <b>{detected.chainId}</b>, the wallet signs for <b>{chainId}</b>. Blocks will be
+              rejected until they match.
+            </div>
+            <button
+              type="button"
+              className="button secondary w-100 mt-2"
+              onClick={() => applyChainId(detected.chainId)}
+            >
+              Use chain {detected.chainId}
+            </button>
           </div>
-          <button
-            type="button"
-            className="button secondary w-100 mt-2"
-            onClick={() => applyChainId(detected.chainId)}
-          >
-            Use chain {detected.chainId}
-          </button>
-        </div>
-      )}
+        )}
 
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          applyChainId(draftChainId);
-        }}
-      >
-        <div className="custom-control">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            applyChainId(draftChainId);
+          }}
+        >
           <div className="input-with-button w-100">
             <input
               className="w-100 custom-label pr-3"
               placeholder={`Chain identifier (${mainnetChainId} is mainnet)`}
+              aria-label="Chain identifier"
               value={draftChainId}
               onChange={(event) => setDraftChainId(event.target.value)}
               inputMode="numeric"
@@ -123,18 +139,8 @@ const ChangeNode = () => {
               Save
             </button>
           </div>
-        </div>
-      </form>
-
-      {chainId !== mainnetChainId && (
-        <button
-          type="button"
-          className="button secondary w-100"
-          onClick={() => applyChainId(mainnetChainId)}
-        >
-          Back to mainnet
-        </button>
-      )}
+        </form>
+      </div>
     </div>
   );
 };

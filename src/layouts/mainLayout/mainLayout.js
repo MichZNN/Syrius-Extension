@@ -8,6 +8,7 @@ import SiteIntegrationLayout from '../siteIntegrationLayout/siteIntegrationLayou
 import DashboardPassword from '../../pages/dashboard/dashboard-password/dashboard-password';
 import InitialNodeSelection from '../../pages/settings/change-node/initial-node-selection';
 import Splash from '../../components/splash/splash';
+import Update from '../../pages/update/update';
 
 import { completeUnlock } from '../../services/wallet/bootstrap';
 import session from '../../services/wallet/session';
@@ -17,8 +18,11 @@ import { resetPendingTransactions } from '../../services/redux/pendingTransactio
 import { invalidateAccountCache } from '../../services/hooks/useAccount';
 import { notify } from '../../services/utils/notify';
 import { loadStorageWalletNames } from '../../services/utils/utils';
+import NodeStall from '../../components/node-stall/node-stall';
+import { describe, fail } from '../../services/utils/errors';
 import { getCurrentNodeUrl } from '../../services/utils/storage';
 import { isDevWalletBuild, prepareDevWallet } from '../../services/utils/devWallet';
+import { savedTrail } from '../../services/utils/popupState';
 
 // The routes that mean something specific was asked for, rather than "open the
 // wallet". A dApp approval is opened as `popup.html#/site-integration`, and
@@ -51,7 +55,7 @@ const MainLayout = () => {
       // commit.
       // Retain its identity for the same conditional recovery used at startup.
       pendingRevocation.current = leaseId;
-      setBootError(error.message);
+      setBootError(describe(error).line);
       setIsBooting(false);
       return;
     }
@@ -106,8 +110,11 @@ const MainLayout = () => {
         await prepareDevWallet();
       }
 
-      const wallets = loadStorageWalletNames();
       const initialPathname = requestedRoute.current;
+      // Updating the extension needs no wallet, unlocked or not: its tab is
+      // left where it was opened (pages/update).
+      if (initialPathname === '/update') return;
+      const wallets = loadStorageWalletNames();
       const isWithin = (route) =>
         initialPathname === route || initialPathname.startsWith(`${route}/`);
       const deepLink = deepLinkRoutes.includes(initialPathname)
@@ -148,9 +155,17 @@ const MainLayout = () => {
             dispatch,
           });
           if (!cancelled) {
-            const destination = deepLink || (
-              isWithin('/tabs') ? initialPathname : '/tabs/dashboard'
-            );
+            // A popup opened plainly goes back to the screen it closed on,
+            // with the screens before it as history so Back still works
+            // (utils/popupState.js). A deep link or an explicit route wins.
+            const trail = savedTrail().filter((entry) => entry?.pathname?.startsWith('/tabs/'));
+            if (!deepLink && !isWithin('/tabs') && trail.length) {
+              trail.forEach((entry, index) => navigate(entry.pathname, {
+                replace: index === 0, ...(entry.state ? { state: entry.state } : {}),
+              }));
+              return;
+            }
+            const destination = deepLink || (isWithin('/tabs') ? initialPathname : '/tabs/dashboard');
             navigateIfNeeded(destination);
           }
           return;
@@ -172,8 +187,7 @@ const MainLayout = () => {
 
     boot().catch((error) => {
       if (!cancelled) {
-        setBootError(error?.code === 'WALLET_LOCK_FAILED' ? error.message :
-          'Could not read or restore the wallet session. Other wallet windows may still be unlocked. Try again or close the browser.');
+        setBootError(describe(error?.code === 'WALLET_LOCK_FAILED' ? error : fail(221)).line);
       }
     }).finally(() => {
       if (!cancelled) {
@@ -188,7 +202,7 @@ const MainLayout = () => {
   }, [bootAttempt]);
 
   if (isBooting) {
-    return <Splash />;
+    return <Splash><NodeStall /></Splash>;
   }
 
   if (bootError) {
@@ -215,6 +229,7 @@ const MainLayout = () => {
         <Route path="initial-node-selection" element={<InitialNodeSelection />} />
         <Route path="tabs/*" element={<TabsLayout />} />
         <Route path="site-integration" element={<SiteIntegrationLayout />} />
+        <Route path="update" element={<Update />} />
       </Routes>
     </div>
   );

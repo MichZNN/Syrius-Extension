@@ -2,11 +2,13 @@ import { Primitives } from 'znn-ts-sdk';
 import { keys } from '../utils/storage';
 import { walletStorageKey } from '../utils/utils';
 import vault from './vault';
+import { fail } from '../utils/errors';
+import journal from './journal';
 
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
-const changed = () => new Error('The wallet or its saved data changed. Try removing it again.');
-const invalid = () => new Error('Wallet metadata could not be read safely. No wallet was removed.');
+const changed = () => fail(213);
+const invalid = () => fail(214);
 const readMap = (key) => {
   const raw = localStorage.getItem(key);
   if (raw === null) return {};
@@ -21,7 +23,7 @@ const address = (value) => {
     const data = value?.core?.data;
     if (value?.hrp !== 'z' || value?.core?.type !== 'Buffer' || !Array.isArray(data) ||
       data.length !== 20 || !data.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)) throw invalid();
-    return new Primitives.Address('z', Buffer.from(data)).toString();
+    return new Primitives.Address('z', new Uint8Array(data)).toString();
   } catch (error) { throw invalid(); }
 };
 const indexValid = (value) => Number.isSafeInteger(value) && value >= 0 && value < 0x80000000;
@@ -88,7 +90,12 @@ const prepareWalletRemoval = async (captured) => {
     if (index === 0 && value !== captured.baseAddress) throw changed();
     addresses.push(value);
   }
-  return Object.freeze({ captured, addresses: Object.freeze(addresses) });
+  // The transaction journal is filed under a name only the unlocked wallet can
+  // derive, and the deletion below runs after the vault is sealed. A retained
+  // import of the same seed owns the same account chain, and keeps it.
+  const journalKey = captured.sharedNames.length ? null : await journal.storageKey();
+  assertCurrent(captured);
+  return Object.freeze({ captured, addresses: Object.freeze(addresses), journalKey });
 };
 
 const writeMap = (key, value) => {
@@ -99,7 +106,7 @@ const writeMap = (key, value) => {
 // No await between the final guard and these local writes. Read global metadata
 // afresh so unrelated changes during derivation survive. localStorage is not a
 // multi-key transaction: failures keep the encrypted wallet available for retry.
-const write = ({ captured, addresses }, assert) => {
+const write = ({ captured, addresses, journalKey }, assert) => {
   assert(captured);
   const wallets = readMap(walletStorageKey), allInfo = readMap(keys.addressInfo), labels = readMap(keys.labels);
   if (!Object.values(labels).every((label) => typeof label === 'string')) throw invalid();
@@ -122,6 +129,9 @@ const write = ({ captured, addresses }, assert) => {
   if (JSON.stringify(nextLabels) !== JSON.stringify(labels)) writeMap(keys.labels, nextLabels);
   if (captured.infoRaw !== null || captured.sharedNames.length) writeMap(keys.addressInfo, allInfo);
   if (lastName === captured.name) localStorage.removeItem(keys.lastWalletName);
+  // Before the keyfile, like everything else here: a failure leaves the wallet
+  // in place to retry, never a wallet gone with its records left behind.
+  if (journalKey) localStorage.removeItem(journalKey);
   writeMap(walletStorageKey, wallets);
 };
 

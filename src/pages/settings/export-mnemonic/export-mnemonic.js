@@ -5,6 +5,8 @@ import MnemonicWord from '../../../components/mnemonic-word/mnemonic-word';
 import vault from '../../../services/wallet/vault';
 import { copyToClipboard, notify } from '../../../services/utils/notify';
 import './export-mnemonic.scss';
+import { fail } from '../../../services/utils/errors';
+import useSecureScreen from '../../../services/hooks/useSecureScreen';
 
 // Revealing the recovery phrase.
 //
@@ -14,7 +16,7 @@ import './export-mnemonic.scss';
 // come from the one already open.
 
 const ExportMnemonic = () => {
-  const [password, setPassword] = useState('');
+  useSecureScreen();
   const [words, setWords] = useState(null);
   const [isChecking, setIsChecking] = useState(false);
 
@@ -25,18 +27,18 @@ const ExportMnemonic = () => {
     setError,
   } = useForm();
 
-  const reveal = async () => {
+  const reveal = async ({ inputPasswordField }) => {
     setIsChecking(true);
 
     try {
-      if (!(await vault.verifyPassword(password))) {
+      if (!(await vault.verifyPassword(inputPasswordField))) {
         setError('inputPasswordField', { message: 'Wrong password' });
         return;
       }
       const mnemonic = await vault.getMnemonic();
 
       if (!mnemonic) {
-        notify.error('This wallet has no recovery phrase stored.');
+        notify.error(fail(220));
         return;
       }
       setWords(mnemonic.split(' '));
@@ -83,8 +85,6 @@ const ExportMnemonic = () => {
             placeholder="Wallet password"
             type="password"
             autoFocus
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
           />
           <div className={`input-error ${errors.inputPasswordField ? '' : 'invisible'}`}>
             {errors.inputPasswordField?.message || ' '}

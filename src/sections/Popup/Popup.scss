@@ -17,25 +17,61 @@
 //
 // Tokens
 //
+// The Zenon design system's values (nom-ui `src/style.css`), transcribed: this
+// build is webpack and React, so it cannot import nom-ui, and a surface that
+// cannot is still on the system by carrying its tokens (webdesign-lab
+// RULES.md §8). These are the only colours in the file. Everything below
+// names a role, never a hex, and both themes define every role.
+//
+// Dark is the default and what the wallet has always been. Light is chosen in
+// Settings and set as `data-theme` on <html> before first paint (index.jsx).
 :root {
-  --bg: #141414;
-  --surface: #1b1b1b;
-  --surface-raised: #232323;
-  --surface-hover: #2f2f2f;
-  --border: #2a2a2a;
+  --background: hsl(0 0% 8%);
+  --card: hsl(0 0% 10%);
+  --popover: hsl(0 0% 14%);
+  --hover: hsl(0 0% 18%);
+  --border: hsl(0 0% 20%);
 
-  --text: #ffffff;
-  --text-dim: #8b8b8b;
-  --text-faint: #5e5e5e;
+  --foreground: hsl(0 0% 98%);
+  --muted-foreground: hsl(0 0% 65%);
+  --faint-foreground: hsl(0 0% 46%);
 
-  --znn: #00e721;
-  --znn-dim: #40bf21;
-  --qsr: #446aef;
-  --qsr-dim: #002bc2;
-  --warning: #ff5c00;
+  // Green is brand and success, blue is info and pending, pink is the one
+  // accent for new or featured. An error is crimson, never pink or amber.
+  --primary: hsl(145 100% 42%);
+  --primary-foreground: hsl(0 0% 8%);
+  --plasma: linear-gradient(180deg, hsl(120 86% 63%) 0%, hsl(145 100% 38%) 100%);
+  --success: hsl(145 63% 45%);
+  --info: hsl(214 100% 62%);
+  --info-foreground: hsl(0 0% 8%);
+  --pending: var(--info);
+  --warning: hsl(38 95% 55%);
+  --warning-foreground: hsl(0 0% 8%);
+  --destructive: hsl(352 86% 58%);
+  --destructive-foreground: hsl(0 0% 98%);
+  --highlight: hsl(327 95% 53%);
+  --ring: hsl(145 100% 42%);
 
-  --radius: 10px;
-  --radius-sm: 7px;
+  --scrim: hsl(0 0% 0% / 0.62);
+  --qr-background: hsl(0 0% 8%);
+
+  // On near-black a drop shadow alone vanishes, so each step also lights the
+  // top edge.
+  --shadow-sm: 0 2px 6px -1px hsl(0 0% 0% / 0.55), inset 0 1px 0 0 hsl(0 0% 100% / 0.04);
+  --shadow-md: 0 8px 18px -4px hsl(0 0% 0% / 0.6), inset 0 1px 0 0 hsl(0 0% 100% / 0.05);
+  --shadow-lg: 0 14px 32px -8px hsl(0 0% 0% / 0.65), inset 0 1px 0 0 hsl(0 0% 100% / 0.05);
+  --shadow-xl: 0 28px 56px -12px hsl(0 0% 0% / 0.7), inset 0 1px 0 0 hsl(0 0% 100% / 0.06);
+
+  // One tight radius. Pills go full; nothing else is rounder.
+  --radius: 6px;
+  --radius-sm: 4px;
+  --radius-full: 999px;
+
+  --font-sans: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  // State changes only: colour, background, border, shadow.
+  --motion: 150ms cubic-bezier(0.4, 0, 0.2, 1);
 
   // A popup is 360px wide and about 600 tall, and that is not negotiable, so
   // the type scale is built for it rather than scaled down from a page.
@@ -43,6 +79,59 @@
   --step-1: 15px;
   --step-2: 19px;
   --step-3: 26px;
+
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --background: hsl(0 0% 100%);
+  --card: hsl(0 0% 98%);
+  --popover: hsl(0 0% 100%);
+  --hover: hsl(0 0% 94%);
+  --border: hsl(0 0% 88%);
+
+  --foreground: hsl(0 0% 9%);
+  --muted-foreground: hsl(0 0% 40%);
+  --faint-foreground: hsl(0 0% 52%);
+
+  --primary: hsl(145 100% 32%);
+  --success: hsl(145 63% 34%);
+  --info: hsl(214 100% 46%);
+  --info-foreground: hsl(0 0% 100%);
+  --warning: hsl(32 95% 40%);
+  --warning-foreground: hsl(0 0% 100%);
+  --destructive: hsl(352 84% 47%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --ring: hsl(145 100% 36%);
+
+  --scrim: hsl(0 0% 0% / 0.4);
+  --qr-background: hsl(0 0% 100%);
+
+  --shadow-sm: 0 1px 3px 0 hsl(0 0% 0% / 0.08), 0 1px 2px -1px hsl(0 0% 0% / 0.06);
+  --shadow-md: 0 4px 12px -2px hsl(0 0% 0% / 0.1);
+  --shadow-lg: 0 12px 24px -6px hsl(0 0% 0% / 0.13);
+  --shadow-xl: 0 24px 48px -12px hsl(0 0% 0% / 0.18);
+
+  color-scheme: light;
+}
+
+// Two faces, two roles: Space Grotesk for the interface, JetBrains Mono for
+// data. Both are variable fonts shipped in the package with their licences
+// (src/assets/fonts); nothing is fetched.
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('../../assets/fonts/space-grotesk.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('../../assets/fonts/jetbrains-mono.woff2') format('woff2');
 }
 
 *,
@@ -55,13 +144,49 @@ html,
 body {
   margin: 0;
   padding: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
-    Arial, sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
   font-size: var(--step-0);
   line-height: 1.45;
+  // Every number in the wallet keeps its column as it updates.
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
+}
+
+// Data: amounts, addresses, hashes. Never set in the interface face.
+.mono,
+code {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+// The ledger label: the quiet on-chain texture for captions and table heads.
+// Labels only, never a value or a sentence.
+.ledger-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+// State changes ease; nothing else on these elements moves.
+a,
+button,
+input,
+textarea,
+label,
+summary {
+  transition: color var(--motion), background-color var(--motion), border-color var(--motion),
+    box-shadow var(--motion), opacity var(--motion), filter var(--motion);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
 }
 
 // Chrome sizes a popup to its content up to 800×600. Pinning it means screens
@@ -78,7 +203,29 @@ body {
 // the screen is clipped away with the viewport's overflow hidden, so it cannot
 // be scrolled to either. Fit the window that exists instead.
 body.standalone-window {
+  width: 100%;
   height: 100vh;
+}
+
+// The Update tab (pages/update) is the popup opened in a tab, because the
+// toolbar popup closes when the folder picker opens. Shown as the popup, the
+// same 360 by 600 frame centred in the tab, not pinned to its top-left corner
+// as a bare page.
+body.in-tab {
+  width: 100%;
+  height: 100vh;
+  overflow: auto;
+  display: grid;
+  place-items: center;
+
+  #app-container {
+    width: 360px;
+    height: 600px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-xl);
+    overflow: hidden;
+  }
 }
 
 #app-container,
@@ -116,8 +263,16 @@ p {
 }
 
 a {
-  color: var(--znn);
+  color: var(--primary);
   text-decoration: none;
+}
+
+// Form controls do not inherit the face on their own; without this an input
+// falls back to the system font beside labels set in Space Grotesk.
+input,
+textarea,
+select {
+  font-family: inherit;
 }
 
 button {
@@ -139,8 +294,8 @@ button:disabled {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--surface-hover);
-  border-radius: 3px;
+  background: var(--hover);
+  border-radius: var(--radius-full);
 }
 
 ::-webkit-scrollbar-track {
@@ -190,13 +345,13 @@ button:disabled {
   text-align: left;
 }
 .text-white {
-  color: var(--text);
+  color: var(--foreground);
 }
 .text-gray {
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 }
 .text-primary {
-  color: var(--znn);
+  color: var(--primary);
 }
 .text-xs {
   font-size: 11px;
@@ -221,7 +376,7 @@ button:disabled {
 }
 
 .text-link {
-  color: var(--znn);
+  color: var(--primary);
   font-size: 12px;
 }
 
@@ -229,7 +384,7 @@ button:disabled {
 // Shell
 //
 .black-bg {
-  background: var(--bg);
+  background: var(--background);
 }
 
 .tabs-layout {
@@ -245,10 +400,10 @@ button:disabled {
   justify-content: space-between;
   gap: 8px;
   flex: 0 0 auto;
-  height: 48px;
+  height: 52px;
   padding: 0 10px;
   border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--card);
 }
 
 .menu-header-left,
@@ -265,18 +420,25 @@ button:disabled {
 }
 
 .icon-button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: var(--radius-sm);
-  color: var(--text-dim);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
   flex: 0 0 auto;
 
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -6px;
+  }
+
   &:hover {
-    background: var(--surface-hover);
-    color: var(--text);
+    background: var(--hover);
+    color: var(--foreground);
   }
 }
 
@@ -291,12 +453,13 @@ button:disabled {
   align-items: baseline;
   gap: 6px;
   min-width: 0;
-  padding: 4px 9px;
-  border-radius: 999px;
-  background: var(--surface-raised);
+  min-height: 32px;
+  padding: 6px 10px;
+  border-radius: var(--radius-full);
+  background: var(--popover);
 
   &:hover {
-    background: var(--surface-hover);
+    background: var(--hover);
   }
 }
 
@@ -309,7 +472,8 @@ button:disabled {
 }
 
 .account-pill-address {
-  color: var(--text-dim);
+  font-family: var(--font-mono);
+  color: var(--muted-foreground);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
@@ -321,12 +485,13 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 7px;
-  border-radius: 999px;
-  background: var(--surface-raised);
+  min-height: 32px;
+  padding: 6px 9px;
+  border-radius: var(--radius-full);
+  background: var(--popover);
 
   &:hover {
-    background: var(--surface-hover);
+    background: var(--hover);
   }
 }
 
@@ -334,7 +499,7 @@ button:disabled {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--znn);
+  background: var(--primary);
 
   .is-offline & {
     background: var(--warning);
@@ -343,7 +508,7 @@ button:disabled {
 
 .network-chain {
   font-size: 10px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -399,16 +564,18 @@ button:disabled {
 }
 
 .section-title {
-  color: var(--text-dim);
+  font-family: var(--font-mono);
+  color: var(--muted-foreground);
   font-size: 11px;
-  font-weight: 600;
+  line-height: 16px;
+  font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   margin: 6px 0 0;
 }
 
 .empty-note {
-  color: var(--text-faint);
+  color: var(--faint-foreground);
   text-align: center;
   padding: 20px 8px;
   margin: 0;
@@ -419,7 +586,7 @@ button:disabled {
   display: flex;
   justify-content: center;
   align-items: center;
-  color: var(--text-faint);
+  color: var(--faint-foreground);
 }
 
 //
@@ -429,8 +596,12 @@ button:disabled {
   position: relative;
   flex: 0 0 auto;
   border-top: 1px solid var(--border);
-  background: var(--surface);
-  padding-bottom: 2px;
+  background: var(--card);
+}
+
+.tab-menu-items {
+  display: flex;
+  width: 100%;
 }
 
 .active-tab-container {
@@ -438,29 +609,35 @@ button:disabled {
   height: 2px;
 }
 
+// The indicator slides to the tab that was pressed: the one piece of chrome
+// that moves, because it is what says where you are.
 .active-tab-indicator {
   position: absolute;
   top: 0;
   height: 2px;
-  background: var(--znn);
-  transition: left 180ms ease;
+  border-radius: var(--radius-full);
+  background: var(--primary);
+  transition: left 180ms cubic-bezier(0.4, 0, 0.2, 1), width 180ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .tab-item {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 3px;
   flex: 1;
-  padding: 7px 0 6px;
-  color: var(--text-faint);
+  min-width: 0;
+  min-height: 50px;
+  padding: 6px 0;
+  color: var(--faint-foreground);
 
   &:hover {
-    color: var(--text-dim);
+    color: var(--muted-foreground);
   }
 
   &.active {
-    color: var(--znn);
+    color: var(--primary);
   }
 }
 
@@ -471,95 +648,119 @@ button:disabled {
 
 .tab-item-text {
   font-size: 10px;
+  font-weight: 500;
 }
 
 //
 // Buttons
 //
-.button {
+// A button reads its fill and ink from two custom properties and a modifier
+// only sets them. Written as rules that each set `background`, two modifiers
+// of equal specificity fought on source order and the hover of one beat the
+// rest state of the other.
+//
+// `.primary` is the plasma gradient: the one main action of a view, and the
+// only place the gradient goes. It is never flattened to a solid, and it is
+// not spread across chrome.
+.button,
+.thin-button {
+  --btn-bg: var(--popover);
+  --btn-bg-hover: var(--hover);
+  --btn-fg: var(--foreground);
+  --btn-border: transparent;
+
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 11px 14px;
+  border: 1px solid var(--btn-border);
   border-radius: var(--radius);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
   font-weight: 600;
-  font-size: var(--step-0);
-  background: var(--surface-raised);
-  color: var(--text);
-  transition: background 120ms ease, opacity 120ms ease;
   text-align: center;
+  transition: background var(--motion), border-color var(--motion), color var(--motion),
+    filter var(--motion), opacity var(--motion), scale var(--motion);
 
   &:hover:not(:disabled) {
-    background: var(--surface-hover);
+    background: var(--btn-bg-hover);
+  }
+
+  // Pressed: the control gives a little, so a click is felt before the
+  // screen changes.
+  &:active:not(:disabled) {
+    scale: 0.96;
   }
 }
 
+.button {
+  min-height: 44px;
+  padding: 10px 14px;
+  font-size: var(--step-0);
+}
+
+// The small button inside a row. Drawn at 32px; its hit area is taken out to
+// 44 by the pseudo-element so a row of them is still easy to press.
 .thin-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 11px;
-  border-radius: var(--radius-sm);
+  min-height: 32px;
+  padding: 5px 11px;
   font-size: 12px;
-  font-weight: 600;
-  background: var(--surface-raised);
   flex: 0 0 auto;
 
-  &:hover:not(:disabled) {
-    background: var(--surface-hover);
+  &::before {
+    content: '';
+    position: absolute;
+    inset: -6px -2px;
   }
 }
 
 .button.primary,
 .thin-button.primary {
-  background: var(--znn-dim);
-  color: #06210a;
+  --btn-bg: var(--plasma);
+  --btn-bg-hover: var(--plasma);
+  --btn-fg: var(--primary-foreground);
 
   &:hover:not(:disabled) {
-    background: var(--znn);
+    filter: brightness(1.08);
   }
 }
 
 .button.blue,
 .thin-button.blue {
-  background: var(--qsr);
-  color: #fff;
+  --btn-bg: var(--info);
+  --btn-bg-hover: var(--info);
+  --btn-fg: var(--info-foreground);
 
   &:hover:not(:disabled) {
-    background: #5a7cf3;
+    filter: brightness(1.1);
   }
 }
 
 .button.secondary,
 .thin-button.secondary {
-  background: transparent;
-  border: 1px solid var(--border);
-
-  &:hover:not(:disabled) {
-    background: var(--surface-raised);
-  }
+  --btn-bg: transparent;
+  --btn-bg-hover: var(--popover);
+  --btn-border: var(--border);
 }
 
-// Placed after `.button` on purpose: as a utility further up the file it lost
-// the cascade to `.button`'s own `color`, and the destructive action rendered
-// in ordinary white.
-.button.danger-text {
-  color: var(--warning);
-  background: transparent;
-  border: 1px solid rgba(255, 92, 0, 0.35);
-
-  &:hover:not(:disabled) {
-    background: rgba(255, 92, 0, 0.1);
-  }
+.button.danger-text,
+.thin-button.danger-text {
+  --btn-bg: transparent;
+  --btn-bg-hover: color-mix(in srgb, var(--destructive) 10%, transparent);
+  --btn-fg: var(--destructive);
+  --btn-border: color-mix(in srgb, var(--destructive) 35%, transparent);
 }
 
-.button.warning {
-  background: var(--warning);
-  color: #1b0c00;
+// The confirm of a destructive dialog.
+.button.warning,
+.thin-button.warning {
+  --btn-bg: var(--destructive);
+  --btn-bg-hover: var(--destructive);
+  --btn-fg: var(--destructive-foreground);
 
   &:hover:not(:disabled) {
-    background: #ff7526;
+    filter: brightness(1.1);
   }
 }
 
@@ -593,30 +794,32 @@ button:disabled {
 
 .custom-label {
   width: 100%;
+  min-height: 44px;
   padding: 11px 12px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
+  background: var(--card);
+  color: var(--foreground);
   font-size: var(--step-0);
   outline: none;
-  transition: border-color 120ms ease;
+  transition: border-color var(--motion);
 
   &::placeholder {
-    color: var(--text-faint);
+    color: var(--faint-foreground);
   }
 
   &:focus {
-    border-color: var(--znn-dim);
+    border-color: var(--ring);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 25%, transparent);
   }
 }
 
 .custom-label-error {
-  border-color: var(--warning);
+  border-color: var(--destructive);
 }
 
 .input-error {
-  color: var(--warning);
+  color: var(--destructive);
   font-size: 11px;
   min-height: 15px;
   padding: 2px 2px 0;
@@ -642,27 +845,151 @@ button:disabled {
   right: 6px;
   padding: 5px 9px;
   border-radius: var(--radius-sm);
-  background: var(--surface-hover);
+  background: var(--hover);
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 
   &:hover {
-    background: var(--znn-dim);
-    color: #06210a;
+    background: var(--primary);
+    color: var(--primary-foreground);
   }
+}
+
+// Icon buttons inside the end of a field: scan, address book.
+.input-icon-buttons {
+  position: absolute;
+  right: 2px;
+  display: flex;
+}
+
+.input-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: color var(--motion), background var(--motion);
+
+  &:hover,
+  &.is-active {
+    color: var(--foreground);
+    background: var(--hover);
+  }
+}
+
+.input-with-button.has-two .custom-label {
+  padding-right: 88px;
+}
+
+body.is-app .input-icon-button {
+  width: 44px;
+  height: 44px;
+}
+
+body.is-app .input-with-button.has-two .custom-label {
+  padding-right: 96px;
+}
+
+.recipient-picker {
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.recipient-picker-title {
+  padding: 6px 8px 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.recipient-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--hover);
+  }
+
+  .mono {
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+}
+
+body.is-app .recipient-option {
+  min-height: 44px;
+}
+
+.contacts-list {
+  margin-bottom: 16px;
+}
+
+.contacts-empty {
+  padding: 12px;
+}
+
+.contact-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 4px 4px 4px 12px;
+
+  .mono {
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+}
+
+.contact-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.recipient-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .switch {
   appearance: none;
   width: 36px;
   height: 20px;
-  border-radius: 999px;
-  background: var(--surface-hover);
+  border-radius: var(--radius-full);
+  background: var(--hover);
   position: relative;
   cursor: pointer;
   flex: 0 0 auto;
-  transition: background 140ms ease;
+  transition: background var(--motion);
 
   &::after {
     content: '';
@@ -672,16 +999,16 @@ button:disabled {
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: var(--text-dim);
-    transition: transform 140ms ease, background 140ms ease;
+    background: var(--muted-foreground);
+    transition: transform var(--motion), background var(--motion);
   }
 
   &:checked {
-    background: var(--znn-dim);
+    background: var(--primary);
 
     &::after {
       transform: translateX(16px);
-      background: #06210a;
+      background: var(--primary-foreground);
     }
   }
 }
@@ -691,20 +1018,21 @@ button:disabled {
   gap: 2px;
   padding: 2px;
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: var(--card);
   flex: 0 0 auto;
 }
 
 .segmented-option {
+  min-height: 28px;
   padding: 4px 8px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   white-space: nowrap;
 
   &.is-selected {
-    background: var(--surface-hover);
-    color: var(--text);
+    background: var(--hover);
+    color: var(--foreground);
   }
 }
 
@@ -718,7 +1046,7 @@ button:disabled {
   align-items: center;
   gap: 10px;
   cursor: pointer;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 }
 
 .custom-checkbox-container input {
@@ -731,9 +1059,9 @@ button:disabled {
 .custom-checkmark {
   width: 18px;
   height: 18px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--card);
   position: relative;
   flex: 0 0 auto;
 
@@ -744,7 +1072,7 @@ button:disabled {
     top: 1px;
     width: 5px;
     height: 10px;
-    border: solid #06210a;
+    border: solid var(--primary-foreground);
     border-width: 0 2px 2px 0;
     transform: rotate(45deg);
     opacity: 0;
@@ -752,8 +1080,8 @@ button:disabled {
 }
 
 .custom-checkbox-container input:checked ~ .custom-checkmark {
-  background: var(--znn-dim);
-  border-color: var(--znn-dim);
+  background: var(--primary);
+  border-color: var(--primary);
 
   &::after {
     opacity: 1;
@@ -775,7 +1103,7 @@ button:disabled {
 
 .dropdown-label {
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   margin-bottom: 3px;
   text-align: left;
 }
@@ -788,13 +1116,13 @@ button:disabled {
   padding: 11px 12px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--card);
   cursor: pointer;
   outline: none;
   text-align: left;
 
   &:focus-visible {
-    border-color: var(--znn-dim);
+    border-color: var(--primary);
   }
 }
 
@@ -803,9 +1131,9 @@ button:disabled {
   height: 0;
   border-left: 4px solid transparent;
   border-right: 4px solid transparent;
-  border-top: 5px solid var(--text-faint);
+  border-top: 5px solid var(--faint-foreground);
   flex: 0 0 auto;
-  transition: transform 140ms ease;
+  transition: transform var(--motion);
 
   .is-open & {
     transform: rotate(180deg);
@@ -822,8 +1150,8 @@ button:disabled {
   overflow-y: auto;
   border-radius: var(--radius);
   border: 1px solid var(--border);
-  background: var(--surface-raised);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  background: var(--popover);
+  box-shadow: var(--shadow-md);
 }
 
 .Dropdown-option {
@@ -832,11 +1160,11 @@ button:disabled {
   text-align: left;
 
   &:hover {
-    background: var(--surface-hover);
+    background: var(--hover);
   }
 
   &.is-selected {
-    color: var(--znn);
+    color: var(--primary);
   }
 }
 
@@ -852,13 +1180,14 @@ button:disabled {
 }
 
 .token-option-standard {
-  color: var(--text-faint);
+  color: var(--faint-foreground);
   font-size: 11px;
 }
 
 .token-option-balance {
+  font-family: var(--font-mono);
   margin-left: auto;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -870,6 +1199,70 @@ button:disabled {
   align-items: center;
   justify-content: center;
   height: 100%;
+  padding: 16px;
+}
+
+// The node the wallet is waiting on, and the ways past it.
+.node-stall {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--popover);
+  text-align: left;
+}
+
+.node-stall-head,
+.node-stall-row-main,
+.node-stall-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.node-stall-list {
+  gap: 6px;
+}
+
+.node-stall-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.node-stall-label {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.node-stall-host {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-stall-status {
+  color: var(--muted-foreground);
+  font-size: 11px;
+
+  &.is-bad {
+    color: var(--destructive);
+  }
+}
+
+.node-stall-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.node-stall-skip {
+  align-self: flex-start;
 }
 
 .splash-mark {
@@ -898,6 +1291,60 @@ button:disabled {
   text-align: center;
   margin-top: 12px;
   font-size: 12px;
+}
+
+.biometric-offer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.biometric-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 0;
+  color: var(--primary);
+
+  span {
+    color: var(--foreground);
+  }
+}
+
+.receive-share {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+// The app's second way in, under Unlock.
+.unlock-fingerprint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+// A newer release, said once and quietly, under everything else.
+.unlock-update {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--faint-foreground);
+  text-decoration: none;
+  transition: color var(--motion);
+
+  &:hover,
+  &:focus-visible {
+    color: var(--primary);
+  }
 }
 
 //
@@ -947,11 +1394,11 @@ button:disabled {
 .current-progress {
   width: 22px;
   height: 3px;
-  border-radius: 2px;
-  background: var(--surface-hover);
+  border-radius: var(--radius-full);
+  background: var(--hover);
 
   &.filled {
-    background: var(--znn);
+    background: var(--primary);
   }
 }
 
@@ -959,7 +1406,7 @@ button:disabled {
   position: relative;
   border-radius: var(--radius);
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--card);
   padding: 12px;
 }
 
@@ -968,7 +1415,7 @@ button:disabled {
   background: transparent;
   border: 0;
   outline: none;
-  color: var(--text);
+  color: var(--foreground);
   font-size: var(--step-0);
   line-height: 1.7;
   resize: none;
@@ -981,29 +1428,46 @@ button:disabled {
   bottom: 4px;
 }
 
-.secret-words,
-.secret-phrase-input {
-  display: flex;
-  flex-wrap: wrap;
+.phrase-quiz {
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+
+  legend {
+    padding: 0;
+    margin-bottom: 6px;
+    color: var(--muted-foreground);
+  }
+}
+
+// One row of four equal cells: a wrapped row would stretch one option to the
+// full width and make it look like the answer.
+.phrase-quiz-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
-  min-height: 40px;
 }
 
-.secret-phrase-input {
-  border-radius: var(--radius);
-  border: 1px dashed var(--border);
-  padding: 8px;
-}
-
-.secret-word {
-  padding: 5px 10px;
+.phrase-quiz-option {
+  min-height: 44px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  cursor: pointer;
+  background: var(--popover);
+  color: var(--foreground);
+  font-family: var(--font-mono);
   font-size: 12px;
+  cursor: pointer;
+  transition: background 150ms cubic-bezier(.4, 0, .2, 1), border-color 150ms cubic-bezier(.4, 0, .2, 1);
 
   &:hover {
-    background: var(--surface-hover);
+    background: var(--hover);
+  }
+
+  &.is-selected {
+    border-color: var(--ring);
+    background: var(--hover);
   }
 }
 
@@ -1012,7 +1476,7 @@ button:disabled {
 //
 .balance-card {
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--card);
   border: 1px solid var(--border);
   padding: 14px;
   display: flex;
@@ -1041,8 +1505,10 @@ button:disabled {
 }
 
 .balance-amount {
-  font-size: var(--step-3);
+  font-family: var(--font-mono);
+  font-size: 24px;
   font-weight: 600;
+  letter-spacing: -0.02em;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
   overflow: hidden;
@@ -1051,17 +1517,12 @@ button:disabled {
 }
 
 .balance-symbol {
+  font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--text-dim);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--muted-foreground);
 
-  &.znn {
-    color: var(--znn);
-  }
-  &.qsr {
-    color: var(--qsr);
-  }
 }
 
 // Ticker and its live USD value, on the one line, under the amount.
@@ -1073,9 +1534,10 @@ button:disabled {
 }
 
 .balance-usd {
+  font-family: var(--font-mono);
   font-size: var(--step-0);
   font-weight: 400;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1089,8 +1551,9 @@ button:disabled {
 // lightest weight here and the largest size of the two USD figures — bigger,
 // but never competing with the bold ZNN/QSR amounts above it.
 .balance-total {
+  font-family: var(--font-mono);
   align-self: flex-start;
-  color: var(--text);
+  color: var(--foreground);
   font-size: var(--step-2);
   font-weight: 300;
   font-variant-numeric: tabular-nums;
@@ -1100,9 +1563,9 @@ button:disabled {
 .pending-banner {
   padding: 9px 12px;
   border-radius: var(--radius);
-  background: rgba(0, 231, 33, 0.09);
-  border: 1px solid rgba(0, 231, 33, 0.25);
-  color: var(--znn);
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 25%, transparent);
+  color: var(--primary);
   font-size: 12px;
   font-weight: 600;
   text-align: center;
@@ -1133,19 +1596,19 @@ button:disabled {
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: var(--surface-raised);
+  background: var(--popover);
   display: flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 
   &.is-received {
-    color: var(--znn);
+    color: var(--primary);
   }
 
   &.is-plasma {
-    color: var(--qsr);
+    color: var(--info);
   }
 
   &.is-htlc {
@@ -1158,6 +1621,27 @@ button:disabled {
   opacity: 0.75;
 }
 
+// A transaction the network has not settled: the circle glows for as long as
+// that is true, the same halo as the pending dot beside the label, so the row
+// reads as waiting, not just its mark.
+.transaction.is-unconfirmed:not(.is-generating-plasma):not(.is-failed) .transaction-icon {
+  color: var(--pending);
+  animation: pending-pulse 1.6s ease-out infinite;
+}
+
+
+@keyframes pending-glow {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--pending) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--pending) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--pending) 0%, transparent);
+  }
+}
+
 // A block being received while its proof of work is generated.
 //
 // Receiving costs plasma, and an account with no fused QSR pays for it by
@@ -1165,7 +1649,7 @@ button:disabled {
 // say so. The row exists for the whole of that stretch (there is no block in
 // the account's chain to list yet) and its icon pulses until the work is done.
 .transaction.is-generating-plasma .transaction-icon {
-  color: var(--qsr);
+  color: var(--info);
   animation: plasma-pulse 1.4s ease-out infinite;
 }
 
@@ -1173,23 +1657,28 @@ button:disabled {
 // its size and the rows below it do not shift for the length of the work.
 @keyframes plasma-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(68, 106, 239, 0.55);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--info) 55%, transparent);
   }
   70% {
-    box-shadow: 0 0 0 7px rgba(68, 106, 239, 0);
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--info) 0%, transparent);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(68, 106, 239, 0);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--info) 0%, transparent);
   }
 }
 
 // Says what the pulse means. A pulse alone answers "something is happening"
 // but not "how long" or "why", and proof of work is slow enough to need both.
 .plasma-note {
-  color: var(--qsr);
+  color: var(--info);
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
+}
+
+// Seconds that tick should not make the line beside them shift.
+.pow-countdown {
+  font-variant-numeric: tabular-nums;
 }
 
 // A send the node refused.
@@ -1197,13 +1686,13 @@ button:disabled {
 // It will never confirm, so nothing else on the dashboard will ever take it
 // off the list — it is the one row that needs a way out.
 .transaction.is-failed .transaction-icon {
-  color: var(--warning);
-  box-shadow: inset 0 0 0 1px var(--warning);
+  color: var(--destructive);
+  box-shadow: inset 0 0 0 1px var(--destructive);
 }
 
 .transaction-error {
   margin-top: 2px;
-  color: var(--warning);
+  color: var(--destructive);
   font-size: 11px;
   line-height: 1.35;
 }
@@ -1217,13 +1706,13 @@ button:disabled {
   flex: 0 0 auto;
   padding: 0;
   border-radius: var(--radius-sm);
-  color: var(--text-faint);
-  transition: color 120ms ease, background 120ms ease;
+  color: var(--faint-foreground);
+  transition: color var(--motion), background var(--motion);
 
   &:hover,
   &:focus-visible {
-    color: var(--text);
-    background: var(--surface-hover);
+    color: var(--foreground);
+    background: var(--hover);
   }
 }
 
@@ -1261,7 +1750,7 @@ button:disabled {
   height: 6px;
   flex: 0 0 auto;
   border-radius: 50%;
-  background: var(--warning);
+  background: var(--pending);
   animation: pending-pulse 1.6s ease-out infinite;
   cursor: default;
 }
@@ -1276,15 +1765,15 @@ button:disabled {
   transform: translateX(-50%);
   padding: 4px 8px;
   border-radius: var(--radius-sm);
-  background: var(--surface-hover);
+  background: var(--hover);
   border: 1px solid var(--border);
-  color: var(--text);
+  color: var(--foreground);
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 120ms ease;
+  transition: opacity var(--motion);
   z-index: 5;
 }
 
@@ -1296,17 +1785,18 @@ button:disabled {
 // a constant size and the row does not shift.
 @keyframes pending-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(255, 92, 0, 0.55);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--pending) 55%, transparent);
   }
   70% {
-    box-shadow: 0 0 0 6px rgba(255, 92, 0, 0);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--pending) 0%, transparent);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(255, 92, 0, 0);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--pending) 0%, transparent);
   }
 }
 
 .transaction-amount {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -1328,9 +1818,9 @@ button:disabled {
   flex: 0 0 auto;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: var(--surface-raised);
-  color: var(--text-dim);
-  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  background: var(--popover);
+  color: var(--muted-foreground);
+  transition: color var(--motion), border-color var(--motion), background var(--motion);
 
   .external-link-icon-container svg {
     width: 13px;
@@ -1339,9 +1829,9 @@ button:disabled {
 
   &:hover,
   &:focus-visible {
-    color: var(--text);
-    border-color: var(--znn-dim);
-    background: var(--surface-hover);
+    color: var(--foreground);
+    border-color: var(--primary);
+    background: var(--hover);
   }
 }
 
@@ -1355,15 +1845,15 @@ button:disabled {
   right: 0;
   padding: 4px 8px;
   border-radius: var(--radius-sm);
-  background: var(--surface-hover);
+  background: var(--hover);
   border: 1px solid var(--border);
-  color: var(--text);
+  color: var(--foreground);
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 120ms ease;
+  transition: opacity var(--motion);
   z-index: 5;
 }
 
@@ -1372,15 +1862,43 @@ button:disabled {
   opacity: 1;
 }
 
+// In a history row the explorer chip takes no room until the row is hovered
+// or focused: amounts sit flush right, and the row slides over to show the
+// chip when it can be pressed. Collapsed rather than removed so Tab reaches
+// it; not clipped, so its tooltip still shows. The negative margin cancels the
+// row's 10px gap while the chip has no width.
+.transaction .transaction-explorer {
+  width: 0;
+  margin-left: -10px;
+  border-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: width var(--motion), margin-left var(--motion), opacity var(--motion);
+}
+
+.transaction:hover .transaction-explorer,
+.transaction:focus-within .transaction-explorer {
+  width: 28px;
+  margin-left: 0;
+  border-width: 1px;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.transaction:hover .transaction-explorer.is-small,
+.transaction:focus-within .transaction-explorer.is-small {
+  width: 22px;
+}
+
 .transaction-counterparty {
   display: block;
-  color: var(--text-faint);
+  color: var(--faint-foreground);
   font-size: 11px;
   padding: 0;
   text-align: left;
 
   &:hover {
-    color: var(--text-dim);
+    color: var(--muted-foreground);
   }
 }
 
@@ -1412,7 +1930,7 @@ button:disabled {
 }
 
 .list-row-note {
-  color: var(--text-faint);
+  color: var(--faint-foreground);
   font-size: 11px;
 }
 
@@ -1423,7 +1941,7 @@ button:disabled {
 
 .list-row-value {
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 }
 
 .stat-row {
@@ -1433,18 +1951,19 @@ button:disabled {
   gap: 10px;
   padding: 11px 12px;
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--card);
   border: 1px solid var(--border);
 }
 
 .stat-value {
+  font-family: var(--font-mono);
   font-size: var(--step-1);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
 .stat-label {
-  color: var(--text-faint);
+  color: var(--faint-foreground);
   font-size: 11px;
 }
 
@@ -1477,7 +1996,7 @@ button:disabled {
   }
 
   &:hover {
-    background: var(--surface);
+    background: var(--card);
   }
 }
 
@@ -1492,7 +2011,8 @@ button:disabled {
 }
 
 .token-standard {
-  color: var(--text-faint);
+  font-family: var(--font-mono);
+  color: var(--faint-foreground);
   font-size: 11px;
   padding: 0;
   display: block;
@@ -1503,7 +2023,7 @@ button:disabled {
   text-align: left;
 
   &:hover {
-    color: var(--text-dim);
+    color: var(--muted-foreground);
   }
 }
 
@@ -1515,36 +2035,30 @@ button:disabled {
 }
 
 .token-balance {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
 //
 // Pillars
 //
+// Two lines. Name, rate and button on the first; weight, share and production
+// across the whole row on the second, where they have room at 360px.
 .pillar-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 10px;
+  gap: 4px 10px;
   padding: 10px 4px;
   border-bottom: 1px solid var(--border);
 
   &.is-delegated {
-    background: rgba(0, 231, 33, 0.05);
+    background: color-mix(in srgb, var(--primary) 5%, transparent);
   }
 
   &:last-of-type {
     border-bottom: 0;
   }
-}
-
-.pillar-mark {
-  opacity: 0.6;
-  flex: 0 0 auto;
-}
-
-.pillar-body {
-  flex: 1;
-  min-width: 0;
 }
 
 .pillar-name {
@@ -1554,20 +2068,23 @@ button:disabled {
   white-space: nowrap;
 }
 
-// One line, always — weight, delegator cut and produced% used to wrap onto a
-// second whenever a pillar's numbers ran long, so the row's height changed
-// from one pillar to the next depending on nothing a person could predict.
-// A touch smaller is what buys that back.
+// The figure a delegator compares pillars on.
+.pillar-apr {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .pillar-stats {
+  grid-column: 1 / -1;
   display: flex;
-  flex-wrap: nowrap;
-  gap: 6px;
-  color: var(--text-faint);
-  font-size: 10px;
-  overflow: hidden;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-family: var(--font-mono);
+  color: var(--muted-foreground);
+  font-size: 11px;
 
   span {
-    flex: 0 0 auto;
     white-space: nowrap;
   }
 
@@ -1610,12 +2127,12 @@ button:disabled {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 1px solid var(--text-faint);
+  border: 1px solid var(--faint-foreground);
   flex: 0 0 auto;
 
   .is-selected & {
-    border-color: var(--znn);
-    background: radial-gradient(var(--znn) 0 45%, transparent 46%);
+    border-color: var(--primary);
+    background: radial-gradient(var(--primary) 0 45%, transparent 46%);
   }
 }
 
@@ -1630,10 +2147,10 @@ button:disabled {
 
 .address-item-label-input {
   width: 100%;
-  background: var(--surface-raised);
-  border: 1px solid var(--znn-dim);
-  border-radius: 5px;
-  color: var(--text);
+  background: var(--popover);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
+  color: var(--foreground);
   padding: 2px 5px;
   font: inherit;
   font-weight: 600;
@@ -1641,7 +2158,8 @@ button:disabled {
 }
 
 .address-item-address {
-  color: var(--text-faint);
+  font-family: var(--font-mono);
+  color: var(--faint-foreground);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
@@ -1686,6 +2204,7 @@ button:disabled {
 }
 
 .change-node-url {
+  font-family: var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1695,7 +2214,7 @@ button:disabled {
 .chain-id-card {
   padding: 11px 12px;
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--card);
   border: 1px solid var(--border);
 }
 
@@ -1706,8 +2225,8 @@ button:disabled {
 .chain-id-suggestion {
   padding: 11px 12px;
   border-radius: var(--radius);
-  background: rgba(255, 92, 0, 0.08);
-  border: 1px solid rgba(255, 92, 0, 0.3);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
 }
 
 //
@@ -1718,7 +2237,7 @@ button:disabled {
   flex-direction: column;
   border-radius: var(--radius);
   overflow: hidden;
-  background: var(--surface);
+  background: var(--card);
   border: 1px solid var(--border);
 }
 
@@ -1726,7 +2245,10 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 11px 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  text-align: left;
   cursor: pointer;
   border-bottom: 1px solid var(--border);
 
@@ -1735,14 +2257,35 @@ button:disabled {
   }
 
   &:hover {
-    background: var(--surface-raised);
+    background: var(--popover);
   }
 }
 
-.settings-item-icon img {
-  width: 18px;
-  height: 18px;
-  opacity: 0.7;
+// A row that acts rather than navigates (About's Update).
+button.settings-item {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+
+  &:disabled {
+    cursor: progress;
+  }
+}
+
+.settings-item-icon {
+  display: inline-flex;
+  color: var(--muted-foreground);
+}
+
+.settings-item-title {
+  font-weight: 600;
+}
+
+.settings-item-chevron {
+  margin-left: auto;
+  color: var(--faint-foreground);
 }
 
 .settings-item-data {
@@ -1754,9 +2297,10 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 12px;
+  min-height: 48px;
+  padding: 8px 12px;
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--card);
   border: 1px solid var(--border);
 }
 
@@ -1769,21 +2313,27 @@ button:disabled {
 }
 
 .setting-row-note {
-  color: var(--text-faint);
+  color: var(--faint-foreground);
   font-size: 11px;
 }
 
 .warning-panel {
   padding: 11px 12px;
   border-radius: var(--radius);
-  background: rgba(255, 92, 0, 0.08);
-  border: 1px solid rgba(255, 92, 0, 0.3);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
   font-size: 12px;
 
   p {
     margin: 6px 0 0;
-    color: var(--text-dim);
+    color: var(--muted-foreground);
   }
+}
+
+// Shown above whichever screen is open (tabsLayout), outside that screen's own
+// padding, so it brings the same gutter with it to line up with the cards.
+.journal-notice {
+  margin: 12px 12px 0;
 }
 
 //
@@ -1802,14 +2352,14 @@ button:disabled {
 }
 
 .site-favicon {
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   flex: 0 0 auto;
 }
 
 .site-favicon-blank {
   width: 20px;
   height: 20px;
-  background: var(--surface-hover);
+  background: var(--hover);
 }
 
 .site-row-text {
@@ -1824,9 +2374,19 @@ button:disabled {
   white-space: nowrap;
 }
 
+// Approval authority must remain readable in the narrow popup. Unlike the
+// compact connected-site list, the full scheme, host and port are never elided.
+.site-host.approval-origin {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .site-origin,
 .site-title {
-  color: var(--text-faint);
+  font-family: var(--font-mono);
+  color: var(--faint-foreground);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1839,20 +2399,42 @@ button:disabled {
 .approval-screen {
   height: 100%;
   padding: 16px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+
+  // Long origins and review data must remain reachable at narrow/zoomed sizes.
+  // Focus scrolls actions into view after the complete review.
+  > .site-header,
+  > .approval-note {
+    flex: 0 0 auto;
+  }
+
+  // Keep actions in normal flow so they cannot cover preview text.
+  > .sticky-actions {
+    flex: 0 0 auto;
+    background: var(--bg);
+    padding: 8px 0;
+  }
+
+  .action-row .button {
+    min-width: 0;
+    white-space: normal;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--znn-dim);
+    outline-offset: -3px;
+  }
 }
 
-// What is being approved scrolls; the choice about it does not. The block
-// preview is capped, but the site header, the note and a shortfall warning can
-// still outgrow a short window between them, and this screen must never be
-// able to show a request it gives you no way to answer.
+// The screen owns scrolling so the site header and every review section stay
+// reachable even when a long origin alone outgrows a short window.
 .approval-body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
 }
 
 .site-header {
@@ -1877,7 +2459,7 @@ button:disabled {
 }
 
 .approval-note {
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   font-size: 12px;
 }
 
@@ -1888,7 +2470,7 @@ button:disabled {
   padding: 9px 11px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--warning);
-  background: rgba(255, 92, 0, 0.1);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
   color: var(--warning);
   font-size: 12px;
   line-height: 1.4;
@@ -1902,7 +2484,7 @@ button:disabled {
   align-items: baseline;
 
   dt {
-    color: var(--text-faint);
+    color: var(--faint-foreground);
     font-size: 11px;
   }
 
@@ -1923,7 +2505,7 @@ button:disabled {
   margin: 0;
   padding: 10px;
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--card);
   border: 1px solid var(--border);
   font-family: inherit;
   font-size: 12px;
@@ -1947,7 +2529,7 @@ button:disabled {
   margin-top: 10px;
   padding: 9px 11px;
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--card);
   border: 1px solid var(--border);
 }
 
@@ -1960,33 +2542,34 @@ button:disabled {
 }
 
 .signed-field-label {
-  color: var(--text-faint);
+  color: var(--faint-foreground);
   font-size: 11px;
 }
 
 // 64 bytes of hex has to break somewhere, and a monospace grid is what makes
 // two of them comparable by eye against whatever the other side has.
 .signed-field-value {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.5;
   text-align: left;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   overflow-wrap: anywhere;
 }
 
 .block-preview {
+  font-family: var(--font-mono);
   max-height: 210px;
   overflow: auto;
   margin: 0;
   padding: 10px;
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--card);
   border: 1px solid var(--border);
   font-size: 11px;
   line-height: 1.5;
   text-align: left;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 }
 
 // The raw block, collapsed under the human-readable summary rather than
@@ -1995,7 +2578,7 @@ button:disabled {
 .block-preview-details {
   summary {
     cursor: pointer;
-    color: var(--text-dim);
+    color: var(--muted-foreground);
     font-size: 12px;
     user-select: none;
   }
@@ -2003,6 +2586,12 @@ button:disabled {
   .block-preview {
     margin-top: 8px;
   }
+}
+
+.message-preview:focus-visible,
+.block-preview:focus-visible {
+  outline: 2px solid var(--znn-dim);
+  outline-offset: -2px;
 }
 
 //
@@ -2019,26 +2608,29 @@ button:disabled {
 
 .qr-frame {
   padding: 12px;
+  // The code is drawn in the brand green (the QR inherits `currentColor`).
+  color: var(--primary);
   border-radius: var(--radius);
-  background: #151515;
+  background: var(--qr-background);
   border: 1px solid var(--border);
   line-height: 0;
 }
 
 .receive-address {
+  font-family: var(--font-mono);
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--card);
   border: 1px solid var(--border);
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
   text-align: left;
 
   &:hover {
-    color: var(--text);
+    color: var(--foreground);
   }
 }
 
@@ -2054,8 +2646,8 @@ button:disabled {
   padding: 4px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
-  background: var(--surface-raised);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  background: var(--popover);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
 }
@@ -2063,18 +2655,19 @@ button:disabled {
 .burger-popover-item {
   display: flex;
   align-items: center;
-  padding: 9px 10px;
+  min-height: 40px;
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
-  color: var(--text);
+  color: var(--foreground);
   text-align: left;
 
   &:hover {
-    background: var(--surface-hover);
+    background: var(--hover);
   }
 
   svg {
     flex: 0 0 auto;
-    color: var(--text-dim);
+    color: var(--muted-foreground);
   }
 }
 
@@ -2091,7 +2684,7 @@ button:disabled {
 .spinner-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.62);
+  background: var(--scrim);
   z-index: 60;
 }
 
@@ -2103,9 +2696,9 @@ button:disabled {
   top: 50%;
   transform: translateY(-50%);
   border-radius: var(--radius);
-  background: var(--surface-raised);
+  background: var(--popover);
   border: 1px solid var(--border);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-xl);
   overflow: hidden;
 }
 
@@ -2131,7 +2724,7 @@ button:disabled {
   height: 2px;
 
   &.green {
-    background: var(--znn);
+    background: var(--primary);
   }
   &.warning {
     background: var(--warning);
@@ -2141,10 +2734,10 @@ button:disabled {
 .modal-content {
   padding: 14px 12px 12px;
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--muted-foreground);
 
   b {
-    color: var(--text);
+    color: var(--foreground);
   }
 }
 
@@ -2167,7 +2760,7 @@ button:disabled {
   gap: 10px;
   padding: 20px 24px;
   border-radius: var(--radius);
-  background: var(--surface-raised);
+  background: var(--popover);
   border: 1px solid var(--border);
   font-weight: 600;
   text-align: center;
@@ -2198,25 +2791,29 @@ button:disabled {
 //
 // Toasts
 //
+// The width of whatever holds it, 10px in from each side: 340 in the popup,
+// the screen in the app and the approval window. A fixed 340 left a gap on a
+// phone, and Toastify's centring transform would move a full-width one.
 .Toastify__toast-container--bottom-center {
-  width: 340px;
+  width: auto;
   padding: 0;
   left: 10px;
   right: 10px;
   bottom: 10px;
   margin: 0;
+  transform: none;
 }
 
 .Toastify__toast {
   min-height: 0;
   padding: 9px 12px;
   border-radius: var(--radius);
-  background: var(--surface-raised);
+  background: var(--popover);
   border: 1px solid var(--border);
-  color: var(--text);
+  color: var(--foreground);
   font-family: inherit;
   font-size: 12px;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-md);
 }
 
 // A success alert is the same bottom-center card as everything else — same
@@ -2233,7 +2830,7 @@ button:disabled {
     bottom: auto;
     height: 3px;
     opacity: 1;
-    background: var(--znn);
+    background: var(--primary);
   }
 
   .Toastify__progress-bar--animated {
@@ -2268,12 +2865,2049 @@ button:disabled {
 // integer quantities and long text. A vertical layout avoids truncating values.
 .contract-arguments {
   margin: 16px 0 0;
-  dt { color: var(--text-faint); font-size: 11px; margin-top: 12px; }
+  dt { color: var(--faint-foreground); font-size: 11px; margin-top: 12px; }
   dd {
     margin: 4px 0 0;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     unicode-bidi: plaintext;
     font-variant-numeric: tabular-nums;
+  }
+}
+
+// The chain identifier beside the header dot, off mainnet.
+.network-chip .network-chain {
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// The explorer chip inside a denser row (Accelerator-Z projects).
+.transaction-explorer.is-small {
+  width: 22px;
+  height: 22px;
+
+  .external-link-icon-container svg {
+    width: 11px;
+    height: 11px;
+  }
+}
+
+
+// A form that belongs at the foot of a list screen (New project, New spork):
+// at the bottom when the list is short, and held just above the tab bar while
+// a long one scrolls under it. The negative margins take it across the page's
+// own padding so the list cannot show beside or below it.
+.page-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: auto -12px -12px;
+  padding: 10px 12px 12px;
+  background: var(--background);
+  border-top: 1px solid var(--border);
+}
+
+// The node page's chain section, pinned like the other footers.
+.chain-id-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chain-id-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+
+  > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+
+// The width of a Hide button, where a pinned token has none.
+
+
+//
+// Data primitives (components/data)
+//
+// An address or hash: mono, shortened, the whole value on hover, copied on
+// press. It is a button, so it gets the info blue on hover like any other "go
+// and look this up" control.
+.data-address {
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--foreground);
+  text-align: left;
+
+  &:hover {
+    color: var(--info);
+  }
+
+  &.is-full {
+    overflow-wrap: anywhere;
+  }
+}
+
+// An amount: mono, tabular, never coloured. The symbol is a label.
+.data-amount {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.data-amount-symbol {
+  margin-left: 4px;
+  color: var(--muted-foreground);
+  font-size: 0.85em;
+  font-weight: 400;
+}
+
+// A status is an icon and a word. The colour repeats what they say; it never
+// carries it alone.
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+
+  &.is-success,
+  &.is-high-plasma,
+  &.is-average-plasma {
+    color: var(--success);
+  }
+
+  &.is-pending {
+    color: var(--pending);
+  }
+
+  &.is-warning,
+  &.is-low-plasma {
+    color: var(--warning);
+  }
+
+  &.is-error {
+    color: var(--destructive);
+  }
+}
+
+.stat-figure {
+  font-family: var(--font-mono);
+  font-size: var(--step-1);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stat {
+  min-width: 0;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+
+  &.is-two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+//
+// Cards and detail lists
+//
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+
+  > :first-child {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.pillar-title,
+.project-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pillar-title {
+  font-size: var(--step-2);
+}
+
+// Label on the left, value on the right, one line each.
+.detail-list {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  margin: 0;
+  padding: 0 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--card);
+
+  dt,
+  dd {
+    display: flex;
+    align-items: center;
+    min-height: 40px;
+    margin: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  dt {
+    padding-right: 12px;
+    color: var(--muted-foreground);
+    font-size: 12px;
+  }
+
+  dd {
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  dt:last-of-type,
+  dd:last-of-type {
+    border-bottom: 0;
+  }
+
+  // Inside a card: the card is the box.
+  &.is-flush {
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+}
+
+.notice {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--card);
+  font-size: 12px;
+
+  &.is-warning {
+    border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+    color: var(--warning);
+  }
+}
+
+//
+// Fields
+//
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+//
+// A plain table: epoch, ZNN, QSR
+//
+.table {
+  display: flex;
+  flex-direction: column;
+}
+
+.table-row {
+  display: grid;
+  grid-template-columns: 64px repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-items: center;
+  min-height: 36px;
+  border-bottom: 1px solid var(--border);
+
+  > :not(:first-child) {
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.table-head {
+  min-height: 28px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+//
+// Accelerator-Z
+//
+.project {
+  gap: 8px;
+}
+
+.project-name {
+  font-size: var(--step-1);
+}
+
+.project-description {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+// The whole card opens who voted; the chevron turns to say so.
+.project {
+  cursor: pointer;
+}
+
+.project-toggle {
+  margin-left: auto;
+  min-width: 44px;
+  min-height: 44px;
+
+  svg {
+    transition: rotate 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
+.project.is-expanded {
+  .project-toggle svg {
+    rotate: 90deg;
+  }
+
+  .project-description {
+    display: block;
+    -webkit-line-clamp: unset;
+  }
+}
+
+.voters-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  cursor: auto;
+  animation: item-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.voters {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.voters-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.voters-vote {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+
+  &.is-yes {
+    color: var(--success);
+  }
+
+  &.is-no {
+    color: var(--warning);
+  }
+
+  &.is-abstain {
+    color: var(--muted-foreground);
+  }
+}
+
+.voters-names {
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+
+.votable {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.votable-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.votable-funds {
+  display: inline-flex;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.votable-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tally {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+// Right-aligned under the funds and the bar's end.
+.tally-total {
+  margin-left: auto;
+}
+
+.vote-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+// The pillar's standing vote is outlined in the brand green and marked
+// `aria-pressed`; the one being sent spins until the node reports it.
+.vote-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 40px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  transition: background var(--motion), border-color var(--motion), color var(--motion),
+    scale var(--motion);
+
+  &:hover:not(:disabled) {
+    background: var(--popover);
+  }
+
+  &:active:not(:disabled) {
+    scale: 0.96;
+  }
+
+  &.is-mine {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  &:disabled:not(.is-sending) {
+    opacity: 0.45;
+  }
+
+  &.is-sending {
+    opacity: 1;
+    border-color: var(--pending);
+    color: var(--pending);
+  }
+
+  .spinner {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+.segmented.is-wide {
+  align-self: stretch;
+
+  .segmented-option {
+    flex: 1;
+    min-height: 32px;
+    font-size: 12px;
+  }
+}
+
+.burger-popover-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.change-node-radio {
+  color: var(--faint-foreground);
+
+  .is-selected & {
+    color: var(--primary);
+  }
+}
+
+.spinner,
+.pow-spinner {
+  color: var(--primary);
+}
+
+// Overlays arrive rather than appear: a short rise, once, when opened. They
+// are opened a few times a session, never on every keystroke.
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+
+.burger-popover-container,
+.Dropdown-menu {
+  animation: overlay-in 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.modal-backdrop,
+.spinner-backdrop {
+  animation: scrim-in 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+// Sort order for a list: one line of chips that scrolls sideways rather than
+// wrapping (webdesign-lab RULES.md §6).
+// The sort choices share the row's width. They used to keep their own widths
+// in a row that scrolled sideways with its scrollbar hidden, and the five of
+// them were ten pixels wider than the popup: the last one was cut off with
+// nothing to say there was more. If a longer label ever does not fit, the row
+// wraps rather than hiding it.
+.sort-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.sort-chip {
+  flex: 1 1 auto;
+  min-height: 32px;
+  padding: 4px 8px;
+  white-space: nowrap;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 500;
+
+  &:hover {
+    color: var(--foreground);
+  }
+
+  &.is-selected {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+}
+
+//
+// Accents and motion
+//
+// Colour comes from the semantic tokens as tints: an icon sits on a tile of
+// its own colour at low strength, a status is a pill. Green for the brand and
+// what came in, blue for what is pending or to look up, amber for care,
+// crimson for failure, pink for the one new thing. Money stays uncoloured.
+//
+// Motion is short and small: 150 to 260ms, a few pixels, ease-out. Browsing
+// surfaces (pillars, projects, settings, networks) arrive with a short
+// stagger; ledger figures do not move. No reduced-motion branch (RULES.md §4).
+//
+$ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+// Overshoots and settles: for the one moment that should feel like a click.
+$spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+@mixin tint($token, $strength: 14%) {
+  color: var($token);
+  background: color-mix(in srgb, var($token) $strength, transparent);
+}
+
+// The screen arrives: a fade and a 4px settle, once per route.
+//
+// From above, never from below. A page is at least as tall as the scroller,
+// so starting it 4px low made every screen overflow for 200ms and the
+// scrollbar flashed on each load, needed or not. Overflow past the top is not
+// scrollable, so the bar now appears only when the content is taller.
+// Checked in utils/pillar-mode-test.js.
+@keyframes page-in {
+  from {
+    opacity: 0;
+    translate: 0 -4px;
+  }
+}
+
+.menu-layout > .page {
+  animation: page-in 200ms $ease-out;
+}
+
+// Rows of a browsing list arrive one after another, 30ms apart, ten at most.
+// From above as well, for the same reason as page-in.
+@keyframes item-in {
+  from {
+    opacity: 0;
+    translate: 0 -6px;
+  }
+}
+
+.pillar-row,
+.project,
+.settings-group > .settings-item {
+  animation: item-in 240ms $ease-out both;
+}
+
+@for $i from 1 through 10 {
+  .pillar-row:nth-child(#{$i}),
+  .project:nth-of-type(#{$i}),
+  .settings-group > .settings-item:nth-child(#{$i}) {
+    animation-delay: #{($i - 1) * 30}ms;
+  }
+}
+
+// Header: the network dot breathes while the node answers.
+@keyframes dot-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 55%, transparent);
+  }
+  60% {
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+
+.network-chip.is-online .network-dot {
+  animation: dot-breathe 2.4s ease-in-out infinite;
+}
+
+.network-chip.is-offline .network-dot {
+  background: var(--warning);
+}
+
+.account-pill,
+.network-chip {
+  border: 1px solid var(--border);
+}
+
+// Tab bar: the active tab's glyph sits on a green pill that pops in.
+.tab-item-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  transition: background var(--motion), color var(--motion);
+}
+
+@keyframes glyph-pop {
+  from {
+    scale: 0.8;
+    opacity: 0.4;
+  }
+}
+
+.tab-item.active .tab-item-glyph {
+  @include tint(--primary, 16%);
+  animation: glyph-pop 220ms $ease-out;
+}
+
+.tab-item.active .tab-item-text {
+  font-weight: 600;
+}
+
+// Home: the balance card. Its edge is a thin band of light, green into blue,
+// that turns once every twelve seconds: the one thing on Home that moves at
+// rest, and slow and faint enough to sit at the edge of attention. A second,
+// softer glow follows it at the top. The figures inside never move.
+@property --edge-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+// The light does not run at one pace: it gathers and eases twice on the way
+// round. The steps are generated (tools/pillar/edge-turn-keyframes.js) and
+// each is a straight line, which is why every use of this animation is
+// `linear`. Position still depends on the animation's time alone, so
+// elements put in phase with the clock (services/utils/edgeLight.js) stay
+// together.
+@keyframes edge-turn {
+  2.0833% { --edge-angle: 11.9deg; }
+  4.1667% { --edge-angle: 23.5deg; }
+  6.25% { --edge-angle: 34.52deg; }
+  8.3333% { --edge-angle: 44.72deg; }
+  10.4167% { --edge-angle: 53.92deg; }
+  12.5% { --edge-angle: 62deg; }
+  14.5833% { --edge-angle: 68.92deg; }
+  16.6667% { --edge-angle: 74.72deg; }
+  18.75% { --edge-angle: 79.52deg; }
+  20.8333% { --edge-angle: 83.5deg; }
+  22.9167% { --edge-angle: 86.9deg; }
+  25% { --edge-angle: 90deg; }
+  27.0833% { --edge-angle: 93.1deg; }
+  29.1667% { --edge-angle: 96.5deg; }
+  31.25% { --edge-angle: 100.48deg; }
+  33.3333% { --edge-angle: 105.28deg; }
+  35.4167% { --edge-angle: 111.08deg; }
+  37.5% { --edge-angle: 118deg; }
+  39.5833% { --edge-angle: 126.08deg; }
+  41.6667% { --edge-angle: 135.28deg; }
+  43.75% { --edge-angle: 145.48deg; }
+  45.8333% { --edge-angle: 156.5deg; }
+  47.9167% { --edge-angle: 168.1deg; }
+  50% { --edge-angle: 180deg; }
+  52.0833% { --edge-angle: 191.9deg; }
+  54.1667% { --edge-angle: 203.5deg; }
+  56.25% { --edge-angle: 214.52deg; }
+  58.3333% { --edge-angle: 224.72deg; }
+  60.4167% { --edge-angle: 233.92deg; }
+  62.5% { --edge-angle: 242deg; }
+  64.5833% { --edge-angle: 248.92deg; }
+  66.6667% { --edge-angle: 254.72deg; }
+  68.75% { --edge-angle: 259.52deg; }
+  70.8333% { --edge-angle: 263.5deg; }
+  72.9167% { --edge-angle: 266.9deg; }
+  75% { --edge-angle: 270deg; }
+  77.0833% { --edge-angle: 273.1deg; }
+  79.1667% { --edge-angle: 276.5deg; }
+  81.25% { --edge-angle: 280.48deg; }
+  83.3333% { --edge-angle: 285.28deg; }
+  85.4167% { --edge-angle: 291.08deg; }
+  87.5% { --edge-angle: 298deg; }
+  89.5833% { --edge-angle: 306.08deg; }
+  91.6667% { --edge-angle: 315.28deg; }
+  93.75% { --edge-angle: 325.48deg; }
+  95.8333% { --edge-angle: 336.5deg; }
+  97.9167% { --edge-angle: 348.1deg; }
+  100% { --edge-angle: 360deg; }
+}
+
+.balance-card {
+  position: relative;
+  gap: 12px;
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-md);
+  background:
+    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--primary) 7%, transparent), transparent 60%)
+      padding-box,
+    linear-gradient(var(--card), var(--card)) padding-box,
+    conic-gradient(
+        from var(--edge-angle),
+        color-mix(in srgb, var(--primary) 70%, transparent),
+        var(--border) 22%,
+        var(--border) 50%,
+        color-mix(in srgb, var(--info) 60%, transparent) 72%,
+        var(--border) 90%,
+        color-mix(in srgb, var(--primary) 70%, transparent)
+      )
+      border-box;
+  animation: edge-turn 12s linear infinite;
+}
+
+// Label on the left, what it is all worth on the right.
+.balance-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.balance-head .balance-total {
+  align-self: auto;
+  font-size: var(--step-1);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+
+// The two coins sit apart, divided by a hairline.
+.balance-card .balance-row {
+  gap: 0;
+}
+
+.balance-card .balance-figure + .balance-figure {
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+}
+
+.balance-card .balance-usd {
+  font-size: 12px;
+}
+
+// The token's mark before its ticker: green ZNN, blue QSR.
+.balance-symbol.znn::before,
+.balance-symbol.qsr::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  background: var(--primary);
+}
+
+.balance-symbol.qsr::before {
+  background: var(--info);
+}
+
+// History rows: the circle is tinted by what the row did.
+.transaction-icon {
+  background: var(--popover);
+
+  &.is-received {
+    @include tint(--primary);
+  }
+
+  &.is-sent {
+    @include tint(--info, 12%);
+  }
+
+  &.is-plasma,
+  &.is-bridge {
+    @include tint(--info);
+  }
+
+  &.is-pillar,
+  &.is-stake,
+  &.is-liquidity {
+    @include tint(--success, 12%);
+  }
+
+  &.is-accelerator {
+    @include tint(--highlight, 14%);
+  }
+
+  &.is-htlc {
+    @include tint(--warning);
+  }
+}
+
+// Settings: each row's icon on a tile of its tone.
+.settings-item-icon {
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  flex: 0 0 auto;
+
+  &.is-primary {
+    @include tint(--primary);
+  }
+
+  &.is-info {
+    @include tint(--info);
+  }
+
+  &.is-warning {
+    @include tint(--warning);
+  }
+
+  // New or featured: the one reserved accent.
+  &.is-highlight {
+    @include tint(--highlight);
+  }
+}
+
+.settings-item-chevron {
+  transition: translate var(--motion), color var(--motion);
+}
+
+.settings-item:hover .settings-item-chevron {
+  color: var(--foreground);
+  translate: 2px 0;
+}
+
+// A status is a pill: icon, word, and a tint of its colour.
+.status {
+  padding: 2px 8px 2px 6px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+// Section titles carry a short green rule.
+.section-title::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  margin-right: 6px;
+  border-radius: var(--radius-full);
+  vertical-align: 3px;
+  background: var(--primary);
+}
+
+
+.card {
+  box-shadow: var(--shadow-sm);
+}
+
+// Accelerator-Z: the tally as a bar, Yes green and No amber, with the 33%
+// mark a vote must pass.
+.tally-bar {
+  position: relative;
+  display: flex;
+  flex: 1 0 100%;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--hover);
+  overflow: hidden;
+}
+
+.tally-yes,
+.tally-no {
+  height: 100%;
+  transition: width 400ms $ease-out;
+}
+
+.tally-yes {
+  background: var(--success);
+}
+
+.tally-no {
+  background: var(--warning);
+}
+
+.tally-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--foreground);
+  opacity: 0.5;
+}
+
+@keyframes vote-pop {
+  40% {
+    scale: 1.04;
+  }
+}
+
+.vote-button.is-mine {
+  @include tint(--primary, 10%);
+  animation: vote-pop 260ms $ease-out;
+}
+
+// A project in voting gets the one pink mark: it is the new thing.
+.project:has(.status.is-pending) .project-name::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  vertical-align: 3px;
+  background: var(--highlight);
+}
+
+// Rewards: each epoch's ZNN as a faint bar behind its row.
+.table-row.has-bar {
+  padding: 0 6px;
+  background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--primary) 10%, transparent) var(--share, 0%),
+      transparent var(--share, 0%)
+    )
+    no-repeat 0 50% / 100% calc(100% - 8px);
+}
+
+// An epoch in which a pillar missed a fifth of its momentums or more.
+.table-row.has-bar.is-low {
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--warning) 14%, transparent) var(--share, 0%),
+    transparent var(--share, 0%)
+  );
+}
+
+// The chosen sort chip is tinted, not just outlined.
+.sort-chip.is-selected {
+  @include tint(--primary, 12%);
+}
+
+.segmented-option.is-selected {
+  box-shadow: var(--shadow-sm);
+}
+
+// The switch's knob travels with a slight ease-out.
+.switch::after {
+  transition: transform 200ms $ease-out, background var(--motion);
+}
+
+// Toasts carry their kind as an edge.
+.Toastify__toast {
+  border-left: 3px solid var(--primary);
+}
+
+.Toastify__toast--error {
+  border-left-color: var(--destructive);
+}
+
+// The catalogue number after an error (services/utils/errorCatalog.js): there
+// to be quoted in a report, so it is quieter than the sentence it follows.
+.error-code {
+  margin-left: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.rewards-usd {
+  margin-top: -6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+//
+// Sporks (Settings)
+//
+.spork-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--border);
+  animation: item-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+
+  &:last-of-type {
+    border-bottom: 0;
+  }
+}
+
+.spork-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.spork-name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.spork-description {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.spork-meta {
+  color: var(--faint-foreground);
+  font-size: 11px;
+}
+
+.spork-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.spork-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.notice.is-info {
+  border-color: color-mix(in srgb, var(--info) 40%, transparent);
+  color: var(--info);
+}
+
+.notice.is-danger {
+  margin-bottom: 12px;
+  border-color: color-mix(in srgb, var(--destructive) 40%, transparent);
+  color: var(--destructive);
+}
+
+.transaction-icon.is-spork {
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 14%, transparent);
+}
+
+//
+// Token issue: the custom id search (pages/tokens/token-issue.js)
+//
+.zts-pattern {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  > span {
+    color: var(--faint-foreground);
+  }
+
+  input {
+    min-width: 0;
+    flex: 1;
+  }
+}
+
+.zts-search {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+// Pending is blue. The bar fills against an estimate, so it can sit at the
+// end for a while; the stripe keeps moving to show the search is alive.
+.zts-search-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+
+  span {
+    display: block;
+    height: 100%;
+    min-width: 6px;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--info), color-mix(in srgb, var(--info) 55%, transparent), var(--info));
+    background-size: 200% 100%;
+    transition: width 150ms cubic-bezier(.4, 0, .2, 1);
+    animation: zts-search-stripe 1.2s linear infinite;
+  }
+}
+
+@keyframes zts-search-stripe {
+  from { background-position: 200% 0; }
+  to { background-position: 0 0; }
+}
+
+// The id found, before anything is signed.
+.zts-found {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--success) 40%, transparent);
+  border-radius: var(--radius-sm);
+  color: var(--success);
+  overflow-wrap: anywhere;
+}
+
+// One switch per operator mode, inside a settings group.
+.mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 48px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+//
+// Zap (pages/settings/zap, components/modals/zap-modal)
+//
+.zap-alien {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.zap-alien-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border-radius: var(--radius);
+  color: var(--highlight);
+  background: color-mix(in srgb, var(--highlight) 14%, transparent);
+}
+
+.zap-alien-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.zap-alien-address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+
+  // Why there is nobody to zap is a sentence, and is read whole.
+  &.is-note {
+    white-space: normal;
+    color: var(--muted-foreground);
+  }
+}
+
+.icon.is-rolling {
+  animation: zap-roll 600ms linear infinite;
+}
+
+@keyframes zap-roll {
+  to { transform: rotate(360deg); }
+}
+
+.zap-message {
+  resize: none;
+  min-height: 76px;
+  line-height: 1.4;
+}
+
+.zap-count {
+  margin-left: 6px;
+  color: var(--faint-foreground);
+}
+
+.zap-modal-glyph {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+  color: var(--highlight);
+  animation: glyph-pop 320ms cubic-bezier(.4, 0, .2, 1);
+}
+
+.zap-modal-message {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.zap-modal-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.zap-modal-note {
+  margin: 0 0 14px;
+  font-size: 11px;
+  color: var(--faint-foreground);
+}
+
+// The Message button on a zap row: always there, since it is the only way
+// back to the message, unlike the explorer chip that waits for a hover.
+.transaction-message {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--highlight) 40%, transparent);
+  border-radius: var(--radius-sm);
+  color: var(--highlight);
+  background: color-mix(in srgb, var(--highlight) 10%, transparent);
+  transition: background var(--motion), border-color var(--motion);
+
+  &:hover,
+  &:focus-visible {
+    background: color-mix(in srgb, var(--highlight) 20%, transparent);
+    border-color: var(--highlight);
+  }
+}
+
+.transaction-icon.is-zap {
+  color: var(--highlight);
+  background: color-mix(in srgb, var(--highlight) 14%, transparent);
+}
+
+// A zap landing: twelve sparks thrown out from the top of the activity
+// list, once. It is over in under a second and takes no clicks. The ledger
+// figures above it do not move.
+.zap-burst {
+  position: fixed;
+  left: 50%;
+  top: 38%;
+  width: 0;
+  height: 0;
+  z-index: 40;
+  pointer-events: none;
+
+  span {
+    position: absolute;
+    left: -3px;
+    top: -3px;
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--primary);
+    opacity: 0;
+    transform: rotate(calc(var(--spark) * 30deg)) translateY(0) scale(1);
+    animation: zap-spark 900ms cubic-bezier(.2, .7, .3, 1) forwards;
+    animation-delay: calc(var(--spark) * 12ms);
+  }
+
+  span:nth-child(3n + 1) { background: var(--highlight); }
+  span:nth-child(3n + 2) { background: var(--info); }
+}
+
+@keyframes zap-spark {
+  0% { opacity: 1; transform: rotate(calc(var(--spark) * 30deg)) translateY(0) scale(1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(calc(var(--spark) * 30deg)) translateY(-120px) scale(.4); }
+}
+
+//
+// Settings sections that fold (pages/settings/settings). The heading is the
+// button; the body stays in the page and is hidden, so opening one is a
+// short fade and nothing is fetched or mounted again.
+//
+.section-title.is-fold {
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+
+.fold-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--motion);
+
+  &:hover,
+  &:focus-visible {
+    color: var(--foreground);
+  }
+}
+
+.fold-note {
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.fold-chevron {
+  margin-left: auto;
+  transition: rotate var(--motion);
+}
+
+.fold-toggle[aria-expanded='true'] .fold-chevron {
+  rotate: 90deg;
+}
+
+.fold-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: item-in 200ms $ease-out both;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+//
+// Plasma: picking several fuses (pages/plasma, components/fuse-item)
+//
+.row-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-height: 40px;
+  flex: 0 0 auto;
+  cursor: pointer;
+
+  input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--primary);
+    cursor: pointer;
+  }
+}
+
+.list-row.is-selected {
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+}
+
+.list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  padding: 0 4px;
+}
+
+// What is selected and what to do with it, held above the tab bar.
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: item-in 200ms $ease-out both;
+}
+
+.batch-bar-summary {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-right: auto;
+  font-size: 12px;
+  color: var(--muted-foreground);
+
+  b {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    color: var(--foreground);
+  }
+}
+
+// Blocks in flight (components/outgoing-watch)
+//
+// One line just above the tab bar on every screen but Home, which lists the
+// same blocks as rows. The dock grows from nothing rather than floating over
+// the page, so it never covers a button; the line peeks up into it, a little
+// past its place and back, and slides down again when the last block settles.
+.outgoing-dock {
+  display: grid;
+  grid-template-rows: 0fr;
+  flex: 0 0 auto;
+  overflow: hidden;
+  transition: grid-template-rows 180ms cubic-bezier(0.4, 0, 1, 1);
+
+  &.is-shown {
+    grid-template-rows: 1fr;
+    transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+}
+
+.outgoing-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  // A fixed height, and none as a minimum: the dock's row is what opens.
+  height: 30px;
+  min-height: 0;
+  padding: 0 12px;
+  border-top: 1px solid var(--border);
+  background: var(--card);
+  color: var(--info);
+  font-size: 12px;
+  overflow: hidden;
+  translate: 0 100%;
+  transition: translate 180ms cubic-bezier(0.4, 0, 1, 1), color var(--motion);
+
+  .is-shown > & {
+    translate: 0 0;
+    transition: translate 220ms cubic-bezier(0.34, 1.56, 0.64, 1), color var(--motion);
+  }
+
+  .icon {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+  }
+
+  &.is-done {
+    color: var(--success);
+  }
+
+  &.is-failed {
+    color: var(--destructive);
+  }
+}
+
+.outgoing-strip-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 30px;
+  margin: 0 -12px 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: color var(--motion);
+
+  &:hover,
+  &:focus-visible {
+    color: var(--foreground);
+  }
+}
+
+// On a phone the popup's 30px strip is too small to read or to dismiss.
+body.is-app {
+  .outgoing-strip {
+    height: 48px;
+    padding: 0 16px;
+    font-size: 15px;
+
+    .icon {
+      width: 20px;
+      height: 20px;
+    }
+  }
+
+  .outgoing-strip-dismiss {
+    width: 48px;
+    height: 48px;
+    margin-right: -16px;
+  }
+}
+
+.outgoing-strip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.outgoing-strip-state {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outgoing-strip-more {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+
+// A row that leaves the wallet (pages/settings/about) is a link, not a button.
+a.settings-item {
+  color: inherit;
+  text-decoration: none;
+}
+
+//
+// The mark on the lock and welcome screens
+//
+// The ring round the logo carries the balance card's two colours as two soft
+// lights that chase each other (below). A second ring leaves it every few
+// seconds like a momentum, and the logo drifts by two pixels.
+.brand-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 128px;
+  height: 128px;
+  margin: 0 auto 4px;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 8px;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, color-mix(in srgb, var(--primary) 12%, transparent), transparent);
+  }
+
+  // The drift is listed first in every state below, so adding a second
+  // animation beside it never restarts it.
+  img {
+    position: relative;
+    animation: mark-drift 6s ease-in-out infinite;
+  }
+}
+
+// The two colours of the ring that change when the wallet opens. Registered
+// as colours so they fade rather than switch.
+@property --ring-rest {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: transparent;
+}
+
+@property --ring-far {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: transparent;
+}
+
+.brand-mark-ring,
+.brand-mark-pulse {
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+}
+
+// Where each of the ring's two lights is.
+@property --ring-green-at {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@property --ring-blue-at {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 180deg;
+}
+
+// Two lights on one ring, a green and a blue, each fading out either side of
+// where it is. They do not keep step: each runs at its own changing pace, so
+// one closes on the other, falls back, and is closed on in turn
+// (tools/pillar/edge-turn-keyframes.js draws the two curves).
+.brand-mark-ring {
+  --ring-rest: var(--border);
+  --ring-far: color-mix(in srgb, var(--info) 75%, transparent);
+  background:
+    conic-gradient(
+      from var(--ring-green-at),
+      color-mix(in srgb, var(--primary) 80%, transparent),
+      transparent 20%,
+      transparent 80%,
+      color-mix(in srgb, var(--primary) 80%, transparent)
+    ),
+    conic-gradient(from var(--ring-blue-at), var(--ring-far), transparent 18%, transparent 82%, var(--ring-far)),
+    linear-gradient(var(--ring-rest), var(--ring-rest));
+  transition: --ring-rest 220ms $ease-out, --ring-far 220ms $ease-out;
+  // Only the rim shows, with a half-pixel ramp on its inner side so the line
+  // is not stepped.
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), black calc(100% - 1.5px));
+  // The only animations this element ever has. Nothing here may replace them
+  // or change their duration, because either starts the lights again from the
+  // top. Where they start comes from the clock, and the extra turn on
+  // unlocking is added from the page (services/utils/edgeLight.js).
+  animation: ring-green 36s linear infinite, ring-blue 36s linear infinite;
+}
+
+@keyframes ring-green {
+  0% { --ring-green-at: 0deg; }
+  1.3889% { --ring-green-at: 8.46deg; }
+  2.7778% { --ring-green-at: 16.98deg; }
+  4.1667% { --ring-green-at: 25.59deg; }
+  5.5556% { --ring-green-at: 34.35deg; }
+  6.9444% { --ring-green-at: 43.3deg; }
+  8.3333% { --ring-green-at: 52.5deg; }
+  9.7222% { --ring-green-at: 61.98deg; }
+  11.1111% { --ring-green-at: 71.79deg; }
+  12.5% { --ring-green-at: 81.97deg; }
+  13.8889% { --ring-green-at: 92.55deg; }
+  15.2778% { --ring-green-at: 103.56deg; }
+  16.6667% { --ring-green-at: 115.05deg; }
+  18.0556% { --ring-green-at: 127.03deg; }
+  19.4444% { --ring-green-at: 139.52deg; }
+  20.8333% { --ring-green-at: 152.56deg; }
+  22.2222% { --ring-green-at: 166.14deg; }
+  23.6111% { --ring-green-at: 180.29deg; }
+  25% { --ring-green-at: 195deg; }
+  26.3889% { --ring-green-at: 210.29deg; }
+  27.7778% { --ring-green-at: 226.14deg; }
+  29.1667% { --ring-green-at: 242.56deg; }
+  30.5556% { --ring-green-at: 259.52deg; }
+  31.9444% { --ring-green-at: 277.03deg; }
+  33.3333% { --ring-green-at: 295.05deg; }
+  34.7222% { --ring-green-at: 313.56deg; }
+  36.1111% { --ring-green-at: 332.55deg; }
+  37.5% { --ring-green-at: 351.97deg; }
+  38.8889% { --ring-green-at: 371.79deg; }
+  40.2778% { --ring-green-at: 391.98deg; }
+  41.6667% { --ring-green-at: 412.5deg; }
+  43.0556% { --ring-green-at: 433.3deg; }
+  44.4444% { --ring-green-at: 454.35deg; }
+  45.8333% { --ring-green-at: 475.59deg; }
+  47.2222% { --ring-green-at: 496.98deg; }
+  48.6111% { --ring-green-at: 518.46deg; }
+  50% { --ring-green-at: 540deg; }
+  51.3889% { --ring-green-at: 561.54deg; }
+  52.7778% { --ring-green-at: 583.02deg; }
+  54.1667% { --ring-green-at: 604.41deg; }
+  55.5556% { --ring-green-at: 625.65deg; }
+  56.9444% { --ring-green-at: 646.7deg; }
+  58.3333% { --ring-green-at: 667.5deg; }
+  59.7222% { --ring-green-at: 688.02deg; }
+  61.1111% { --ring-green-at: 708.21deg; }
+  62.5% { --ring-green-at: 728.03deg; }
+  63.8889% { --ring-green-at: 747.45deg; }
+  65.2778% { --ring-green-at: 766.44deg; }
+  66.6667% { --ring-green-at: 784.95deg; }
+  68.0556% { --ring-green-at: 802.97deg; }
+  69.4444% { --ring-green-at: 820.48deg; }
+  70.8333% { --ring-green-at: 837.44deg; }
+  72.2222% { --ring-green-at: 853.86deg; }
+  73.6111% { --ring-green-at: 869.71deg; }
+  75% { --ring-green-at: 885deg; }
+  76.3889% { --ring-green-at: 899.71deg; }
+  77.7778% { --ring-green-at: 913.86deg; }
+  79.1667% { --ring-green-at: 927.44deg; }
+  80.5556% { --ring-green-at: 940.48deg; }
+  81.9444% { --ring-green-at: 952.97deg; }
+  83.3333% { --ring-green-at: 964.95deg; }
+  84.7222% { --ring-green-at: 976.44deg; }
+  86.1111% { --ring-green-at: 987.45deg; }
+  87.5% { --ring-green-at: 998.03deg; }
+  88.8889% { --ring-green-at: 1008.21deg; }
+  90.2778% { --ring-green-at: 1018.02deg; }
+  91.6667% { --ring-green-at: 1027.5deg; }
+  93.0556% { --ring-green-at: 1036.7deg; }
+  94.4444% { --ring-green-at: 1045.65deg; }
+  95.8333% { --ring-green-at: 1054.41deg; }
+  97.2222% { --ring-green-at: 1063.02deg; }
+  98.6111% { --ring-green-at: 1071.54deg; }
+  100% { --ring-green-at: 1080deg; }
+}
+
+@keyframes ring-blue {
+  0% { --ring-blue-at: 180deg; }
+  1.3889% { --ring-blue-at: 201.54deg; }
+  2.7778% { --ring-blue-at: 223.02deg; }
+  4.1667% { --ring-blue-at: 244.41deg; }
+  5.5556% { --ring-blue-at: 265.65deg; }
+  6.9444% { --ring-blue-at: 286.7deg; }
+  8.3333% { --ring-blue-at: 307.5deg; }
+  9.7222% { --ring-blue-at: 328.02deg; }
+  11.1111% { --ring-blue-at: 348.21deg; }
+  12.5% { --ring-blue-at: 368.03deg; }
+  13.8889% { --ring-blue-at: 387.45deg; }
+  15.2778% { --ring-blue-at: 406.44deg; }
+  16.6667% { --ring-blue-at: 424.95deg; }
+  18.0556% { --ring-blue-at: 442.97deg; }
+  19.4444% { --ring-blue-at: 460.48deg; }
+  20.8333% { --ring-blue-at: 477.44deg; }
+  22.2222% { --ring-blue-at: 493.86deg; }
+  23.6111% { --ring-blue-at: 509.71deg; }
+  25% { --ring-blue-at: 525deg; }
+  26.3889% { --ring-blue-at: 539.71deg; }
+  27.7778% { --ring-blue-at: 553.86deg; }
+  29.1667% { --ring-blue-at: 567.44deg; }
+  30.5556% { --ring-blue-at: 580.48deg; }
+  31.9444% { --ring-blue-at: 592.97deg; }
+  33.3333% { --ring-blue-at: 604.95deg; }
+  34.7222% { --ring-blue-at: 616.44deg; }
+  36.1111% { --ring-blue-at: 627.45deg; }
+  37.5% { --ring-blue-at: 638.03deg; }
+  38.8889% { --ring-blue-at: 648.21deg; }
+  40.2778% { --ring-blue-at: 658.02deg; }
+  41.6667% { --ring-blue-at: 667.5deg; }
+  43.0556% { --ring-blue-at: 676.7deg; }
+  44.4444% { --ring-blue-at: 685.65deg; }
+  45.8333% { --ring-blue-at: 694.41deg; }
+  47.2222% { --ring-blue-at: 703.02deg; }
+  48.6111% { --ring-blue-at: 711.54deg; }
+  50% { --ring-blue-at: 720deg; }
+  51.3889% { --ring-blue-at: 728.46deg; }
+  52.7778% { --ring-blue-at: 736.98deg; }
+  54.1667% { --ring-blue-at: 745.59deg; }
+  55.5556% { --ring-blue-at: 754.35deg; }
+  56.9444% { --ring-blue-at: 763.3deg; }
+  58.3333% { --ring-blue-at: 772.5deg; }
+  59.7222% { --ring-blue-at: 781.98deg; }
+  61.1111% { --ring-blue-at: 791.79deg; }
+  62.5% { --ring-blue-at: 801.97deg; }
+  63.8889% { --ring-blue-at: 812.55deg; }
+  65.2778% { --ring-blue-at: 823.56deg; }
+  66.6667% { --ring-blue-at: 835.05deg; }
+  68.0556% { --ring-blue-at: 847.03deg; }
+  69.4444% { --ring-blue-at: 859.52deg; }
+  70.8333% { --ring-blue-at: 872.56deg; }
+  72.2222% { --ring-blue-at: 886.14deg; }
+  73.6111% { --ring-blue-at: 900.29deg; }
+  75% { --ring-blue-at: 915deg; }
+  76.3889% { --ring-blue-at: 930.29deg; }
+  77.7778% { --ring-blue-at: 946.14deg; }
+  79.1667% { --ring-blue-at: 962.56deg; }
+  80.5556% { --ring-blue-at: 979.52deg; }
+  81.9444% { --ring-blue-at: 997.03deg; }
+  83.3333% { --ring-blue-at: 1015.05deg; }
+  84.7222% { --ring-blue-at: 1033.56deg; }
+  86.1111% { --ring-blue-at: 1052.55deg; }
+  87.5% { --ring-blue-at: 1071.97deg; }
+  88.8889% { --ring-blue-at: 1091.79deg; }
+  90.2778% { --ring-blue-at: 1111.98deg; }
+  91.6667% { --ring-blue-at: 1132.5deg; }
+  93.0556% { --ring-blue-at: 1153.3deg; }
+  94.4444% { --ring-blue-at: 1174.35deg; }
+  95.8333% { --ring-blue-at: 1195.59deg; }
+  97.2222% { --ring-blue-at: 1216.98deg; }
+  98.6111% { --ring-blue-at: 1238.46deg; }
+  100% { --ring-blue-at: 1260deg; }
+}
+
+.brand-mark-pulse {
+  border: 1px solid var(--primary);
+  opacity: 0;
+  animation: mark-pulse 5s $ease-out infinite;
+}
+
+@keyframes mark-drift {
+  50% {
+    translate: 0 -2px;
+  }
+}
+
+@keyframes mark-pulse {
+  0% {
+    opacity: 0.45;
+    scale: 0.72;
+  }
+
+  60%,
+  100% {
+    opacity: 0;
+    scale: 1.14;
+  }
+}
+
+// The lock screen arrives in order: mark, greeting, form, the way out.
+.unlock-screen > * {
+  animation: item-in 320ms $ease-out both;
+
+  &:nth-child(2) { animation-delay: 60ms; }
+  &:nth-child(3) { animation-delay: 120ms; }
+  &:nth-child(4) { animation-delay: 180ms; }
+}
+
+// Centred in the room under the header. No min-height: this element is the
+// flex item beside the header, and 100% of the screen plus the header was a
+// scrollbar on a screen with one field.
+.unlock-screen {
+  justify-content: center;
+}
+
+// A refused password: the field says no once.
+.custom-control.is-refused .custom-label {
+  animation: field-refuse 320ms $ease-out;
+}
+
+@keyframes field-refuse {
+  20% { translate: -5px 0; }
+  45% { translate: 4px 0; }
+  70% { translate: -2px 0; }
+}
+
+// The screens before a wallet exists fill the popup, so the welcome screen can
+// sit in the middle of it under the header.
+.auth-layout {
+  height: 100%;
+  min-height: 0;
+}
+
+// Unlocked: the light, from wherever it is, runs one extra eased turn and fades to
+// green all the way round, a ring bursts outward, and the logo lifts. 420ms in
+// all, the time the lock screen stays up after the wallet opens
+// (dashboard-password.js, `openedFor`).
+.brand-mark.is-open {
+  .brand-mark-ring {
+    --ring-rest: color-mix(in srgb, var(--primary) 45%, transparent);
+    --ring-far: var(--primary);
+  }
+
+  .brand-mark-pulse {
+    animation: mark-open 420ms $ease-out 1 both;
+  }
+
+  // The logo springs: past its size and back, like a latch letting go.
+  img {
+    animation: mark-drift 6s ease-in-out infinite, mark-lift 420ms $spring 1 both;
+  }
+
+  &::before {
+    background: radial-gradient(closest-side, color-mix(in srgb, var(--primary) 34%, transparent), transparent);
+    transition: background var(--motion);
+  }
+}
+
+// A second, fainter ring follows the first out, a beat behind it, so the
+// burst has depth. It is done 20ms before the screen changes.
+.brand-mark.is-open::after {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--info) 70%, transparent);
+  animation: mark-open 300ms $ease-out 100ms 1 both;
+}
+
+@keyframes mark-open {
+  from {
+    opacity: 0.9;
+    scale: 0.86;
+  }
+
+  to {
+    opacity: 0;
+    scale: 1.14;
+  }
+}
+
+@keyframes mark-lift {
+  from {
+    scale: 0.94;
+  }
+
+  to {
+    scale: 1.08;
+  }
+}
+
+// A wrong password: the logo shakes its head once. The light keeps turning.
+.brand-mark.is-refused img {
+  animation: mark-drift 6s ease-in-out infinite, mark-refuse 360ms $ease-out 1;
+}
+
+@keyframes mark-refuse {
+  20% { rotate: -8deg; }
+  45% { rotate: 6deg; }
+  70% { rotate: -3deg; }
+}
+
+// The rest of the lock screen as it opens: the button answers with a tick that
+// pops in, and the greeting, the form and the link fall away under the mark,
+// so the wallet arrives on a cleared screen rather than replacing a form.
+.button.is-unlocked:disabled {
+  opacity: 1;
+}
+
+.unlock-check {
+  animation: glyph-pop 260ms $spring both;
+}
+
+.unlock-screen.is-open > :not(.brand-mark) {
+  animation: unlock-clear 240ms ease-in 180ms both;
+}
+
+@keyframes unlock-clear {
+  to {
+    opacity: 0;
+    translate: 0 -4px;
+  }
+}
+
+// A field that holds an address: the data face, at the size at which all 40
+// characters fit the popup's width (40 × 7.2px in 304px).
+.address-input {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+// No chip inside: the field has its whole width.
+.input-with-button.is-full .custom-label {
+  padding-right: 12px;
+}
+
+.field-link {
+  align-self: flex-end;
+  font-size: 12px;
+}
+
+// A settings row that holds a choice instead of leading somewhere: not a
+// button, and the choice sits where a link's chevron would.
+.settings-item.is-control {
+  cursor: default;
+
+  &:hover {
+    background: none;
+  }
+
+  // The title keeps its width; a choice too long for the rest of the row is
+  // the one that gives.
+  .settings-item-title {
+    flex: 1 0 auto;
+  }
+
+  .segmented {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    background: var(--popover);
+  }
+}
+
+// Updating an unpacked install (pages/update): a tab of its own.
+.update-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.update-fallback {
+  align-self: center;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  transition: color var(--motion);
+
+  &:hover,
+  &:focus-visible {
+    color: var(--primary);
   }
 }

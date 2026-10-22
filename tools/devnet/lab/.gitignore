@@ -1,0 +1,4 @@
+# The go-zenon export the image is built from, and the generated /devnet
+# directory (it holds copies of go-zenon's committed devnet keystores).
+.build/
+assets/

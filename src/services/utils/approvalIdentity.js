@@ -1,4 +1,5 @@
 import { validRequest } from './documentBinding';
+import { fail } from './errors';
 
 // Page response correlation is not approval authority. This snapshot describes
 // exactly what one extension-generated queue identity asks the user to approve.
@@ -42,8 +43,8 @@ const freeze = value => {
 };
 const freezeApproval = request => {
   const snapshot = copy(request);
-  if (!validApproval(snapshot)) throw new Error('This request must be submitted again.');
+  if (!validApproval(snapshot)) throw fail(808);
   return freeze(snapshot);
 };
-const approvalEnded = () => new Error('This approval expired, was answered or changed. Review a new request.');
+const approvalEnded = () => fail(809);
 export { validApproval, snapshotOf, identityOf, matchesApproval, freezeApproval, approvalEnded, copy };

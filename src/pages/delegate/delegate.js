@@ -1,16 +1,20 @@
-import React, { useCallback, useContext, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Zenon } from 'znn-ts-sdk';
 
 import AlertModal from '../../components/modals/alert-modal';
 import PillarItem from '../../components/pillar-item/pillar-item';
 import { ModalContext } from '../../services/hooks/modal/modalContext';
 import useBackgroundSender from '../../services/hooks/useBackgroundSender';
-import usePagedList from '../../services/hooks/usePagedList';
 import useAccount from '../../services/hooks/useAccount';
+import useChainChange from '../../services/hooks/useChainChange';
+import usePillarEconomy from '../../services/hooks/usePillarEconomy';
+import { delegatorApr, formatApr } from '../../services/pillar/apr';
+import { sortChoices, sortPillars } from '../../services/pillar/sort';
 import vault from '../../services/wallet/vault';
 import { formatAmount } from '../../services/utils/format';
 import { notify } from '../../services/utils/notify';
+import { fail } from '../../services/utils/errors';
+import useLinkPrefill from '../../services/utils/linkPrefill';
 
 // Delegation.
 //
@@ -19,11 +23,28 @@ import { notify } from '../../services/utils/notify';
 // nothing was visibly wrong, but the two lines were one differing token away
 // from showing numbers off by orders of magnitude.
 
+// The weight a delegation carries, in base units: the address's ZNN, as the
+// node reports it. The SDK's `weightWithDecimals` is that figure already
+// divided out ("10000.0"), which is not a whole number of anything and read
+// as 0 here.
+const delegatedWeight = (delegation) => delegation?.weight?.toString() || '0';
+
 const Delegate = () => {
-  const navigate = useNavigate();
   const { address } = useAccount({ balances: false });
   const { openModal } = useContext(ModalContext);
   const { sendInBackground } = useBackgroundSender();
+
+  const { pillars, totals, epoch, error } = usePillarEconomy();
+  // The order is the user's last choice, kept for the session only.
+  const [order, setOrder] = useState(() => sessionStorage.getItem('syrius.pillarOrder') || 'weight');
+  const chooseOrder = (key) => {
+    setOrder(key);
+    try { sessionStorage.setItem('syrius.pillarOrder', key); } catch (err) { /* not kept */ }
+  };
+  const sorted = useMemo(
+    () => sortPillars(pillars, order, { totals, epoch }),
+    [pillars, order, totals, epoch]
+  );
 
   const [delegated, setDelegated] = useState(null);
   const [rewards, setRewards] = useState({ znn: 0, qsr: 0 });
@@ -43,6 +64,11 @@ const Delegate = () => {
     }
   }, []);
 
+  // A delegation or a collect confirms while this screen is open.
+  useChainChange(() => {
+    vault.getAddressObject().then(loadDelegation).catch(() => {});
+  });
+
   useEffect(() => {
     let cancelled = false;
 
@@ -61,23 +87,14 @@ const Delegate = () => {
     };
   }, [loadDelegation]);
 
-  const fetchPage = useCallback(
-    (page, pageSize) => Zenon.getSingleton().embedded.pillar.getAll(page, pageSize),
-    []
-  );
-
-  const pillars = usePagedList(fetchPage, { pageSize: 10 });
-
-  // Builds the block, hands it to the background sender and goes home. Nothing
-  // here waits on proof of work; the dashboard reports it instead.
+  // Builds the block and hands it to the background sender. Nothing here
+  // waits on proof of work; the line under the header reports it instead.
   const runInBackground = async (buildTemplate, label, successMessage) => {
     try {
       sendInBackground(await buildTemplate(), {
         successMessage,
         row: { owner: address, label },
       });
-
-      navigate('/tabs/dashboard');
     } catch (err) {
       notify.error(err);
     }
@@ -129,6 +146,18 @@ const Delegate = () => {
       'Rewards collected'
     );
 
+  // A syrius://delegate?pillar= link asks, as desktop Syrius does, once the
+  // pillar is known to exist. Asked once; the answer is the person's.
+  const link = useLinkPrefill();
+  const linkAsked = useRef(false);
+  useEffect(() => {
+    if (linkAsked.current || !link.pillar || !pillars) return;
+    linkAsked.current = true;
+    if (pillars.some((pillar) => pillar.name === link.pillar)) delegate(link.pillar);
+    else notify.error(fail(132, { name: link.pillar }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pillars]);
+
   const hasRewards =
     formatAmount(rewards.znn, 8) !== '0' || formatAmount(rewards.qsr, 8) !== '0';
 
@@ -139,7 +168,7 @@ const Delegate = () => {
           <div>
             <div className="stat-value">{delegated.name}</div>
             <div className="stat-label">
-              Delegated · {formatAmount(delegated.weightWithDecimals, 0, { maxDecimals: 0 })} weight
+              Delegated · {formatAmount(delegatedWeight(delegated), 8, { maxDecimals: 0 })} ZNN
             </div>
           </div>
           <button type="button" className="thin-button secondary" onClick={undelegate}>
@@ -166,8 +195,24 @@ const Delegate = () => {
         </div>
       )}
 
-      <div className="list mt-2">
-        {pillars.items.map((pillar) => (
+      {/* Sorting needs every pillar, so the list is read whole (about a
+          hundred) rather than paged. */}
+      <div className="sort-row" role="group" aria-label="Sort by">
+        {sortChoices.map((choice) => (
+          <button
+            key={choice.key}
+            type="button"
+            className={`sort-chip ${order === choice.key ? 'is-selected' : ''}`}
+            aria-pressed={order === choice.key}
+            onClick={() => chooseOrder(choice.key)}
+          >
+            {choice.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="list">
+        {sorted.map((pillar) => (
           <PillarItem
             key={pillar.name}
             name={pillar.name}
@@ -177,16 +222,15 @@ const Delegate = () => {
             expectedMomentums={pillar.currentStats?.expectedMomentums}
             producerAddress={pillar.producerAddress?.toString() || ''}
             isDelegatedPillar={pillar.name === delegated?.name}
+            apr={formatApr(delegatorApr(pillar, totals, epoch))}
             onDelegate={delegate}
             onUndelegate={undelegate}
           />
         ))}
 
-        {pillars.isEmpty && <p className="empty-note">No pillars found</p>}
-
-        <div ref={pillars.sentinelRef} className="load-more-sentinel">
-          {pillars.showLoading && <span className="text-gray">Loading…</span>}
-        </div>
+        {pillars && !pillars.length && <p className="empty-note">None yet</p>}
+        {!pillars && !error && <p className="empty-note">Loading…</p>}
+        {!pillars && error && <p className="empty-note">Could not load</p>}
       </div>
     </div>
   );
